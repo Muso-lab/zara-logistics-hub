@@ -115,6 +115,60 @@ init_db()
 init_bolle_tables()
 seed_anagrafica_if_empty()
 
+# ==============================================================================
+# SISTEMA DI LOGIN SEMPLICE (ADMIN vs SOLA VISUALIZZAZIONE)
+# ==============================================================================
+def _get_auth_users() -> dict:
+    """
+    Restituisce la mappa degli utenti abilitati e il rispettivo ruolo:
+    - 'admin': accesso operativo completo (lettura e modifica)
+    - 'viewer': accesso di sola consultazione (visualizzazione dati)
+    Personalizzabile tramite Streamlit Secrets (sezione [users]) o variabili d'ambiente.
+    """
+    import os
+    admin_pwd = os.getenv("ZARA_ADMIN_PASS", "zara2026")
+    viewer_pwd = os.getenv("ZARA_VIEWER_PASS", "ospite2026")
+    try:
+        if hasattr(st, "secrets") and "ZARA_ADMIN_PASS" in st.secrets:
+            admin_pwd = str(st.secrets["ZARA_ADMIN_PASS"])
+        if hasattr(st, "secrets") and "ZARA_VIEWER_PASS" in st.secrets:
+            viewer_pwd = str(st.secrets["ZARA_VIEWER_PASS"])
+    except Exception:
+        pass
+
+    return {
+        "admin": {"password": admin_pwd, "role": "admin", "label": "Amministratore (Operativo)"},
+        "luciano": {"password": admin_pwd, "role": "admin", "label": "Luciano (Amministratore)"},
+        "ospite": {"password": viewer_pwd, "role": "viewer", "label": "Ospite (Sola Visualizzazione)"},
+        "visualizzatore": {"password": viewer_pwd, "role": "viewer", "label": "Consultazione (Sola Lettura)"},
+    }
+
+
+if not st.session_state.get("authenticated", False):
+    c_l1, c_l2, c_l3 = st.columns([1.2, 1.6, 1.2])
+    with c_l2:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown('<div class="main-header" style="text-align:center;">🔐 Zara Logistics Hub</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header" style="text-align:center;">Piattaforma Logistica Monterotondo — Accesso Riservato</div>', unsafe_allow_html=True)
+        with st.form("login_form", clear_on_submit=False):
+            inp_user = st.text_input("👤 Utente", placeholder="es. admin oppure ospite").strip().lower()
+            inp_pass = st.text_input("🔑 Password", type="password", placeholder="Inserisci password").strip()
+            btn_login = st.form_submit_button("ACCEDI ALLA PIATTAFORMA", type="primary", use_container_width=True)
+            if btn_login:
+                users_map = _get_auth_users()
+                if inp_user in users_map and inp_pass == users_map[inp_user]["password"]:
+                    st.session_state["authenticated"] = True
+                    st.session_state["auth_user"] = inp_user
+                    st.session_state["auth_role"] = users_map[inp_user]["role"]
+                    st.session_state["auth_label"] = users_map[inp_user]["label"]
+                    st.rerun()
+                else:
+                    st.error("❌ Credenziali non valide. Riprova.")
+    st.stop()
+
+USER_ROLE = st.session_state.get("auth_role", "viewer")
+IS_ADMIN = USER_ROLE == "admin"
+
 # Sincronizzazione automatica iniziale da Google Sheets (se configurato)
 if "cloud_initial_sync_done" not in st.session_state:
     st.session_state["cloud_initial_sync_done"] = True
@@ -127,13 +181,30 @@ if "cloud_initial_sync_done" not in st.session_state:
 st.sidebar.markdown("## 🚚 Zara Logistics Hub")
 st.sidebar.caption("Gestione Previsioni, Flussi SGA, Bolle & Consuntivo Inditex")
 
-MENU_OPTIONS = [
-    "📥 1. Previsione & Arrivi",
-    "🚚 2. Bolle di Consegna",
-    "📊 3. Consuntivo & Planner Inditex",
-    "🏢 4. Anagrafica Negozi & Giri",
-    "🗄️ 5. Storico & Backup Cloud",
-]
+if IS_ADMIN:
+    st.sidebar.success(f"👤 **{st.session_state.get('auth_label', 'Admin')}**")
+else:
+    st.sidebar.info(f"👁️ **{st.session_state.get('auth_label', 'Sola Lettura')}**")
+
+if st.sidebar.button("🚪 Esci (Logout)", use_container_width=True):
+    for k in ["authenticated", "auth_user", "auth_role", "auth_label"]:
+        st.session_state.pop(k, None)
+    st.rerun()
+
+if IS_ADMIN:
+    MENU_OPTIONS = [
+        "📥 1. Previsione & Arrivi",
+        "🚚 2. Bolle di Consegna",
+        "📊 3. Consuntivo & Planner Inditex",
+        "🏢 4. Anagrafica Negozi & Giri",
+        "🗄️ 5. Storico & Backup Cloud",
+    ]
+else:
+    MENU_OPTIONS = [
+        "📥 1. Previsione & Arrivi",
+        "🚚 2. Bolle di Consegna",
+        "📊 3. Consuntivo & Planner Inditex",
+    ]
 
 if "nav_menu" not in st.session_state or st.session_state["nav_menu"] not in MENU_OPTIONS:
     st.session_state["nav_menu"] = MENU_OPTIONS[0]
