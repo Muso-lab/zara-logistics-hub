@@ -278,7 +278,7 @@ def test_sdoppiamento_volume_split():
 
     assert abs(b0_row["mc"] - 7.0) < 1e-2  # 70% of 10.0
     assert abs(b9_row["mc"] - 3.0) < 1e-2  # 30% of 10.0
-    assert abs(b0_row["textile_attesi"] - 49.0) < 1e-2  # 70% of 70.0
+    assert b0_row["textile_attesi"] == 70  # 100% of colli remain on Barra 0 in Spunta Arrivi
 
     # 2. Planning Roma split check
     df_actuals_empty = pd.DataFrame(columns=["ID_STORE", "tipo_cons", "TOT_ABBIGL", "TOT_CALZAT", "TOT_ECOM", "TOT_OTHERS"])

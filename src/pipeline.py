@@ -212,7 +212,7 @@ def run_pipeline(
         conn.commit()
 
     from src.cloud_sync import auto_sync_tables
-    auto_sync_tables(["runs", "planning_results", "spunta_arrivi", "stores"])
+    auto_sync_tables(["runs", "planning_results", "spunta_arrivi", "forecast_raw", "stores"])
 
     # 5. Export Files
     out_dir = OUTPUT_DIR / f"run_{run_id}_{run_date}"

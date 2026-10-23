@@ -376,7 +376,7 @@ if menu == "📥 1. Previsione & Arrivi":
                     status_text.write("✅ **100%** - Estrazione ed elaborazione completate!")
                     st.session_state["last_run"] = res
                     st.success("🧴 Hai aggiornato correttamente i profumi!")
-                    st.success(f"🎉 Elaborazione completata! Run ID: **#{res['run_id']}**")
+                    st.success("🎉 Elaborazione completata con successo!")
                 except Exception as e:
                     st.error(f"Errore durante l'estrazione da Extranet: {e}")
 
@@ -437,7 +437,7 @@ if menu == "📥 1. Previsione & Arrivi":
                             save_to_network=False,
                         )
                         st.session_state["last_run"] = res
-                        st.success(f"✅ Elaborazione completata! Run registrata: **#{res['run_id']}**")
+                        st.success("✅ Elaborazione completata con successo!")
                     except Exception as e:
                         st.error(f"Errore durante l'elaborazione: {e}")
 
@@ -488,11 +488,11 @@ if menu == "📥 1. Previsione & Arrivi":
         st.markdown("---")
         col_hdr_l, col_hdr_r = st.columns([3, 2])
         with col_hdr_l:
-            st.markdown(f"### 📊 Riepilogo Previsione Attiva — Run #{curr_rid}")
+            st.markdown("### 📊 Riepilogo Previsione Attiva")
         with col_hdr_r:
             if st.button("⚡ GENERA BOLLE DI CONSEGNA E VAI ALLE BOLLE 🚚", type="primary", use_container_width=True, key="btn_top_gen_bolle"):
                 n_c, n_s = generate_bolle_from_forecast(curr_rid)
-                st.session_state["flash_bolle_msg"] = f"✅ Generate {n_c} bolle dalla Run #{curr_rid} ({n_s} già presenti mantenute)."
+                st.session_state["flash_bolle_msg"] = f"✅ Generate {n_c} bolle dalla previsione attiva ({n_s} già presenti mantenute)."
                 st.session_state["nav_menu"] = "🚚 2. Bolle di Consegna"
                 st.rerun()
 
@@ -533,11 +533,44 @@ if menu == "📥 1. Previsione & Arrivi":
         ])
 
         with tab_spunta:
-            df_sp_view = active_run_data.get("df_spunta", pd.DataFrame())
+            df_sp_view = active_run_data.get("df_spunta", pd.DataFrame()).copy()
             if not df_sp_view.empty:
+                # Filtra eventuali righe di intestazione/separazione template per mostrare solo i negozi reali
+                if "is_store" in df_sp_view.columns:
+                    df_sp_view = df_sp_view[df_sp_view["is_store"] == True].copy()
+                elif "store_code" in df_sp_view.columns:
+                    df_sp_view = df_sp_view[
+                        ~df_sp_view["store_code"].astype(str).str.strip().str.upper().isin(["", "NEGOZIO", "STORE ID", "EXTRA", "NONE"])
+                    ].copy()
+
+                for int_col in ["textile_attesi", "shoes_attesi", "other_attesi", "ecom_attesi", "pedane", "totale_pedane", "is_barra9"]:
+                    if int_col in df_sp_view.columns:
+                        df_sp_view[int_col] = pd.to_numeric(df_sp_view[int_col], errors="coerce").fillna(0).round().astype(int)
+                if "mc" in df_sp_view.columns:
+                    df_sp_view["mc"] = pd.to_numeric(df_sp_view["mc"], errors="coerce").fillna(0.0).round(2)
+
                 st.caption("Include la divisione automatica dei volumi 70% (Barra 0) e 30% (Barra 9 'B') per i negozi con Sdoppiamento attivo:")
-                cols_sp = [c for c in ["store_code", "store_name", "brand", "giro", "mc", "textile_attesi", "shoes_attesi", "other_attesi", "ecom_attesi", "pedane", "totale_pedane", "is_barra9"] if c in df_sp_view.columns]
-                st.dataframe(df_sp_view[cols_sp], use_container_width=True, height=480)
+                cols_sp = [c for c in ["store_code", "store_name", "brand", "giro", "mc", "textile_attesi", "other_attesi", "shoes_attesi", "ecom_attesi", "pedane", "totale_pedane", "is_barra9"] if c in df_sp_view.columns]
+                st.dataframe(
+                    df_sp_view[cols_sp],
+                    use_container_width=True,
+                    height=480,
+                    hide_index=True,
+                    column_config={
+                        "store_code": st.column_config.TextColumn("Negozio"),
+                        "store_name": st.column_config.TextColumn("Punto Vendita"),
+                        "brand": st.column_config.TextColumn("Insegna"),
+                        "giro": st.column_config.TextColumn("Giro"),
+                        "mc": st.column_config.NumberColumn("MC (m³)", format="%.2f"),
+                        "textile_attesi": st.column_config.NumberColumn("Tessile Attesi", format="%d"),
+                        "other_attesi": st.column_config.NumberColumn("Altri (Other)", format="%d"),
+                        "shoes_attesi": st.column_config.NumberColumn("Calzature Attese", format="%d"),
+                        "ecom_attesi": st.column_config.NumberColumn("E-Com Attesi", format="%d"),
+                        "pedane": st.column_config.NumberColumn("Pedane", format="%d"),
+                        "totale_pedane": st.column_config.NumberColumn("Totale Pedane Giro", format="%d"),
+                        "is_barra9": st.column_config.NumberColumn("Barra 9", format="%d"),
+                    },
+                )
             else:
                 st.info("Nessun dato di spunta disponibile.")
 
@@ -545,9 +578,20 @@ if menu == "📥 1. Previsione & Arrivi":
             render_lavorazioni_piattaforma(active_run_data.get("special_breakdowns", {}), key_prefix=f"p1_{curr_rid}")
 
         with tab_prev:
-            df_an_view = active_run_data.get("df_analisi", pd.DataFrame())
+            df_an_view = active_run_data.get("df_analisi", pd.DataFrame()).copy()
             if not df_an_view.empty:
-                st.dataframe(df_an_view, use_container_width=True, height=450)
+                for int_col in [
+                    "crts_textile_total", "planned_others", "planned_textile", "weight_textile",
+                    "planned_shoes", "weight_shoes", "planned_ecom", "weight_ecom",
+                    "total_weight", "total_planned_crts", "received_textile", "received_others",
+                    "received_shoes", "received_ecom", "total_received_crts"
+                ]:
+                    if int_col in df_an_view.columns:
+                        df_an_view[int_col] = pd.to_numeric(df_an_view[int_col], errors="coerce").fillna(0).round().astype(int)
+                for flt_col in ["vol_textile", "vol_shoes", "vol_ecom", "total_vol"]:
+                    if flt_col in df_an_view.columns:
+                        df_an_view[flt_col] = pd.to_numeric(df_an_view[flt_col], errors="coerce").fillna(0.0).round(2)
+                st.dataframe(df_an_view, use_container_width=True, height=450, hide_index=True)
 
 
 # ==============================================================================

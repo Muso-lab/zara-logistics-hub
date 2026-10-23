@@ -28,6 +28,9 @@ def evaluate_pedane(mc: float, formula_str: str = "") -> int:
     - 'MC/1,5'
     - '(MC*1,5/1,8)*0,7'
     - Custom arithmetic expressions using MC
+    Note: since `mc` passed to this function is already scaled by the row factor
+    (e.g. 0.7 on Barra 0 or 0.3 on Barra 9), any redundant `*0.7` in formula_str
+    is stripped to avoid multiplying by 0.7 twice.
     """
     if mc <= 0:
         return 0
@@ -42,7 +45,7 @@ def evaluate_pedane(mc: float, formula_str: str = "") -> int:
         return math.ceil(mc / VOLUME_DIVISORE_PEDANA)
     try:
         val = eval(expr, {"__builtins__": None}, {})
-        return math.ceil(val)
+        return math.ceil(val - 1e-9)
     except:
         return math.ceil(mc / VOLUME_DIVISORE_PEDANA)
 
@@ -87,41 +90,41 @@ def compute_analisi(
         oth_data = map_other.get(sid, {})
 
         # Textile total bultos
-        crts_textile_total = float(tex_data.get("bultos", 0.0))
-        vol_textile = float(tex_data.get("volumen", 0.0))
-        weight_textile = float(tex_data.get("peso", 0.0))
+        crts_textile_total = int(round(float(tex_data.get("bultos", 0.0))))
+        vol_textile = round(float(tex_data.get("volumen", 0.0)), 2)
+        weight_textile = int(round(float(tex_data.get("peso", 0.0))))
 
         # Others bultos
-        planned_others = float(oth_data.get("otros_enviado", 0.0))
+        planned_others = int(round(float(oth_data.get("otros_enviado", 0.0))))
 
         # Planned textile = Textile total - Others
         if crts_textile_total > 0:
-            planned_textile = max(0.0, crts_textile_total - planned_others)
+            planned_textile = max(0, crts_textile_total - planned_others)
         else:
-            planned_textile = 0.0
+            planned_textile = 0
 
         # Shoes
-        planned_shoes = float(sho_data.get("bultos", 0.0))
-        vol_shoes = float(sho_data.get("volumen", 0.0))
-        weight_shoes = float(sho_data.get("peso", 0.0))
+        planned_shoes = int(round(float(sho_data.get("bultos", 0.0))))
+        vol_shoes = round(float(sho_data.get("volumen", 0.0)), 2)
+        weight_shoes = int(round(float(sho_data.get("peso", 0.0))))
 
         # Ecom
-        planned_ecom = float(eco_data.get("bultos", 0.0))
-        vol_ecom = float(eco_data.get("volumen", 0.0))
-        weight_ecom = float(eco_data.get("peso", 0.0))
+        planned_ecom = int(round(float(eco_data.get("bultos", 0.0))))
+        vol_ecom = round(float(eco_data.get("volumen", 0.0)), 2)
+        weight_ecom = int(round(float(eco_data.get("peso", 0.0))))
 
         # Totals
-        total_vol = vol_textile + vol_shoes + vol_ecom
-        total_weight = weight_textile + weight_shoes + weight_ecom
-        total_planned_crts = planned_textile + planned_others + planned_shoes + planned_ecom
+        total_vol = round(vol_textile + vol_shoes + vol_ecom, 2)
+        total_weight = int(weight_textile + weight_shoes + weight_ecom)
+        total_planned_crts = int(planned_textile + planned_others + planned_shoes + planned_ecom)
 
         # Fallback to TOTAL file if sub-category files didn't include this store
         tot_d = map_total.get(sid, {})
         if total_planned_crts == 0 and (float(tot_d.get("bultos", 0.0)) > 0 or float(tot_d.get("volumen", 0.0)) > 0):
-            planned_textile = float(tot_d.get("bultos", 0.0))
+            planned_textile = int(round(float(tot_d.get("bultos", 0.0))))
             crts_textile_total = planned_textile
-            vol_textile = float(tot_d.get("volumen", 0.0))
-            weight_textile = float(tot_d.get("peso", 0.0))
+            vol_textile = round(float(tot_d.get("volumen", 0.0)), 2)
+            weight_textile = int(round(float(tot_d.get("peso", 0.0))))
             total_vol = vol_textile
             total_weight = weight_textile
             total_planned_crts = planned_textile
@@ -217,12 +220,12 @@ def compute_spunta_arrivi(
                 "punto_vendita": row["brand"],
                 "brand": row["brand"],
                 "mc": 0.0,
-                "textile_attesi": 0.0,
-                "other_attesi": 0.0,
-                "shoes_attesi": 0.0,
-                "ecom_attesi": 0.0,
+                "textile_attesi": 0,
+                "other_attesi": 0,
+                "shoes_attesi": 0,
+                "ecom_attesi": 0,
                 "pedane": 0,
-                "totale_pedane": 0.0,
+                "totale_pedane": 0,
                 "vettore_autista": "",
                 "tipo_mezzo": "",
                 "targa": "",
@@ -234,42 +237,59 @@ def compute_spunta_arrivi(
             continue
 
         # Dynamic sdoppiamento check from store master data
+        # Note: in Spunta Arrivi, Barra 0 splits MC by 0.7 (and Barra 9 by 0.3),
+        # while physical Colli (textile, other, shoes, ecom) remain 100% on Barra 0!
         base_sid = sid[:-1] if sid.endswith("B") else sid
-        if base_sid in map_sdoppia:
+        if ridx in [68, 69, 70]:
+            factor = 1.0 / 3.0
+            colli_factor = 1.0 / 3.0
+        elif base_sid in map_sdoppia:
             is_sdop = (map_sdoppia[base_sid] == "SI")
             if is_b9:
                 factor = 0.3 if is_sdop else 0.0
-                colli_factor = 0.3 if is_sdop else 0.0
+                colli_factor = 0.0
             else:
-                if is_sdop:
-                    if ridx not in [68, 69, 70]:
-                        factor = 0.7
-                        colli_factor = 0.7
-                else:
-                    factor = 1.0
-                    colli_factor = 1.0
+                factor = 0.7 if is_sdop else 1.0
+                colli_factor = 1.0
 
         a_data = map_a.get(base_sid, {})
 
         tot_vol = float(a_data.get("total_vol", 0.0))
-        # Volume
-        mc = tot_vol * factor
+        # Volume rounded to 2 decimal places
+        mc = round(tot_vol * factor, 2)
 
         if is_b9:
             # Barra 9 rows: colli are not in textile/shoes, they are calculated by volume
-            textile_attesi = 0.0
-            other_attesi = 0.0
-            shoes_attesi = 0.0
-            ecom_attesi = 0.0
+            textile_attesi = 0
+            other_attesi = 0
+            shoes_attesi = 0
+            ecom_attesi = 0
+        elif ridx in [68, 69, 70]:
+            # Castel Giubileo (15733) 3 uscite: split integer colli across the 3 rows without decimals
+            u_idx = ridx - 68  # 0, 1, 2
+            def _split3(v: float) -> int:
+                iv = int(round(float(v)))
+                return (iv // 3) + (1 if (iv % 3) > u_idx else 0)
+            textile_attesi = _split3(a_data.get("planned_textile", 0.0))
+            other_attesi = _split3(a_data.get("planned_others", 0.0))
+            shoes_attesi = _split3(a_data.get("planned_shoes", 0.0))
+            ecom_attesi = _split3(a_data.get("planned_ecom", 0.0))
         else:
-            textile_attesi = float(a_data.get("planned_textile", 0.0)) * colli_factor
-            other_attesi = float(a_data.get("planned_others", 0.0)) * colli_factor
-            shoes_attesi = float(a_data.get("planned_shoes", 0.0)) * colli_factor
-            ecom_attesi = float(a_data.get("planned_ecom", 0.0)) * colli_factor
+            textile_attesi = int(round(float(a_data.get("planned_textile", 0.0)) * colli_factor))
+            other_attesi = int(round(float(a_data.get("planned_others", 0.0)) * colli_factor))
+            shoes_attesi = int(round(float(a_data.get("planned_shoes", 0.0)) * colli_factor))
+            ecom_attesi = int(round(float(a_data.get("planned_ecom", 0.0)) * colli_factor))
 
         # Pedane calculation using store-specific formula if available
-        store_formula = map_formula.get(sid, map_formula.get(base_sid, ""))
-        pedane = evaluate_pedane(mc, store_formula)
+        # On Barra 9 ('B') rows, original template uses MC*1,5/1,8 (i.e. MC/1.2)
+        if is_b9:
+            store_formula = map_formula.get(sid, "MC*1,5/1,8")
+        else:
+            store_formula = map_formula.get(sid, map_formula.get(base_sid, ""))
+            if factor < 1.0 and store_formula:
+                # Since mc is already scaled by 0.7, strip redundant *0,7 from formula string
+                store_formula = re.sub(r"\*\s*0[.,]7\b", "", str(store_formula))
+        pedane = int(evaluate_pedane(mc, store_formula))
 
         spunta_records.append({
             "row_idx": ridx,
@@ -284,7 +304,7 @@ def compute_spunta_arrivi(
             "shoes_attesi": shoes_attesi,
             "ecom_attesi": ecom_attesi,
             "pedane": pedane,
-            "totale_pedane": 0.0,  # Will compute below per group
+            "totale_pedane": 0,  # Will compute below per group
             "vettore_autista": row["vettore_autista"],
             "tipo_mezzo": row["tipo_mezzo"],
             "targa": row["targa"],
@@ -317,12 +337,12 @@ def compute_spunta_arrivi(
             "punto_vendita": "FUORI POLO",
             "brand": "DA ASSEGNARE",
             "mc": 0.0,
-            "textile_attesi": 0.0,
-            "other_attesi": 0.0,
-            "shoes_attesi": 0.0,
-            "ecom_attesi": 0.0,
+            "textile_attesi": 0,
+            "other_attesi": 0,
+            "shoes_attesi": 0,
+            "ecom_attesi": 0,
             "pedane": 0,
-            "totale_pedane": 0.0,
+            "totale_pedane": 0,
             "vettore_autista": "",
             "tipo_mezzo": "",
             "targa": "",
@@ -334,9 +354,9 @@ def compute_spunta_arrivi(
         for u in unmapped:
             max_ridx += 1
             u_sid = str(u["store_id"]).strip()
-            u_mc = float(u.get("total_vol", 0.0))
+            u_mc = round(float(u.get("total_vol", 0.0)), 2)
             u_form = map_formula.get(u_sid, "MC/1,9")
-            u_ped = evaluate_pedane(u_mc, u_form)
+            u_ped = int(evaluate_pedane(u_mc, u_form))
             u_giro = str(u.get("giro", "DA ASSEGNARE")) if u.get("giro") else "DA ASSEGNARE"
             spunta_records.append({
                 "row_idx": max_ridx,
@@ -346,12 +366,12 @@ def compute_spunta_arrivi(
                 "punto_vendita": str(u.get("brand", "DA ASSEGNARE")),
                 "brand": str(u.get("brand", "DA ASSEGNARE")),
                 "mc": u_mc,
-                "textile_attesi": float(u.get("planned_textile", 0.0)),
-                "other_attesi": float(u.get("planned_others", 0.0)),
-                "shoes_attesi": float(u.get("planned_shoes", 0.0)),
-                "ecom_attesi": float(u.get("planned_ecom", 0.0)),
+                "textile_attesi": int(round(float(u.get("planned_textile", 0.0)))),
+                "other_attesi": int(round(float(u.get("planned_others", 0.0)))),
+                "shoes_attesi": int(round(float(u.get("planned_shoes", 0.0)))),
+                "ecom_attesi": int(round(float(u.get("planned_ecom", 0.0)))),
                 "pedane": u_ped,
-                "totale_pedane": 0.0,
+                "totale_pedane": 0,
                 "vettore_autista": "",
                 "tipo_mezzo": "",
                 "targa": "",
@@ -366,9 +386,9 @@ def compute_spunta_arrivi(
     # Compute totale_pedane per giro group
     # Group contiguous blocks of same giro
     for giro_name, grp in df_sp[df_sp["is_store"]].groupby("giro", sort=False):
-        sum_ped = grp["pedane"].sum()
+        sum_ped = int(grp["pedane"].sum())
         first_idx = grp.index[0]
-        df_sp.loc[first_idx, "totale_pedane"] = float(sum_ped)
+        df_sp.loc[first_idx, "totale_pedane"] = sum_ped
 
     return df_sp
 
@@ -704,11 +724,11 @@ def compute_planning_roma(
 
         elif is_shoes_row:
             # Dedicated shoes row (e.g. ZARA SHOES)
-            pl_sho = _safe_float(a_data.get("planned_shoes", 0.0))
+            pl_sho = int(round(_safe_float(a_data.get("planned_shoes", 0.0))))
             act_s = map_act_std.get(base_sid, {}) if base_sid in tpl_b9_stores else map_act_tot.get(base_sid, {})
-            rec_sho = _safe_float(act_s.get("tot_calzat", 0.0))
+            rec_sho = int(round(_safe_float(act_s.get("tot_calzat", 0.0))))
             vol_sho = round(_safe_float(a_data.get("vol_shoes", 0.0)), 2)
-            wt_sho = _safe_float(a_data.get("weight_shoes", 0.0))
+            wt_sho = int(round(_safe_float(a_data.get("weight_shoes", 0.0))))
 
         elif is_home_app_row:
             # Zara Home Appesi (special display row)
@@ -721,76 +741,79 @@ def compute_planning_roma(
                 already_split = str(a_data.get("store_code", "")).endswith("B")
                 b9_mult = 1.0 if already_split else PERCENTUALE_BARRA9_SPLIT
 
-                pl_text = round(_safe_float(a_data.get("planned_textile", 0.0)) * b9_mult, 1)
+                pl_text = int(round(_safe_float(a_data.get("planned_textile", 0.0)) * b9_mult))
                 if base_sid not in stores_with_shoes_row:
-                    pl_sho = round(_safe_float(a_data.get("planned_shoes", 0.0)) * b9_mult, 1)
-                pl_oth = round(_safe_float(a_data.get("planned_others", 0.0)) * b9_mult, 1)
-                if pl_oth == 0.0:
-                    pl_oth = round(_safe_float(map_a.get(base_sid, {}).get("planned_others", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
-                pl_eco = round(_safe_float(a_data.get("planned_ecom", 0.0)) * b9_mult, 1)
-                if pl_eco == 0.0:
-                    pl_eco = round(_safe_float(map_a.get(base_sid, {}).get("planned_ecom", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
+                    pl_sho = int(round(_safe_float(a_data.get("planned_shoes", 0.0)) * b9_mult))
+                pl_oth = int(round(_safe_float(a_data.get("planned_others", 0.0)) * b9_mult))
+                if pl_oth == 0:
+                    pl_oth = int(round(_safe_float(map_a.get(base_sid, {}).get("planned_others", 0.0)) * PERCENTUALE_BARRA9_SPLIT))
+                pl_eco = int(round(_safe_float(a_data.get("planned_ecom", 0.0)) * b9_mult))
+                if pl_eco == 0:
+                    pl_eco = int(round(_safe_float(map_a.get(base_sid, {}).get("planned_ecom", 0.0)) * PERCENTUALE_BARRA9_SPLIT))
 
                 act_d = map_act_doppia.get(base_sid, {})
-                rec_text = _safe_float(act_d.get("tot_abbigl", 0.0))
+                rec_text = int(round(_safe_float(act_d.get("tot_abbigl", 0.0))))
                 if base_sid not in stores_with_shoes_row:
-                    rec_sho = _safe_float(act_d.get("tot_calzat", 0.0))
-                rec_oth = _safe_float(act_d.get("tot_others", 0.0))
-                rec_eco = _safe_float(act_d.get("tot_ecom", 0.0))
+                    rec_sho = int(round(_safe_float(act_d.get("tot_calzat", 0.0))))
+                rec_oth = int(round(_safe_float(act_d.get("tot_others", 0.0))))
+                rec_eco = int(round(_safe_float(act_d.get("tot_ecom", 0.0))))
             else:
-                pl_text = 0.0
-                pl_sho = 0.0
-                pl_oth = 0.0
-                pl_eco = 0.0
-                rec_text = 0.0
-                rec_sho = 0.0
-                rec_oth = 0.0
-                rec_eco = 0.0
+                pl_text = 0
+                pl_sho = 0
+                pl_oth = 0
+                pl_eco = 0
+                rec_text = 0
+                rec_sho = 0
+                rec_oth = 0
+                rec_eco = 0
 
         else:
             # Standard store row
             is_sdop = map_sdoppia.get(base_sid, "SI" if base_sid in tpl_b9_stores else "NO") == "SI"
             # If store has active sdoppiamento and is in tpl_b9_stores or has a DOPPIA delivery
             if is_sdop and (base_sid in tpl_b9_stores or base_sid in map_act_doppia):
-                std_factor = 1.0 - PERCENTUALE_BARRA9_SPLIT
                 act_row = map_act_std.get(base_sid, {})
-                pl_text = round(_safe_float(a_data.get("planned_textile", 0.0)) * std_factor, 1)
-                pl_oth = round(_safe_float(a_data.get("planned_others", 0.0)) * std_factor, 1)
-                pl_eco = round(_safe_float(a_data.get("planned_ecom", 0.0)) * std_factor, 1)
+                tot_t = int(round(_safe_float(a_data.get("planned_textile", 0.0))))
+                tot_o = int(round(_safe_float(a_data.get("planned_others", 0.0))))
+                tot_e = int(round(_safe_float(a_data.get("planned_ecom", 0.0))))
+                pl_text = tot_t - int(round(tot_t * PERCENTUALE_BARRA9_SPLIT))
+                pl_oth = tot_o - int(round(tot_o * PERCENTUALE_BARRA9_SPLIT))
+                pl_eco = tot_e - int(round(tot_e * PERCENTUALE_BARRA9_SPLIT))
             else:
                 act_row = map_act_tot.get(base_sid, {})
-                pl_text = round(_safe_float(a_data.get("planned_textile", 0.0)), 1)
-                pl_oth = round(_safe_float(a_data.get("planned_others", 0.0)), 1)
-                pl_eco = round(_safe_float(a_data.get("planned_ecom", 0.0)), 1)
+                pl_text = int(round(_safe_float(a_data.get("planned_textile", 0.0))))
+                pl_oth = int(round(_safe_float(a_data.get("planned_others", 0.0))))
+                pl_eco = int(round(_safe_float(a_data.get("planned_ecom", 0.0))))
 
-            rec_text = _safe_float(act_row.get("tot_abbigl", 0.0))
-            rec_oth = _safe_float(act_row.get("tot_others", 0.0))
-            rec_eco = _safe_float(act_row.get("tot_ecom", 0.0))
+            rec_text = int(round(_safe_float(act_row.get("tot_abbigl", 0.0))))
+            rec_oth = int(round(_safe_float(act_row.get("tot_others", 0.0))))
+            rec_eco = int(round(_safe_float(act_row.get("tot_ecom", 0.0))))
 
             vol_text = round(_safe_float(a_data.get("vol_textile", 0.0)), 2)
-            wt_text = _safe_float(a_data.get("weight_textile", 0.0))
+            wt_text = int(round(_safe_float(a_data.get("weight_textile", 0.0))))
             vol_eco = round(_safe_float(a_data.get("vol_ecom", 0.0)), 2)
-            wt_eco = _safe_float(a_data.get("weight_ecom", 0.0))
+            wt_eco = int(round(_safe_float(a_data.get("weight_ecom", 0.0))))
 
             # Shoes handling: only if store does NOT have a dedicated SHOES row
             if base_sid in stores_with_shoes_row:
-                pl_sho = 0.0
-                rec_sho = 0.0
+                pl_sho = 0
+                rec_sho = 0
                 vol_sho = 0.0
-                wt_sho = 0.0
+                wt_sho = 0
             else:
+                tot_s = int(round(_safe_float(a_data.get("planned_shoes", 0.0))))
                 if is_sdop and (base_sid in tpl_b9_stores or base_sid in map_act_doppia):
-                    pl_sho = round(_safe_float(a_data.get("planned_shoes", 0.0)) * (1.0 - PERCENTUALE_BARRA9_SPLIT), 1)
+                    pl_sho = tot_s - int(round(tot_s * PERCENTUALE_BARRA9_SPLIT))
                 else:
-                    pl_sho = round(_safe_float(a_data.get("planned_shoes", 0.0)), 1)
-                rec_sho = _safe_float(act_row.get("tot_calzat", 0.0))
+                    pl_sho = tot_s
+                rec_sho = int(round(_safe_float(act_row.get("tot_calzat", 0.0))))
                 vol_sho = round(_safe_float(a_data.get("vol_shoes", 0.0)), 2)
-                wt_sho = _safe_float(a_data.get("weight_shoes", 0.0))
+                wt_sho = int(round(_safe_float(a_data.get("weight_shoes", 0.0))))
 
         tot_vol = round(vol_text + vol_sho + vol_eco, 2)
-        tot_wt = round(wt_text + wt_sho + wt_eco, 2)
-        tot_pl_crts = round(pl_text + pl_oth + pl_sho + pl_eco, 1)
-        tot_rec_crts = round(rec_text + rec_oth + rec_sho + rec_eco, 1)
+        tot_wt = int(round(wt_text + wt_sho + wt_eco))
+        tot_pl_crts = int(round(pl_text + pl_oth + pl_sho + pl_eco))
+        tot_rec_crts = int(round(rec_text + rec_oth + rec_sho + rec_eco))
 
         records.append({
             "row_idx": ridx,
@@ -835,19 +858,19 @@ def compute_planning_roma(
                     meta = m_sub.iloc[0].to_dict()
             pv_name = meta.get("brand") or meta.get("punto_vendita") or "INDITEX"
             st_name = (meta.get("store_name") or b_sid) + " APT9"
-            rec_t = _safe_float(d_info.get("tot_abbigl", 0.0))
-            rec_s = _safe_float(d_info.get("tot_calzat", 0.0))
-            rec_e = _safe_float(d_info.get("tot_ecom", 0.0))
-            rec_o = _safe_float(d_info.get("tot_others", 0.0))
-            tot_rec = round(rec_t + rec_s + rec_e + rec_o, 1)
+            rec_t = int(round(_safe_float(d_info.get("tot_abbigl", 0.0))))
+            rec_s = int(round(_safe_float(d_info.get("tot_calzat", 0.0))))
+            rec_e = int(round(_safe_float(d_info.get("tot_ecom", 0.0))))
+            rec_o = int(round(_safe_float(d_info.get("tot_others", 0.0))))
+            tot_rec = int(rec_t + rec_s + rec_e + rec_o)
 
             # Planned 30% from base store forecast
             a_d = map_a.get(b_sid, {})
-            pl_t = round(_safe_float(a_d.get("planned_textile", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
-            pl_s = round(_safe_float(a_d.get("planned_shoes", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
-            pl_e = round(_safe_float(a_d.get("planned_ecom", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
-            pl_o = round(_safe_float(a_d.get("planned_others", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
-            tot_pl = round(pl_t + pl_s + pl_e + pl_o, 1)
+            pl_t = int(round(_safe_float(a_d.get("planned_textile", 0.0)) * PERCENTUALE_BARRA9_SPLIT))
+            pl_s = int(round(_safe_float(a_d.get("planned_shoes", 0.0)) * PERCENTUALE_BARRA9_SPLIT))
+            pl_e = int(round(_safe_float(a_d.get("planned_ecom", 0.0)) * PERCENTUALE_BARRA9_SPLIT))
+            pl_o = int(round(_safe_float(a_d.get("planned_others", 0.0)) * PERCENTUALE_BARRA9_SPLIT))
+            tot_pl = int(pl_t + pl_s + pl_e + pl_o)
 
             records.append({
                 "row_idx": max_idx,
@@ -861,17 +884,17 @@ def compute_planning_roma(
                 "planned_others": pl_o,
                 "received_others": rec_o,
                 "vol_textile": 0.0,
-                "weight_textile": 0.0,
+                "weight_textile": 0,
                 "planned_shoes": pl_s,
                 "received_shoes": rec_s,
                 "vol_shoes": 0.0,
-                "weight_shoes": 0.0,
+                "weight_shoes": 0,
                 "planned_ecom": pl_e,
                 "received_ecom": rec_e,
                 "vol_ecom": 0.0,
-                "weight_ecom": 0.0,
+                "weight_ecom": 0,
                 "total_vol": 0.0,
-                "total_weight": 0.0,
+                "total_weight": 0,
                 "total_planned_crts": tot_pl,
                 "total_received_crts": tot_rec,
                 "intershops": d_info.get("stringa", "")
@@ -957,19 +980,19 @@ def compute_special_breakdowns(
         tot_paq = float(tot_d.get("paqueteria", 0.0))
         sho_paq = float(sho_d.get("paqueteria", 0.0))
 
-        appesi = max(0.0, tot_colgada - sho_colgada)
-        corr = perfume_corrections.get(sid, 0.0)
-        stesi = max(0.0, tot_paq - sho_paq - corr)
-        tot_pezzi = appesi + stesi
+        appesi = int(round(max(0.0, tot_colgada - sho_colgada)))
+        corr = int(round(perfume_corrections.get(sid, 0.0)))
+        stesi = int(round(max(0.0, tot_paq - sho_paq - corr)))
+        tot_pezzi = int(appesi + stesi)
 
         # Stander & Bancali: store 3680 has factor 0.65 (Barra 0)
         if sid == "3680":
-            stander = math.floor(appesi * 0.65 / 200.0) if appesi > 0 else 0
-            bancali = math.floor(stesi * 0.65 / 15.0 / 20.0) if stesi > 0 else 0
+            stander = int(math.floor(appesi * 0.65 / 200.0)) if appesi > 0 else 0
+            bancali = int(math.floor(stesi * 0.65 / 15.0 / 20.0)) if stesi > 0 else 0
             label_negozio = "3680 /0"
         else:
-            stander = math.floor(appesi / 200.0) if appesi > 0 else 0
-            bancali = math.floor(stesi / 15.0 / 20.0) if stesi > 0 else 0
+            stander = int(math.floor(appesi / 200.0)) if appesi > 0 else 0
+            bancali = int(math.floor(stesi / 15.0 / 20.0)) if stesi > 0 else 0
             label_negozio = sid
 
         sintesi = f"{bancali} bancali + {stander} stander"
@@ -1007,9 +1030,9 @@ def compute_special_breakdowns(
 
     for sid in home_ids:
         tot_d = map_tot.get(sid, {})
-        paq = float(tot_d.get("paqueteria", 0.0))
-        quota_0 = paq / 2.0
-        quota_8 = paq - quota_0
+        paq = int(round(float(tot_d.get("paqueteria", 0.0))))
+        quota_0 = int(round(paq / 2.0))
+        quota_8 = int(paq - quota_0)
         s_name = zh_names.get(sid, f"Store {sid}")
         zh_stores[sid] = {
             "store_name": s_name,
@@ -1028,7 +1051,7 @@ def compute_special_breakdowns(
     df_zh = pd.DataFrame(zh_rows)
 
     # Platform Totals & Checks
-    tot_pezzi_lavorati = sum(s["totale_pezzi"] for s in special_stores.values()) + sum(z["totale_paqueteria"] for z in zh_stores.values())
+    tot_pezzi_lavorati = int(sum(s["totale_pezzi"] for s in special_stores.values()) + sum(z["totale_paqueteria"] for z in zh_stores.values()))
 
     tot_teorici_colli = float(df_total["bultos"].sum()) if not df_total.empty else 0.0
     tot_teorici_mc = float(df_total["volumen"].sum()) if not df_total.empty else 0.0

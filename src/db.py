@@ -581,6 +581,8 @@ def get_run_details(run_id: int, db_path=DB_PATH) -> Dict[str, Any]:
         run_dict = run_df.iloc[0].to_dict() if not run_df.empty else None
         planning = pd.read_sql_query("SELECT * FROM planning_results WHERE run_id = ?", conn, params=(run_id,))
         spunta = pd.read_sql_query("SELECT * FROM spunta_arrivi WHERE run_id = ? ORDER BY row_idx", conn, params=(run_id,))
+        if not spunta.empty and "is_store" not in spunta.columns:
+            spunta["is_store"] = ~spunta["store_code"].astype(str).str.strip().str.upper().isin(["", "NEGOZIO", "STORE ID", "EXTRA", "NONE"])
         sga0 = pd.read_sql_query("SELECT * FROM sga_flows WHERE run_id = ? AND barra = 0 ORDER BY id", conn, params=(run_id,))
         sga9 = pd.read_sql_query("SELECT * FROM sga_flows WHERE run_id = ? AND barra = 9 ORDER BY id", conn, params=(run_id,))
         sga_all = pd.read_sql_query("SELECT * FROM sga_flows WHERE run_id = ? ORDER BY id", conn, params=(run_id,))
@@ -603,9 +605,10 @@ def get_run_details(run_id: int, db_path=DB_PATH) -> Dict[str, Any]:
             "SELECT store_code AS store_id, p_colgada, paqueteria, peso, volumen, bultos FROM forecast_raw WHERE run_id = ? AND file_category = 'ECOM'",
             conn, params=(run_id,)
         )
+        df_stores = pd.read_sql_query("SELECT * FROM stores ORDER BY giro ASC, store_id ASC", conn)
 
         from src.engine import compute_special_breakdowns
-        special_breakdowns = compute_special_breakdowns(spunta, df_tot, df_sho, df_texile=df_tex, df_ecom=df_eco)
+        special_breakdowns = compute_special_breakdowns(spunta, df_tot, df_sho, df_texile=df_tex, df_ecom=df_eco, df_stores=df_stores)
 
         return {
             "run": run_dict,

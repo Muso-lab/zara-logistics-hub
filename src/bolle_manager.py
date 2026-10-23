@@ -618,12 +618,17 @@ def generate_bolle_from_forecast(run_id: int, delivery_date: Optional[str] = Non
 
         sdoppia = str(meta.get("sdoppiamento_b9", "NO")).strip().upper() == "SI"
 
-        tot_tex = pdata["textile"]
-        tot_sho = pdata["shoes"]
-        tot_oth = pdata["others"]
-        tot_eco = pdata["ecom"]
+        tot_tex = int(round(pdata["textile"]))
+        tot_sho = int(round(pdata["shoes"]))
+        tot_oth = int(round(pdata["others"]))
+        tot_eco = int(round(pdata["ecom"]))
 
         if sdoppia:
+            d_tex = int(round(tot_tex * 0.3))
+            d_sho = int(round(tot_sho * 0.3))
+            d_eco = int(round(tot_eco * 0.3))
+            d_oth = int(round(tot_oth * 0.3))
+
             # 1. STD (/0) Bolla (70%)
             if (base_sid, "STD") in existing_pairs:
                 skipped += 1
@@ -640,15 +645,15 @@ def generate_bolle_from_forecast(run_id: int, delivery_date: Optional[str] = Non
                     "autista": meta.get("autista", ""),
                     "tipo_mezzo": meta.get("tipo_mezzo", "MOTRICE 18 PLT"),
                     "indirizzo_destino": indirizzo,
-                    "colli_abbigl": round(tot_tex * 0.7, 1),
-                    "colli_calzat": round(tot_sho * 0.7, 1),
-                    "colli_ecom": round(tot_eco * 0.7, 1),
-                    "colli_others": round(tot_oth * 0.7, 1),
-                    "colli_vario": 0.0,
-                    "colli_cont": 0.0,
-                    "colli_mat_vario": 0.0,
-                    "colli_dann": 0.0,
-                    "colli_non_conf": 0.0,
+                    "colli_abbigl": int(tot_tex - d_tex),
+                    "colli_calzat": int(tot_sho - d_sho),
+                    "colli_ecom": int(tot_eco - d_eco),
+                    "colli_others": int(tot_oth - d_oth),
+                    "colli_vario": 0,
+                    "colli_cont": 0,
+                    "colli_mat_vario": 0,
+                    "colli_dann": 0,
+                    "colli_non_conf": 0,
                     "anomalie_scarico": "",
                     "stringa": ""
                 }
@@ -671,15 +676,15 @@ def generate_bolle_from_forecast(run_id: int, delivery_date: Optional[str] = Non
                     "autista": meta.get("autista_doppia") or meta.get("autista", ""),
                     "tipo_mezzo": meta.get("tipo_mezzo_doppia") or "FURGONE",
                     "indirizzo_destino": indirizzo,
-                    "colli_abbigl": round(tot_tex * 0.3, 1),
-                    "colli_calzat": round(tot_sho * 0.3, 1),
-                    "colli_ecom": round(tot_eco * 0.3, 1),
-                    "colli_others": round(tot_oth * 0.3, 1),
-                    "colli_vario": 0.0,
-                    "colli_cont": 0.0,
-                    "colli_mat_vario": 0.0,
-                    "colli_dann": 0.0,
-                    "colli_non_conf": 0.0,
+                    "colli_abbigl": d_tex,
+                    "colli_calzat": d_sho,
+                    "colli_ecom": d_eco,
+                    "colli_others": d_oth,
+                    "colli_vario": 0,
+                    "colli_cont": 0,
+                    "colli_mat_vario": 0,
+                    "colli_dann": 0,
+                    "colli_non_conf": 0,
                     "anomalie_scarico": "",
                     "stringa": ""
                 }
