@@ -182,18 +182,26 @@ def compute_spunta_arrivi(
 
     map_formula = {}
     map_sdoppia = {}
+    map_attivo = {}
+    known_store_ids = set()
     if df_stores is not None and not df_stores.empty:
         sid_col = "store_id" if "store_id" in df_stores.columns else ("store_code" if "store_code" in df_stores.columns else None)
-        if sid_col and "formula" in df_stores.columns:
-            map_formula = df_stores.set_index(sid_col)["formula"].dropna().to_dict()
-        if sid_col and "sdoppiamento_b9" in df_stores.columns:
-            map_sdoppia = df_stores.set_index(sid_col)["sdoppiamento_b9"].fillna("NO").astype(str).str.upper().to_dict()
+        if sid_col:
+            known_store_ids = {str(x).strip() for x in df_stores[sid_col].dropna()}
+            if "formula" in df_stores.columns:
+                map_formula = df_stores.set_index(sid_col)["formula"].dropna().to_dict()
+            if "sdoppiamento_b9" in df_stores.columns:
+                map_sdoppia = df_stores.set_index(sid_col)["sdoppiamento_b9"].fillna("NO").astype(str).str.upper().to_dict()
+            if "attivo" in df_stores.columns:
+                map_attivo = df_stores.set_index(sid_col)["attivo"].fillna("SI").astype(str).str.upper().to_dict()
     else:
         try:
             from src.db import get_stores_df
             sdf = get_stores_df()
             if not sdf.empty:
+                known_store_ids = {str(x).strip() for x in sdf["store_id"].dropna()}
                 map_sdoppia = sdf.set_index("store_id")["sdoppiamento_b9"].fillna("NO").astype(str).str.upper().to_dict()
+                map_attivo = sdf.set_index("store_id")["attivo"].fillna("SI").astype(str).str.upper().to_dict()
         except:
             pass
 
@@ -289,7 +297,15 @@ def compute_spunta_arrivi(
             if factor < 1.0 and store_formula:
                 # Since mc is already scaled by 0.7, strip redundant *0,7 from formula string
                 store_formula = re.sub(r"\*\s*0[.,]7\b", "", str(store_formula))
-        pedane = int(evaluate_pedane(mc, store_formula))
+        calc_pedane = int(evaluate_pedane(mc, store_formula))
+
+        # Check store active status (Stato SI / NO)
+        st_attivo = map_attivo.get(sid, map_attivo.get(base_sid, "SI"))
+        is_active = (st_attivo == "SI")
+        is_new = (base_sid not in known_store_ids and sid not in known_store_ids)
+
+        # Non-active stores (standby / restructuring) are excluded from transported pedane!
+        pedane = calc_pedane if is_active else 0
 
         spunta_records.append({
             "row_idx": ridx,
@@ -304,6 +320,7 @@ def compute_spunta_arrivi(
             "shoes_attesi": shoes_attesi,
             "ecom_attesi": ecom_attesi,
             "pedane": pedane,
+            "pedane_teoriche": calc_pedane,
             "totale_pedane": 0,  # Will compute below per group
             "vettore_autista": row["vettore_autista"],
             "tipo_mezzo": row["tipo_mezzo"],
@@ -311,7 +328,10 @@ def compute_spunta_arrivi(
             "cod_mezzo": row["cod_mezzo"],
             "supporto": row["supporto"],
             "giro": row["giro"],
-            "is_barra9": is_b9
+            "is_barra9": is_b9,
+            "attivo": st_attivo,
+            "is_active": is_active,
+            "is_new": is_new,
         })
 
     df_sp = pd.DataFrame(spunta_records)
@@ -356,7 +376,10 @@ def compute_spunta_arrivi(
             u_sid = str(u["store_id"]).strip()
             u_mc = round(float(u.get("total_vol", 0.0)), 2)
             u_form = map_formula.get(u_sid, "MC/1,9")
-            u_ped = int(evaluate_pedane(u_mc, u_form))
+            u_calc_ped = int(evaluate_pedane(u_mc, u_form))
+            u_attivo = map_attivo.get(u_sid, "SI")
+            u_is_active = (u_attivo == "SI")
+            u_ped = u_calc_ped if u_is_active else 0
             u_giro = str(u.get("giro", "DA ASSEGNARE")) if u.get("giro") else "DA ASSEGNARE"
             spunta_records.append({
                 "row_idx": max_ridx,
@@ -371,6 +394,7 @@ def compute_spunta_arrivi(
                 "shoes_attesi": int(round(float(u.get("planned_shoes", 0.0)))),
                 "ecom_attesi": int(round(float(u.get("planned_ecom", 0.0)))),
                 "pedane": u_ped,
+                "pedane_teoriche": u_calc_ped,
                 "totale_pedane": 0,
                 "vettore_autista": "",
                 "tipo_mezzo": "",
@@ -378,7 +402,10 @@ def compute_spunta_arrivi(
                 "cod_mezzo": "",
                 "supporto": "",
                 "giro": u_giro,
-                "is_barra9": 0
+                "is_barra9": 0,
+                "attivo": u_attivo,
+                "is_active": u_is_active,
+                "is_new": True,
             })
 
         df_sp = pd.DataFrame(spunta_records)
@@ -423,6 +450,10 @@ def compute_sga_flows(
 
     # 1. Barra 0 Flows
     b0_stores = df_spunta[(df_spunta["is_store"]) & (df_spunta["is_barra9"] == 0)].copy()
+    if "attivo" in b0_stores.columns:
+        b0_stores = b0_stores[b0_stores["attivo"].fillna("SI").astype(str).str.upper() == "SI"].copy()
+    elif "is_active" in b0_stores.columns:
+        b0_stores = b0_stores[b0_stores["is_active"] == True].copy()
     b0_flows = []
 
     for _, r in b0_stores.iterrows():
@@ -475,6 +506,10 @@ def compute_sga_flows(
 
     # 2. Barra 9 Flows
     b9_stores = df_spunta[(df_spunta["is_store"]) & (df_spunta["is_barra9"] == 1)].copy()
+    if "attivo" in b9_stores.columns:
+        b9_stores = b9_stores[b9_stores["attivo"].fillna("SI").astype(str).str.upper() == "SI"].copy()
+    elif "is_active" in b9_stores.columns:
+        b9_stores = b9_stores[b9_stores["is_active"] == True].copy()
     b9_flows = []
 
     for _, r in b9_stores.iterrows():

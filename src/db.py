@@ -267,6 +267,35 @@ def init_db(db_path=DB_PATH):
         );
         """)
 
+
+        # Fleet Registry (Anagrafica Mezzi & Capienze)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS vehicles (
+            cod_mezzo TEXT PRIMARY KEY,
+            tipo_mezzo TEXT NOT NULL,
+            descrizione TEXT,
+            capienza_pedane INTEGER NOT NULL DEFAULT 18,
+            attivo TEXT DEFAULT 'SI',
+            note TEXT
+        );
+        """)
+
+        cursor.execute("SELECT COUNT(*) FROM vehicles")
+        if cursor.fetchone()[0] == 0:
+            default_vehicles = [
+                ("FURGONE 8", "FURGONE", "Furgone Passo Lungo (8 Pedane)", 8, "SI", "Urbano agile"),
+                ("EUROCARGO 75", "EUROCARGO", "Iveco Eurocargo 75 (14 Pedane)", 14, "SI", "Medio raggio"),
+                ("MOTRICE 14", "MOTRICE", "Motrice Media 14 Pedane", 14, "SI", "Standard 14 plt"),
+                ("MOTRICE 18 PLT", "MOTRICE", "Motrice Pesante 18 Pedane", 18, "SI", "Flotta principale Roma"),
+                ("MOTRICE 14x3", "MOTRICE", "Tris Motrici 14 (3x14 = 42 Pedane)", 42, "SI", "Servizio multiplo"),
+                ("BILICO 33", "BILICO", "Bilico Standard 13.60m (33 Pedane)", 33, "SI", "Lunga percorrenza e grande carico"),
+                ("BILICO x 3", "BILICO", "Tris Bilici Standard (3x33 = 99 Pedane)", 99, "SI", "Navetta polo"),
+            ]
+            cursor.executemany("""
+            INSERT INTO vehicles (cod_mezzo, tipo_mezzo, descrizione, capienza_pedane, attivo, note)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """, default_vehicles)
+
         conn.commit()
 
 
@@ -542,6 +571,75 @@ def bulk_update_stores(df_updated: pd.DataFrame, db_path=DB_PATH):
         conn.commit()
     from src.cloud_sync import auto_sync_tables
     auto_sync_tables(["stores", "store_delivery_profiles"])
+
+
+
+
+def get_vehicles_df(db_path=DB_PATH) -> pd.DataFrame:
+    """Returns all vehicles sorted by capacity ascending."""
+    with get_connection(db_path) as conn:
+        try:
+            return pd.read_sql_query(
+                "SELECT cod_mezzo, tipo_mezzo, descrizione, capienza_pedane, attivo, note FROM vehicles ORDER BY capienza_pedane ASC, cod_mezzo ASC",
+                conn
+            )
+        except Exception:
+            return pd.DataFrame()
+
+
+def add_vehicle_record(data: Dict[str, Any], db_path=DB_PATH):
+    """Adds a new vehicle to the registry."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT OR REPLACE INTO vehicles (cod_mezzo, tipo_mezzo, descrizione, capienza_pedane, attivo, note)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            str(data.get("cod_mezzo", "")).strip().upper(),
+            str(data.get("tipo_mezzo", "MOTRICE")).strip().upper(),
+            str(data.get("descrizione", "")).strip(),
+            int(data.get("capienza_pedane", 18)),
+            str(data.get("attivo", "SI")).strip().upper(),
+            str(data.get("note", "")).strip(),
+        ))
+        conn.commit()
+    from src.cloud_sync import auto_sync_tables
+    auto_sync_tables(["vehicles"])
+
+
+def delete_vehicle_record(cod_mezzo: str, db_path=DB_PATH):
+    """Deletes a vehicle from the registry."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM vehicles WHERE cod_mezzo = ?", (str(cod_mezzo).strip().upper(),))
+        conn.commit()
+    from src.cloud_sync import auto_sync_tables
+    auto_sync_tables(["vehicles"])
+
+
+def bulk_update_vehicles(df_updated: pd.DataFrame, db_path=DB_PATH):
+    """Bulk updates vehicle records from data_editor."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        for _, r in df_updated.iterrows():
+            c_m = str(r.get("cod_mezzo", "")).strip().upper()
+            if not c_m:
+                continue
+            cursor.execute("""
+            UPDATE vehicles
+            SET tipo_mezzo = ?, descrizione = ?, capienza_pedane = ?, attivo = ?, note = ?
+            WHERE cod_mezzo = ?
+            """, (
+                str(r.get("tipo_mezzo", "")).strip().upper(),
+                str(r.get("descrizione", "")).strip(),
+                int(float(r.get("capienza_pedane", 18) or 18)),
+                str(r.get("attivo", "SI")).strip().upper(),
+                str(r.get("note", "")).strip(),
+                c_m
+            ))
+        conn.commit()
+    from src.cloud_sync import auto_sync_tables
+    auto_sync_tables(["vehicles"])
 
 
 def create_run(run_date: str, cycle_type: str, notes: str = "", db_path=DB_PATH) -> int:

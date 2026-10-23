@@ -59,6 +59,7 @@ def set_extranet_credentials(username: str, password: str):
 
 ALL_SYNC_TABLES = [
     "stores",
+    "vehicles",
     "store_delivery_profiles",
     "bolle",
     "runs",

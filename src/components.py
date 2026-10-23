@@ -155,6 +155,69 @@ def _inject_modern_css():
             font-size: 12.5px;
             display: inline-block;
         }
+        .row-standby {
+            background-color: rgba(239, 68, 68, 0.07) !important;
+            color: #64748B !important;
+        }
+        .row-new-store {
+            background-color: rgba(56, 189, 248, 0.09) !important;
+            border-left: 4px solid #0284C7 !important;
+        }
+        .badge-standby {
+            display: inline-block;
+            padding: 2.5px 8px;
+            border-radius: 6px;
+            font-weight: 800;
+            font-size: 11px;
+            background: #FEE2E2;
+            color: #991B1B;
+            border: 1px solid #FCA5A5;
+        }
+        .badge-new-store {
+            display: inline-block;
+            padding: 2.5px 8px;
+            border-radius: 6px;
+            font-weight: 800;
+            font-size: 11px;
+            background: #E0F2FE;
+            color: #0369A1;
+            border: 1px solid #7DD3FC;
+            box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+        }
+        .badge-pill-gray {
+            display: inline-block;
+            padding: 2.5px 8px;
+            border-radius: 9999px;
+            font-weight: 700;
+            font-size: 11px;
+            background-color: #E2E8F0;
+            color: #64748B;
+            border: 1px solid #CBD5E1;
+        }
+        .section-divider-standby {
+            background: linear-gradient(90deg, #FEE2E2 0%, #FEF2F2 100%) !important;
+            color: #991B1B !important;
+            font-weight: 800 !important;
+            font-size: 12px !important;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            text-align: left !important;
+            padding: 9px 14px !important;
+            border-top: 2px solid #F87171 !important;
+            border-bottom: 2px solid #F87171 !important;
+        }
+        .section-divider-new {
+            background: linear-gradient(90deg, #E0F2FE 0%, #F0F9FF 100%) !important;
+            color: #0369A1 !important;
+            font-weight: 800 !important;
+            font-size: 12px !important;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            text-align: left !important;
+            padding: 9px 14px !important;
+            border-top: 2px solid #38BDF8 !important;
+            border-bottom: 2px solid #38BDF8 !important;
+        }
         .highlight-total-box {
             background-color: rgba(234, 179, 8, 0.2);
             border: 1.5px solid rgba(234, 179, 8, 0.55);
@@ -204,10 +267,14 @@ def _giro_sort_key(giro_str: str):
     return (num, s)
 
 
-def render_spunta_arrivi_modern(df_spunta: pd.DataFrame):
+def render_spunta_arrivi_modern(df_spunta: pd.DataFrame, df_stores: Optional[pd.DataFrame] = None):
     """
     Renders the Spunta Arrivi table showing ONLY store rows, sorted by store code
-    (numeric ascending) with all 'B' (Barra 9) stores placed at the bottom,
+    (numeric ascending) with:
+    - Active standard stores (numeric order)
+    - Active Barra 9 ('B') stores
+    - Inactive stores (Stato NO / Standby) placed at the bottom and highlighted in red/amber (pedane = 0)
+    - New stores unmapped in anagrafica placed at the bottom and highlighted in cyan/glow
     displaying all store columns except 'totale_pedane', in a modern graphical card.
     """
     _inject_modern_css()
@@ -228,6 +295,16 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame):
         st.info("ℹ️ Nessun punto vendita presente nella spunta.")
         return
 
+    # Enrich store active / new metadata if df_stores available
+    map_attivo = {}
+    known_sids = set()
+    if df_stores is not None and not df_stores.empty:
+        sid_c = "store_id" if "store_id" in df_stores.columns else "store_code"
+        if sid_c in df_stores.columns:
+            known_sids = {str(x).strip() for x in df_stores[sid_c].dropna()}
+            if "attivo" in df_stores.columns:
+                map_attivo = df_stores.set_index(sid_c)["attivo"].fillna("SI").astype(str).str.upper().to_dict()
+
     # Ensure clean types
     for col in ["textile_attesi", "other_attesi", "shoes_attesi", "ecom_attesi", "pedane", "is_barra9"]:
         if col in df.columns:
@@ -236,20 +313,50 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame):
             df[col] = 0
     df["mc"] = pd.to_numeric(df.get("mc", 0.0), errors="coerce").fillna(0.0).round(2)
 
-    # Identify 'B' stores (either is_barra9 == 1 or store_code ends with 'B')
+    # Determine is_active, is_new, is_b
+    def _is_store_active(r) -> bool:
+        sc = str(r.get("store_code", "")).strip()
+        base_sc = sc[:-1] if sc.endswith("B") else sc
+        if "attivo" in r and str(r.get("attivo", "SI")).strip().upper() == "NO":
+            return False
+        if "is_active" in r and r.get("is_active") is False:
+            return False
+        if map_attivo:
+            st_att = map_attivo.get(sc, map_attivo.get(base_sc, "SI"))
+            if st_att == "NO":
+                return False
+        return True
+
+    def _is_store_new(r) -> bool:
+        if "is_new" in r and r.get("is_new") is True:
+            return True
+        sc = str(r.get("store_code", "")).strip()
+        base_sc = sc[:-1] if sc.endswith("B") else sc
+        if known_sids:
+            return (sc not in known_sids and base_sc not in known_sids)
+        return False
+
+    df["_is_active"] = df.apply(_is_store_active, axis=1)
+    df["_is_new"] = df.apply(_is_store_new, axis=1)
     df["_is_b"] = (df["is_barra9"] == 1) | df["store_code"].astype(str).str.strip().str.upper().str.endswith("B")
     df["_sort_num"] = df["store_code"].apply(lambda x: _store_sort_key(x)[0])
     df["_sort_str"] = df["store_code"].astype(str).str.strip()
 
-    # Sort: first non-B stores in numeric order (preserving row_idx for 15733 3 uscite), then B stores at the bottom
     row_idx_col = "row_idx" if "row_idx" in df.columns else "_sort_str"
-    df_std = df[~df["_is_b"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
-    df_b9 = df[df["_is_b"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
 
-    # Build HTML rows
+    # 4 Groups:
+    # 1. Active Standard Stores
+    df_std = df[df["_is_active"] & ~df["_is_b"] & ~df["_is_new"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
+    # 2. Active Barra 9 Stores
+    df_b9 = df[df["_is_active"] & df["_is_b"] & ~df["_is_new"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
+    # 3. Inactive / Standby Stores
+    df_inactive = df[~df["_is_active"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
+    # 4. New Stores Unmapped
+    df_new = df[df["_is_active"] & df["_is_new"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
+
     rows_html = []
 
-    def _build_row(r: pd.Series, is_b: bool) -> str:
+    def _build_row(r: pd.Series, row_type: str = "std") -> str:
         scode = html.escape(str(r.get("store_code", "")).strip())
         sname = html.escape(str(r.get("store_name", "")).replace("\n", " ").strip())
         brand = html.escape(str(r.get("punto_vendita", "") or r.get("brand", "")).strip())
@@ -262,10 +369,26 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame):
         tot_colli_row = tex_val + oth_val + sho_val + eco_val
         ped_val = int(r.get("pedane", 0))
 
-        tr_class = ' class="row-b9"' if is_b else ""
-        code_badge = f'<span class="badge-yellow">{scode}</span>' if is_b else f'<span class="text-strong">{scode}</span>'
-        giro_badge = f'<span class="badge-giro">{giro}</span>' if giro else "—"
-        ped_badge = f'<span class="badge-pill-blue">{ped_val} plt</span>' if ped_val > 0 else '<span class="text-muted-custom">0</span>'
+        if row_type == "standby":
+            tr_class = ' class="row-standby"'
+            code_badge = f'<span class="badge-standby">⛔ {scode}</span>'
+            giro_badge = f'<span class="badge-giro" style="opacity: 0.6;">{giro}</span>' if giro else "—"
+            ped_badge = '<span class="badge-pill-gray">0 plt (Escluso)</span>'
+        elif row_type == "new":
+            tr_class = ' class="row-new-store"'
+            code_badge = f'<span class="badge-new-store">✨ {scode} (NUOVO)</span>'
+            giro_badge = f'<span class="badge-giro" style="background:#E0F2FE; color:#0369A1; border:1px solid #38BDF8;">{giro or "DA ASSEGNARE"}</span>'
+            ped_badge = f'<span class="badge-pill-blue" style="box-shadow: 0 0 6px rgba(56,189,248,0.4);">{ped_val} plt</span>' if ped_val > 0 else '<span class="text-muted-custom">0</span>'
+        elif row_type == "b9":
+            tr_class = ' class="row-b9"'
+            code_badge = f'<span class="badge-yellow">{scode}</span>'
+            giro_badge = f'<span class="badge-giro">{giro}</span>' if giro else "—"
+            ped_badge = f'<span class="badge-pill-blue">{ped_val} plt</span>' if ped_val > 0 else '<span class="text-muted-custom">0</span>'
+        else:
+            tr_class = ""
+            code_badge = f'<span class="text-strong">{scode}</span>'
+            giro_badge = f'<span class="badge-giro">{giro}</span>' if giro else "—"
+            ped_badge = f'<span class="badge-pill-blue">{ped_val} plt</span>' if ped_val > 0 else '<span class="text-muted-custom">0</span>'
 
         def _fmt_int(v: int, is_b_row: bool) -> str:
             if is_b_row and v == 0:
@@ -274,6 +397,7 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame):
                 return '<span class="text-muted-custom">0</span>'
             return f"<strong>{format_number_it(v, 0)}</strong>"
 
+        is_b_flag = (row_type == "b9")
         return (
             f"<tr{tr_class}>"
             f'<td style="text-align: left;">{code_badge}</td>'
@@ -281,18 +405,20 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame):
             f'<td style="text-align: left;">{brand}</td>'
             f"<td>{giro_badge}</td>"
             f'<td class="text-strong">{format_number_it(mc_val, 2)}</td>'
-            f"<td>{_fmt_int(tex_val, is_b)}</td>"
-            f"<td>{_fmt_int(oth_val, is_b)}</td>"
-            f"<td>{_fmt_int(sho_val, is_b)}</td>"
-            f"<td>{_fmt_int(eco_val, is_b)}</td>"
-            f"<td>{_fmt_int(tot_colli_row, is_b)}</td>"
+            f"<td>{_fmt_int(tex_val, is_b_flag)}</td>"
+            f"<td>{_fmt_int(oth_val, is_b_flag)}</td>"
+            f"<td>{_fmt_int(sho_val, is_b_flag)}</td>"
+            f"<td>{_fmt_int(eco_val, is_b_flag)}</td>"
+            f"<td>{_fmt_int(tot_colli_row, is_b_flag)}</td>"
             f"<td>{ped_badge}</td>"
             f"</tr>"
         )
 
+    # 1. Standard active stores
     for _, r in df_std.iterrows():
-        rows_html.append(_build_row(r, is_b=False))
+        rows_html.append(_build_row(r, row_type="std"))
 
+    # 2. Barra 9 active stores
     if not df_b9.empty:
         rows_html.append(
             '<tr class="section-divider">'
@@ -300,20 +426,44 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame):
             "</tr>"
         )
         for _, r in df_b9.iterrows():
-            rows_html.append(_build_row(r, is_b=True))
+            rows_html.append(_build_row(r, row_type="b9"))
 
-    # Totals row
-    tot_mc = float(df["mc"].sum())
-    tot_tex = int(df["textile_attesi"].sum())
-    tot_oth = int(df["other_attesi"].sum())
-    tot_sho = int(df["shoes_attesi"].sum())
-    tot_eco = int(df["ecom_attesi"].sum())
+    # 3. Inactive / Standby stores
+    if not df_inactive.empty:
+        rows_html.append(
+            '<tr class="section-divider-standby">'
+            '<td colspan="11">⛔ NEGOZI NON OPERATIVI / STANDBY (STATO: NO — ESCLUSI DAL TRASPORTO / RISTRUTTURAZIONE)</td>'
+            "</tr>"
+        )
+        for _, r in df_inactive.iterrows():
+            rows_html.append(_build_row(r, row_type="standby"))
+
+    # 4. New stores unmapped
+    if not df_new.empty:
+        rows_html.append(
+            '<tr class="section-divider-new">'
+            '<td colspan="11">✨ NUOVI PUNTI VENDITA NON CENSITI (DA ASSEGNARE A GIRO IN ANAGRAFICA)</td>'
+            "</tr>"
+        )
+        for _, r in df_new.iterrows():
+            rows_html.append(_build_row(r, row_type="new"))
+
+    # Totals row: transported volumes and pedane (exclude inactive stores from pedane!)
+    df_transported = df[df["_is_active"]].copy()
+    tot_mc = float(df_transported["mc"].sum())
+    tot_tex = int(df_transported["textile_attesi"].sum())
+    tot_oth = int(df_transported["other_attesi"].sum())
+    tot_sho = int(df_transported["shoes_attesi"].sum())
+    tot_eco = int(df_transported["ecom_attesi"].sum())
     tot_colli = tot_tex + tot_oth + tot_sho + tot_eco
-    tot_ped = int(df["pedane"].sum())
+    tot_ped = int(df_transported["pedane"].sum())
+
+    inact_cnt = len(df_inactive)
+    inact_note = f" <span style='font-size:11px; font-weight:normal; opacity:0.85;'>({inact_cnt} PV in standby esclusi)</span>" if inact_cnt > 0 else ""
 
     rows_html.append(
         '<tr class="total-row">'
-        '<td colspan="4" style="text-align: left;">📊 TOTALE GENERALE SPUNTA ARRIVI</td>'
+        f'<td colspan="4" style="text-align: left;">📊 TOTALE TRASPORTO OPERATIVO{inact_note}</td>'
         f"<td>{format_number_it(tot_mc, 2)} m³</td>"
         f"<td>{format_number_it(tot_tex, 0)}</td>"
         f"<td>{format_number_it(tot_oth, 0)}</td>"
@@ -356,23 +506,30 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame):
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def parse_vehicle_capacity(tipo_mezzo: str) -> int:
+def parse_vehicle_capacity(tipo_mezzo: str, vehicles_df: Optional[pd.DataFrame] = None) -> int:
     """
     Parses theoretical pallet capacity from vehicle type string.
-    e.g.:
-    - 'BILICO 33' / 'BILICO' -> 33
-    - 'BILICO x 3' -> 99
-    - 'MOTRICE 14x3' -> 42 (14 * 3)
-    - 'MOTRICE 18 PLT' / 'MOTRICE 18' / 'MOTRICE' -> 18
-    - 'MOTRICE 14' / 'MOTRICE EE 14' -> 14
-    - 'EUROCARGO 75' -> 14
-    - 'FURGONE 8' / 'FURGONE' / 'FURG' -> 8
+    Checks dynamic vehicles registry first, then falls back to regex patterns.
     """
     if not tipo_mezzo or not isinstance(tipo_mezzo, str):
         return 0
     s = str(tipo_mezzo).strip().upper()
     if not s or s in ("NONE", "NAN", "—", "-"):
         return 0
+
+    if vehicles_df is None:
+        try:
+            from src.db import get_vehicles_df
+            vehicles_df = get_vehicles_df()
+        except Exception:
+            vehicles_df = None
+
+    if vehicles_df is not None and not vehicles_df.empty and "cod_mezzo" in vehicles_df.columns:
+        match_v = vehicles_df[vehicles_df["cod_mezzo"].astype(str).str.strip().str.upper() == s]
+        if not match_v.empty:
+            cap = int(match_v.iloc[0].get("capienza_pedane", 0))
+            if cap > 0:
+                return cap
 
     import re
     # Multiplier pattern like "14x3" or "14 * 3"
@@ -406,40 +563,53 @@ def parse_vehicle_capacity(tipo_mezzo: str) -> int:
     return 0
 
 
-def suggest_support_vehicle(pedane_tot: int, capienza: int) -> Dict[str, str]:
+def suggest_support_vehicle(pedane_tot: int, capienza: int, vehicles_df: Optional[pd.DataFrame] = None) -> Dict[str, str]:
     """
     Determines if a support vehicle (or primary vehicle) is needed for the giro
-    and proposes the ideal vehicle type to cover the service.
+    and proposes the ideal vehicle type to cover the service, dynamically consulting
+    the Anagrafica Mezzi fleet registry.
     """
+    if vehicles_df is None:
+        try:
+            from src.db import get_vehicles_df
+            vehicles_df = get_vehicles_df()
+        except Exception:
+            vehicles_df = None
+
+    v_active = []
+    if vehicles_df is not None and not vehicles_df.empty and "cod_mezzo" in vehicles_df.columns:
+        f_df = vehicles_df[vehicles_df["attivo"].fillna("SI").astype(str).str.upper() == "SI"].copy()
+        f_df["capienza_pedane"] = pd.to_numeric(f_df["capienza_pedane"], errors="coerce").fillna(18).astype(int)
+        v_active = f_df.sort_values(by="capienza_pedane", ascending=True)[["cod_mezzo", "capienza_pedane"]].to_dict("records")
+
+    if not v_active:
+        v_active = [
+            {"cod_mezzo": "FURGONE 8", "capienza_pedane": 8},
+            {"cod_mezzo": "EUROCARGO 75", "capienza_pedane": 14},
+            {"cod_mezzo": "MOTRICE 18 PLT", "capienza_pedane": 18},
+            {"cod_mezzo": "BILICO 33", "capienza_pedane": 33},
+        ]
+
+    def _pick_best(need_plt: int) -> str:
+        for v in v_active:
+            if v["capienza_pedane"] >= need_plt:
+                return str(v["cod_mezzo"])
+        largest = v_active[-1]
+        mult = (need_plt + largest["capienza_pedane"] - 1) // largest["capienza_pedane"]
+        return f"{largest['cod_mezzo']} x {mult} ({mult * largest['capienza_pedane']} PLT)"
+
     if capienza == 0:
         if pedane_tot <= 0:
             return {"status": "none", "badge": "—", "note": ""}
-        elif pedane_tot <= 8:
-            return {"status": "unassigned", "badge": "FURGONE 8", "note": f"Consigliato per {pedane_tot} PLT"}
-        elif pedane_tot <= 14:
-            return {"status": "unassigned", "badge": "EUROCARGO 75", "note": f"Consigliato per {pedane_tot} PLT"}
-        elif pedane_tot <= 18:
-            return {"status": "unassigned", "badge": "MOTRICE 18", "note": f"Consigliato per {pedane_tot} PLT"}
-        elif pedane_tot <= 33:
-            return {"status": "unassigned", "badge": "BILICO 33", "note": f"Consigliato per {pedane_tot} PLT"}
-        elif pedane_tot <= 42:
-            return {"status": "unassigned", "badge": "MOTRICE 14x3", "note": f"Consigliato per {pedane_tot} PLT"}
-        else:
-            return {"status": "unassigned", "badge": "BILICO x 2 (66 PLT)", "note": f"Consigliato per {pedane_tot} PLT"}
+        best = _pick_best(pedane_tot)
+        return {"status": "unassigned", "badge": best, "note": f"Consigliato per {pedane_tot} PLT"}
 
     delta = pedane_tot - capienza
     if delta <= 0:
         return {"status": "ok", "badge": "Mezzo Idoneo", "note": "Copertura 100%"}
-    elif delta <= 8:
-        return {"status": "overload", "badge": "FURGONE 8", "note": f"Copre esubero +{delta} PLT"}
-    elif delta <= 14:
-        return {"status": "overload", "badge": "EUROCARGO 75", "note": f"Copre esubero +{delta} PLT"}
-    elif delta <= 18:
-        return {"status": "overload", "badge": "MOTRICE 18", "note": f"Copre esubero +{delta} PLT"}
-    elif delta <= 33:
-        return {"status": "overload", "badge": "BILICO 33", "note": f"Copre esubero +{delta} PLT"}
-    else:
-        return {"status": "overload", "badge": f"BILICO 33 (+{delta} PLT)", "note": f"Copre esubero +{delta} PLT"}
+
+    best = _pick_best(delta)
+    return {"status": "overload", "badge": best, "note": f"Copre esubero +{delta} PLT"}
 
 
 def render_riepilogo_giri_modern(
@@ -538,6 +708,23 @@ def render_riepilogo_giri_modern(
             sc = str(sr["store_code"]).strip()
             pv = str(sr.get("punto_vendita") or sr.get("brand") or "").strip()
             raw_ped = int(round(float(sr.get("pedane", 0) or 0)))
+
+            # Check store active status (Standby / Restructuring check)
+            is_st_active = True
+            if "attivo" in sr and str(sr.get("attivo", "SI")).strip().upper() == "NO":
+                is_st_active = False
+            elif "is_active" in sr and sr.get("is_active") is False:
+                is_st_active = False
+            elif sc in store_meta and str(store_meta[sc].get("attivo", "SI")).strip().upper() == "NO":
+                is_st_active = False
+
+            if not is_st_active:
+                # Excluded from transported volume / truck load!
+                store_badge = f"<span style='text-decoration: line-through; opacity: 0.65;'>{sc}</span> <span class='badge-standby' style='font-size:9.5px; padding:1px 5px;'>STANDBY (0 plt)</span>"
+                lbl = f"{store_badge} ({pv})" if pv else store_badge
+                if lbl not in seen_s:
+                    seen_s.append(lbl)
+                continue
 
             # Check if this store has active platform processing
             sp_info = special_stores.get(sc) if not is_b9_giro else None
