@@ -52,7 +52,9 @@ def init_db(db_path=DB_PATH):
             ("indirizzo", "TEXT"),
             ("provincia", "TEXT"),
             ("autista_doppia", "TEXT DEFAULT ''"),
-            ("tipo_mezzo_doppia", "TEXT DEFAULT ''")
+            ("tipo_mezzo_doppia", "TEXT DEFAULT ''"),
+            ("scorporo_profumi", "TEXT DEFAULT 'NO'"),
+            ("pezzi_profumi", "INTEGER DEFAULT 0"),
         ]:
             if col_name not in existing_cols:
                 cursor.execute(f"ALTER TABLE stores ADD COLUMN {col_name} {col_type}")
@@ -61,6 +63,10 @@ def init_db(db_path=DB_PATH):
         cursor.execute("UPDATE stores SET lavorazione = 'SI TESSILE' WHERE store_id IN ('3680', '9226', '3591') AND (lavorazione IS NULL OR lavorazione = 'NO')")
         cursor.execute("UPDATE stores SET lavorazione = 'SI HOME' WHERE store_id IN ('1984', '1971') AND (lavorazione IS NULL OR lavorazione = 'NO')")
         cursor.execute("UPDATE stores SET sdoppiamento_b9 = 'SI' WHERE store_id IN ('14010', '14825', '16723', '1984', '3503', '3680', '5349', '5367', '6525', '8428', '14010B', '14825B', '16723B', '1984B', '3503B', '3680B', '5349B', '5367B', '6525B', '8428B') AND (sdoppiamento_b9 IS NULL OR sdoppiamento_b9 = 'NO')")
+        cursor.execute("UPDATE stores SET scorporo_profumi = 'SI' WHERE store_id IN ('3680', '9226', '3591') AND (scorporo_profumi IS NULL OR scorporo_profumi = 'NO')")
+        cursor.execute("UPDATE stores SET pezzi_profumi = 1085 WHERE store_id = '3680' AND (pezzi_profumi IS NULL OR pezzi_profumi = 0)")
+        cursor.execute("UPDATE stores SET pezzi_profumi = 1791 WHERE store_id = '9226' AND (pezzi_profumi IS NULL OR pezzi_profumi = 0)")
+        cursor.execute("UPDATE stores SET pezzi_profumi = 1030 WHERE store_id = '3591' AND (pezzi_profumi IS NULL OR pezzi_profumi = 0)")
 
         # Execution Runs / Batches (Weekly / Cycle runs)
         cursor.execute("""
@@ -334,7 +340,7 @@ def update_store_record(store_id: str, updates: Dict[str, Any], db_path=DB_PATH)
         "store_name", "punto_vendita", "brand", "giro", "autista", "cell_autista",
         "tipo_mezzo", "vettore", "indirizzo", "provincia", "cod_sga", "cc",
         "attivo", "barra", "stender", "formula", "lavorazione", "sdoppiamento_b9",
-        "autista_doppia", "tipo_mezzo_doppia"
+        "autista_doppia", "tipo_mezzo_doppia", "scorporo_profumi", "pezzi_profumi"
     ]
     set_clauses = []
     values = []
@@ -417,8 +423,8 @@ def add_store_record(store_data: Dict[str, Any], db_path=DB_PATH):
         cursor.execute("""
         INSERT OR REPLACE INTO stores (
             store_id, store_name, punto_vendita, brand, giro, autista, cell_autista, tipo_mezzo, vettore, indirizzo, provincia, cod_sga, cc,
-            attivo, barra, stender, formula, lavorazione, sdoppiamento_b9, autista_doppia, tipo_mezzo_doppia
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            attivo, barra, stender, formula, lavorazione, sdoppiamento_b9, autista_doppia, tipo_mezzo_doppia, scorporo_profumi, pezzi_profumi
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             str(store_data["store_id"]).strip(),
             str(store_data.get("store_name", "")).strip(),
@@ -440,7 +446,9 @@ def add_store_record(store_data: Dict[str, Any], db_path=DB_PATH):
             str(store_data.get("lavorazione", "NO")).strip().upper(),
             str(store_data.get("sdoppiamento_b9", "NO")).strip().upper(),
             str(store_data.get("autista_doppia", "")).strip(),
-            str(store_data.get("tipo_mezzo_doppia", "")).strip()
+            str(store_data.get("tipo_mezzo_doppia", "")).strip(),
+            str(store_data.get("scorporo_profumi", "NO")).strip().upper(),
+            int(float(store_data.get("pezzi_profumi", 0) or 0)),
         ))
         conn.commit()
     from src.cloud_sync import auto_sync_tables
@@ -478,13 +486,19 @@ def bulk_update_stores(df_updated: pd.DataFrame, db_path=DB_PATH):
             vet_val = str(r.get("vettore", "LACCHI SPA") or "LACCHI SPA").strip()
             aut_d_val = str(r.get("autista_doppia", "") or "").strip()
             tm_d_val = str(r.get("tipo_mezzo_doppia", "") or "").strip()
+            scorp_val = str(r.get("scorporo_profumi", "NO") or "NO").strip().upper()
+            try:
+                pz_prof_val = int(float(r.get("pezzi_profumi", 0) or 0))
+            except Exception:
+                pz_prof_val = 0
 
             cursor.execute("""
             UPDATE stores
             SET store_name = ?, punto_vendita = ?, brand = ?, giro = ?,
                 autista = ?, cell_autista = ?, tipo_mezzo = ?, vettore = ?, indirizzo = ?, provincia = ?,
                 cod_sga = ?, cc = ?, attivo = ?, barra = ?, stender = ?, formula = ?,
-                lavorazione = ?, sdoppiamento_b9 = ?, autista_doppia = ?, tipo_mezzo_doppia = ?
+                lavorazione = ?, sdoppiamento_b9 = ?, autista_doppia = ?, tipo_mezzo_doppia = ?,
+                scorporo_profumi = ?, pezzi_profumi = ?
             WHERE store_id = ?
             """, (
                 str(r.get("store_name", "")).strip(),
@@ -507,6 +521,8 @@ def bulk_update_stores(df_updated: pd.DataFrame, db_path=DB_PATH):
                 str(r.get("sdoppiamento_b9", "NO")).strip().upper(),
                 aut_d_val,
                 tm_d_val,
+                scorp_val,
+                pz_prof_val,
                 sid
             ))
 

@@ -905,8 +905,6 @@ def compute_special_breakdowns(
         "9226": 1791.0,
         "3591": 1030.0
     }
-    if perfume_corrections_override:
-        perfume_corrections.update(perfume_corrections_override)
 
     store_names = {
         "3680": "C.C. Porta di Roma",
@@ -924,12 +922,24 @@ def compute_special_breakdowns(
         if "lavorazione" in df_stores.columns:
             tessile_ids = df_stores[df_stores["lavorazione"] == "SI TESSILE"]["store_id"].dropna().astype(str).tolist()
             home_ids = df_stores[df_stores["lavorazione"] == "SI HOME"]["store_id"].dropna().astype(str).tolist()
+        if "scorporo_profumi" in df_stores.columns:
+            for _, s_row in df_stores.iterrows():
+                sid_s = str(s_row["store_id"]).strip()
+                if str(s_row.get("scorporo_profumi", "NO")).strip().upper() == "SI":
+                    perfume_corrections[sid_s] = _safe_float(s_row.get("pezzi_profumi", perfume_corrections.get(sid_s, 0.0)))
+                    if sid_s not in tessile_ids:
+                        tessile_ids.append(sid_s)
+                else:
+                    perfume_corrections[sid_s] = 0.0
         for _, s_row in df_stores.iterrows():
             sid_s = str(s_row["store_id"]).strip()
             sname = str(s_row.get("store_name", "")).strip()
             if sname:
                 store_names[sid_s] = sname
                 zh_names[sid_s] = sname
+
+    if perfume_corrections_override:
+        perfume_corrections.update(perfume_corrections_override)
 
     if not tessile_ids:
         tessile_ids = ["3680", "9226", "3591"]

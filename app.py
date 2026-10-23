@@ -25,6 +25,8 @@ from src.cloud_sync import (
     set_cloud_url,
     push_tables_to_cloud,
     pull_all_from_cloud,
+    get_extranet_credentials,
+    set_extranet_credentials,
 )
 
 from src.config import (
@@ -272,24 +274,36 @@ if menu == "📥 1. Previsione & Arrivi":
 
     cycle_desde, cycle_hasta = get_cycle_date_range(cycle_type, run_date)
 
-    # 2. Scorporo Profumi SEMPRE VISIBILE
-    st.markdown('<div class="quick-bar">', unsafe_allow_html=True)
-    st.markdown("##### 🧴 Scorporo Profumi (Negozi con Lavorazione Tessile: 3680, 9226, 3591)")
-    st.caption("Inserisci i pezzi di profumi da scorporare dai capi piegati prima di avviare l'elaborazione (necessario per il calcolo netto dei bancali PLT e dei capi lavorati):")
-    col_p1, col_p2, col_p3 = st.columns(3)
-    with col_p1:
-        perfume_3680 = st.number_input("Negozio 3680 (Porta di Roma) — Pezzi Profumi", value=1085, min_value=0, step=1, key="perfume_3680")
-    with col_p2:
-        perfume_9226 = st.number_input("Negozio 9226 (Via del Corso) — Pezzi Profumi", value=1791, min_value=0, step=1, key="perfume_9226")
-    with col_p3:
-        perfume_3591 = st.number_input("Negozio 3591 (Euroma2) — Pezzi Profumi", value=1030, min_value=0, step=1, key="perfume_3591")
-    st.markdown('</div>', unsafe_allow_html=True)
+    # 2. Scorporo Profumi SEMPRE VISIBILE (letto dinamicamente dai negozi con Scorporo Profumi = 'SI' in Anagrafica)
+    df_all_stores = get_stores_df()
+    if "scorporo_profumi" in df_all_stores.columns:
+        df_prof_stores = df_all_stores[df_all_stores["scorporo_profumi"].fillna("NO").astype(str).str.upper() == "SI"].copy()
+    else:
+        df_prof_stores = df_all_stores[df_all_stores["store_id"].isin(["3680", "9226", "3591"])].copy()
 
-    perfume_corrections = {
-        "3680": float(perfume_3680),
-        "9226": float(perfume_9226),
-        "3591": float(perfume_3591),
-    }
+    st.markdown('<div class="quick-bar">', unsafe_allow_html=True)
+    st.markdown("##### 🧴 Scorporo Profumi (Negozi Abilitati in Anagrafica)")
+    st.caption("Pezzi di profumi da scorporare dai capi piegati per il calcolo netto dei bancali (PLT) e dei capi lavorati. Puoi abilitare/disabilitare i negozi dall'Anagrafica Negozi:")
+
+    perfume_corrections = {}
+    if not df_prof_stores.empty:
+        prof_cols = st.columns(min(len(df_prof_stores), 4))
+        for idx_p, (_, prow) in enumerate(df_prof_stores.iterrows()):
+            p_sid = str(prow["store_id"]).strip()
+            p_sname = str(prow.get("store_name", "")).strip()
+            default_pz = int(float(prow.get("pezzi_profumi", 0) or 0))
+            with prof_cols[idx_p % len(prof_cols)]:
+                val_pz = st.number_input(
+                    f"Negozio {p_sid} ({p_sname}) — Pezzi Profumi",
+                    value=default_pz,
+                    min_value=0,
+                    step=1,
+                    key=f"perfume_{p_sid}",
+                )
+                perfume_corrections[p_sid] = float(val_pz)
+    else:
+        st.info("Nessun negozio ha l'opzione 'Scorporo Profumi = SI' attiva in Anagrafica Negozi.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # 3. Sorgente Dati: Default = Prelievo Automatico da Extranet | Secondario = Caricamento Manuale (Emergenza)
     tab_src_extranet, tab_src_upload = st.tabs([
@@ -300,27 +314,24 @@ if menu == "📥 1. Previsione & Arrivi":
     with tab_src_extranet:
         st.caption(
             f"In base alla **Data Riferimento ({format_date_it(run_date)})** e al ciclo **{cycle_type}**, "
-            f"il sistema ricerca automaticamente su Extranet le spedizioni della settimana dal **{format_date_it(cycle_desde)}** al **{format_date_it(cycle_hasta)}** (puoi modificare le date qui sotto se necessario):"
+            f"il sistema ricerca automaticamente su Extranet le spedizioni della settimana dal **{format_date_it(cycle_desde)}** al **{format_date_it(cycle_hasta)}** (modificabili qui sotto se necessario):"
         )
-        col_ex1, col_ex2, col_ex3, col_ex4 = st.columns([1.2, 1.2, 1.3, 1.3])
+        col_ex1, col_ex2 = st.columns(2)
         with col_ex1:
             sc_desde = st.date_input("📅 Spedizioni Dal (Inizio)", value=cycle_desde, format="DD/MM/YYYY", key=f"sc_d_{cycle_type}_{run_date}")
         with col_ex2:
             sc_hasta = st.date_input("📅 Spedizioni Al (Fine)", value=cycle_hasta, format="DD/MM/YYYY", key=f"sc_h_{cycle_type}_{run_date}")
-        with col_ex3:
-            ex_user = st.text_input("👤 Utente Extranet", value=EXTRANET_DEFAULT_USER, key="ex_usr")
-        with col_ex4:
-            ex_pass = st.text_input("🔑 Password Extranet", value=EXTRANET_DEFAULT_PASS, type="password", key="ex_pwd")
+
+        ex_user, ex_pass = get_extranet_credentials()
 
         if st.button("🌐 SCARICA DA EXTRANET ED ELABORA", type="primary", use_container_width=True, key="btn_ask_scrape"):
             st.session_state["confirm_perfume_mode"] = "extranet"
 
         if st.session_state.get("confirm_perfume_mode") == "extranet":
+            prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno"
             st.warning(
                 f"🧴 **Hai aggiornato correttamente i profumi?**\n\n"
-                f"Valori impostati: **3680 (Porta di Roma)** = `{perfume_3680}` pz | "
-                f"**9226 (Via del Corso)** = `{perfume_9226}` pz | "
-                f"**3591 (Euroma2)** = `{perfume_3591}` pz"
+                f"Valori impostati: {prof_summary_str}"
             )
             c_cf1, c_cf2 = st.columns(2)
             with c_cf1:
@@ -332,6 +343,11 @@ if menu == "📥 1. Previsione & Arrivi":
 
             if confirm_extranet_go:
                 st.session_state.pop("confirm_perfume_mode", None)
+                # Salva i valori aggiornati dei profumi direttamente in Anagrafica Negozi
+                for p_sid, p_val in perfume_corrections.items():
+                    update_store_record(p_sid, {"pezzi_profumi": int(p_val)})
+                st.toast("✅ Hai aggiornato correttamente i profumi in anagrafica!", icon="🧴")
+
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                 temp_extract_dir = DATA_DIR / "downloads" / f"extranet_{ts}"
                 temp_extract_dir.mkdir(parents=True, exist_ok=True)
@@ -372,6 +388,7 @@ if menu == "📥 1. Previsione & Arrivi":
                     prog_bar.progress(100)
                     status_text.write("✅ **100%** - Estrazione ed elaborazione completate!")
                     st.session_state["last_run"] = res
+                    st.success("🧴 Hai aggiornato correttamente i profumi!")
                     st.success(f"🎉 Elaborazione completata! Run ID: **#{res['run_id']}**")
                 except Exception as e:
                     st.error(f"Errore durante l'estrazione da Extranet: {e}")
@@ -399,11 +416,10 @@ if menu == "📥 1. Previsione & Arrivi":
             st.session_state["confirm_perfume_mode"] = "upload"
 
         if st.session_state.get("confirm_perfume_mode") == "upload":
+            prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno"
             st.warning(
                 f"🧴 **Hai aggiornato correttamente i profumi?**\n\n"
-                f"Valori impostati: **3680 (Porta di Roma)** = `{perfume_3680}` pz | "
-                f"**9226 (Via del Corso)** = `{perfume_9226}` pz | "
-                f"**3591 (Euroma2)** = `{perfume_3591}` pz"
+                f"Valori impostati: {prof_summary_str}"
             )
             c_cu1, c_cu2 = st.columns(2)
             with c_cu1:
@@ -415,6 +431,9 @@ if menu == "📥 1. Previsione & Arrivi":
 
             if confirm_upload_go:
                 st.session_state.pop("confirm_perfume_mode", None)
+                for p_sid, p_val in perfume_corrections.items():
+                    update_store_record(p_sid, {"pezzi_profumi": int(p_val)})
+                st.success("🧴 Hai aggiornato correttamente i profumi!")
                 with st.spinner("Calcolo Spunta Arrivi, suddivisione Sdoppiamenti /0-/9 e salvataggio storico..."):
                     try:
                         res = run_pipeline(
@@ -1117,7 +1136,8 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
             ]
 
         grid_cols = [
-            "store_id", "store_name", "brand", "giro", "attivo", "lavorazione", "sdoppiamento_b9",
+            "store_id", "store_name", "brand", "giro", "attivo", "lavorazione",
+            "scorporo_profumi", "pezzi_profumi", "sdoppiamento_b9",
             "formula", "autista", "cell_autista", "tipo_mezzo", "autista_doppia", "tipo_mezzo_doppia",
             "indirizzo", "provincia", "cod_sga", "cc"
         ]
@@ -1132,6 +1152,8 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                 "giro": st.column_config.TextColumn("Giro", required=True),
                 "attivo": st.column_config.SelectboxColumn("Attivo", options=["SI", "NO"], required=True),
                 "lavorazione": st.column_config.SelectboxColumn("Lavorazione", options=["NO", "SI TESSILE", "SI HOME"], required=True),
+                "scorporo_profumi": st.column_config.SelectboxColumn("Scorporo Profumi", options=["NO", "SI"], required=True),
+                "pezzi_profumi": st.column_config.NumberColumn("Pezzi Profumi", min_value=0, step=1, format="%d"),
                 "sdoppiamento_b9": st.column_config.SelectboxColumn("Sdopp. /0-/9", options=["NO", "SI"], required=True),
                 "formula": st.column_config.TextColumn("Formula Pedane", required=True),
                 "autista": st.column_config.TextColumn("Autista STD"),
@@ -1222,6 +1244,14 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
             lav_opts = ["NO", "SI TESSILE", "SI HOME"]
             e_lav = st.selectbox("Lavorazione Piattaforma", lav_opts, index=lav_opts.index(curr_lav) if curr_lav in lav_opts else 0, key=f"e_lav_{sel_store_id}")
 
+            curr_scorp = str(curr_row.get("scorporo_profumi", "NO") or "NO").strip().upper()
+            e_scorp = st.selectbox("🧴 Scorporo Profumi", ["NO", "SI"], index=1 if curr_scorp == "SI" else 0, key=f"e_scorp_{sel_store_id}")
+            curr_pz_prof = int(float(curr_row.get("pezzi_profumi", 0) or 0))
+            if e_scorp == "SI":
+                e_pz_prof = st.number_input("🧴 Pezzi Profumi da Scorporare", value=curr_pz_prof, min_value=0, step=1, key=f"e_pz_prof_{sel_store_id}")
+            else:
+                e_pz_prof = curr_pz_prof
+
             curr_sdop = str(curr_row.get("sdoppiamento_b9", "NO")).strip().upper()
             e_sdop = st.radio("Sdoppiamento Consegna /0 e /9 ('B')", ["NO (Consegna unica)", "SI (Divide 70% /0 e 30% /9 'B')"], index=1 if curr_sdop == "SI" else 0, key=f"e_sdop_{sel_store_id}")
 
@@ -1254,6 +1284,8 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                     "cc": e_cc.strip(),
                     "attivo": "SI" if e_attivo.startswith("SI") else "NO",
                     "lavorazione": e_lav,
+                    "scorporo_profumi": e_scorp,
+                    "pezzi_profumi": int(e_pz_prof),
                     "sdoppiamento_b9": val_sdop_now,
                     "autista_doppia": e_aut_d if val_sdop_now == "SI" else "",
                     "tipo_mezzo_doppia": e_mezzo_d if val_sdop_now == "SI" else "",
@@ -1385,6 +1417,18 @@ elif menu == "🗄️ 5. Storico & Backup Cloud":
             script_path = Path(__file__).resolve().parent / "google_apps_script_db.js"
             if script_path.exists():
                 st.code(script_path.read_text(encoding="utf-8"), language="javascript")
+
+        with st.expander("🔐 Credenziali Extranet Inditex (Salvate per il Prelievo Automatico)"):
+            st.caption("Queste credenziali sono già salvate nel sistema per non doverle mai inserire nella schermata giornaliera. Modificale qui solo in caso di cambio password su Inditex:")
+            saved_u, saved_p = get_extranet_credentials()
+            c_eu, c_ep = st.columns(2)
+            with c_eu:
+                new_ext_u = st.text_input("Utente Extranet", value=saved_u, key="cfg_ext_u")
+            with c_ep:
+                new_ext_p = st.text_input("Password Extranet", value=saved_p, type="password", key="cfg_ext_p")
+            if st.button("💾 Salva Credenziali Extranet", type="primary", key="btn_save_ext_creds"):
+                set_extranet_credentials(new_ext_u, new_ext_p)
+                st.success("✅ Credenziali Extranet salvate con successo!")
 
     with tab_hist:
         runs = get_all_runs()

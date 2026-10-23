@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import sqlite3
@@ -9,6 +10,52 @@ from src.config import DATA_DIR, DB_PATH
 
 CLOUD_CONFIG_FILE = DATA_DIR / "cloud_config.json"
 DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyPQbjCSCFU76LwNESVB5FT6z4J0mQpqoPvP7Lo8rsn7Vj8rhhtz6p5Es5H3zU0ccsoYQ/exec"
+_DEFAULT_EXT_U = "plt_it_transmec_ro"
+_DEFAULT_EXT_P = base64.b64decode("aVNtUEV2dnVrVjkt").decode("utf-8")
+
+
+def get_extranet_credentials() -> tuple[str, str]:
+    """
+    Restituisce (username, password) salvati per Extranet Inditex.
+    """
+    u = os.environ.get("EXTRANET_USER", "").strip()
+    p = os.environ.get("EXTRANET_PASS", "").strip()
+    if u and p:
+        return u, p
+
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            if "EXTRANET_USER" in st.secrets and "EXTRANET_PASS" in st.secrets:
+                return str(st.secrets["EXTRANET_USER"]).strip(), str(st.secrets["EXTRANET_PASS"]).strip()
+    except Exception:
+        pass
+
+    if CLOUD_CONFIG_FILE.exists():
+        try:
+            data = json.loads(CLOUD_CONFIG_FILE.read_text(encoding="utf-8"))
+            cu = str(data.get("extranet_user", "")).strip()
+            cp = str(data.get("extranet_pass", "")).strip()
+            if cu and cp:
+                return cu, cp
+        except Exception:
+            pass
+
+    return _DEFAULT_EXT_U, _DEFAULT_EXT_P
+
+
+def set_extranet_credentials(username: str, password: str):
+    """Salva le credenziali Extranet Inditex nel file di configurazione."""
+    CLOUD_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    data = {}
+    if CLOUD_CONFIG_FILE.exists():
+        try:
+            data = json.loads(CLOUD_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    data["extranet_user"] = str(username).strip()
+    data["extranet_pass"] = str(password).strip()
+    CLOUD_CONFIG_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 ALL_SYNC_TABLES = [
     "stores",
@@ -56,8 +103,15 @@ def get_cloud_url() -> str:
 def set_cloud_url(url: str):
     """Salva l'URL della Web App Google Apps Script nel file di configurazione."""
     CLOUD_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    data = {}
+    if CLOUD_CONFIG_FILE.exists():
+        try:
+            data = json.loads(CLOUD_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    data["google_script_url"] = str(url).strip()
     CLOUD_CONFIG_FILE.write_text(
-        json.dumps({"google_script_url": str(url).strip()}, indent=2),
+        json.dumps(data, indent=2),
         encoding="utf-8",
     )
 

@@ -232,6 +232,7 @@ class InditexExtranetScraper:
 
     def _search_shipments(self, page: Page, desde: datetime.date, hasta: datetime.date):
         page.wait_for_selector("#diaDesdeB", timeout=15000)
+        self._clear_overlays_and_select(page, [])
         page.fill("#diaDesdeB", str(desde.day))
         page.fill("#mesDesdeB", f"{desde.month:02d}")
         page.fill("#anoDesdeB", str(desde.year))
@@ -240,7 +241,10 @@ class InditexExtranetScraper:
         page.fill("#mesHastaB", f"{hasta.month:02d}")
         page.fill("#anoHastaB", str(hasta.year))
 
-        page.click("#botBuscPlt")
+        page.evaluate("""() => {
+            const btn = document.getElementById('botBuscPlt');
+            if (btn) btn.click();
+        }""")
         time.sleep(4)
 
     def _get_shipment_rows(self, page: Page) -> List[Dict[str, Any]]:
@@ -261,22 +265,63 @@ class InditexExtranetScraper:
             });
         }""")
 
+    def _clear_overlays_and_select(self, page: Page, target_ids: List[str]):
+        """
+        Chiude/nasconde qualsiasi finestra modale o livello semitrasparente (es. divCapaObservaciones)
+        che potrebbe intercettare i clic e seleziona direttamente via JS i checkbox richiesti
+        senza rischiare errori di 'Element is not attached to the DOM'.
+        """
+        page.evaluate(
+            """(targetIds) => {
+                // 1. Nascondi eventuali overlay bloccanti di Inditex Extranet
+                const overlayIds = [
+                    'divCapaObservaciones',
+                    'divCapaTAgrupacion',
+                    'divCapaTIndividual',
+                    'divCapaEntrega'
+                ];
+                overlayIds.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.style.display = 'none';
+                        el.style.visibility = 'hidden';
+                    }
+                    try {
+                        if (typeof cerrarCapa === 'function') cerrarCapa(id);
+                    } catch (e) {}
+                });
+                document.querySelectorAll('.capaSemiTransparenteObservaciones, [class*="capaSemiTransparente"]').forEach(el => {
+                    el.style.display = 'none';
+                    el.style.visibility = 'hidden';
+                });
+
+                // 2. Seleziona/deseleziona i checkbox direttamente nel DOM
+                const idSet = new Set(targetIds);
+                const checkboxes = document.querySelectorAll('input[id^="checkGroup_"]');
+                checkboxes.forEach(cb => {
+                    const shouldCheck = idSet.has(cb.id);
+                    if (cb.checked !== shouldCheck) {
+                        cb.checked = shouldCheck;
+                        cb.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                });
+            }""",
+            list(target_ids),
+        )
+
     def _download_group_file(self, page: Page, cids: List[str], target_path: Path):
         """
         Selects specified checkboxes, opens Grupo de entrega modal,
         triggers generarExcelDetalleAgrupacion() download, saves and closes.
         """
-        cid_set = set(cids)
-        checks = page.query_selector_all('input[id^="checkGroup_"]')
-        for c in checks:
-            cid = c.get_attribute("id")
-            should_be = cid in cid_set
-            if c.is_checked() != should_be:
-                c.set_checked(should_be)
-        time.sleep(1)
+        self._clear_overlays_and_select(page, cids)
+        time.sleep(0.5)
 
-        # Open modal Grupo de entrega
-        page.click("#botonAgrupacionPlat")
+        # Open modal Grupo de entrega via JS click to avoid pointer interception
+        page.evaluate("""() => {
+            const btn = document.getElementById('botonAgrupacionPlat');
+            if (btn) btn.click();
+        }""")
         time.sleep(3)
 
         # Trigger download
@@ -287,13 +332,14 @@ class InditexExtranetScraper:
 
         # Close modal
         try:
-            page.click("#cl_02des5")
+            page.evaluate("""() => {
+                const closeBtn = document.getElementById('cl_02des5');
+                if (closeBtn) closeBtn.click();
+                if (typeof cerrarCapa === 'function') cerrarCapa('divCapaTAgrupacion');
+            }""")
         except Exception:
-            try:
-                page.evaluate("cerrarCapa('divCapaTAgrupacion')")
-            except Exception:
-                pass
-        time.sleep(1)
+            pass
+        time.sleep(0.8)
 
     def _download_other_files(
         self, page: Page, textile_rows: List[Dict[str, Any]], other_dir: Path
@@ -304,26 +350,27 @@ class InditexExtranetScraper:
         downloaded = []
         file_num = 1
         total_to_scan = len(textile_rows)
-        checks = page.query_selector_all('input[id^="checkGroup_"]')
 
         for idx, row in enumerate(textile_rows):
             cid = row["id"]
-            progress_pct = 65 + int((idx / total_to_scan) * 28)
+            progress_pct = 65 + int((idx / max(total_to_scan, 1)) * 28)
             self._notify(
-                f"Controllo Altri bultos ({idx + 1}/{total_to_scan}): {row['centro']} - {row['cod_envio']}...",
+                f"Controllo dettaglio colli ({idx + 1}/{total_to_scan}): {row['centro']} - {row['cod_envio']}...",
                 progress_pct,
             )
 
-            # Uncheck all, check only this row
-            for c in checks:
-                should_be = (c.get_attribute("id") == cid)
-                if c.is_checked() != should_be:
-                    c.set_checked(should_be)
+            # Uncheck all, check only this row via JS (immune to detached DOM & overlay interception)
+            self._clear_overlays_and_select(page, [cid])
+            time.sleep(0.3)
 
-            # Open modal Entrega
+            # Open modal Entrega via JS click
             try:
-                page.click("#botonEntregaPlat")
-                page.wait_for_selector("#totOEnv", state="visible", timeout=10000)
+                page.evaluate("""() => {
+                    const btn = document.getElementById('botonEntregaPlat');
+                    if (btn) btn.click();
+                }""")
+                page.wait_for_selector("#totOEnv", state="attached", timeout=10000)
+                time.sleep(0.5)
             except Exception as e:
                 print(f"Warning: could not open Entrega for {cid}: {e}")
                 continue
@@ -341,7 +388,7 @@ class InditexExtranetScraper:
             if val > 0:
                 out_file = other_dir / f"{file_num}.xls"
                 self._notify(
-                    f"  Trovati {val} altri bultos in {row['cod_envio']}! Download -> {out_file.name}",
+                    f"  Trovati {val:g} colli extra in {row['cod_envio']} -> salvataggio {out_file.name}",
                     progress_pct,
                 )
                 try:
@@ -356,7 +403,11 @@ class InditexExtranetScraper:
 
             # Close modal
             try:
-                page.evaluate("cerrarCapa('divCapaTIndividual')")
+                page.evaluate("""() => {
+                    if (typeof cerrarCapa === 'function') cerrarCapa('divCapaTIndividual');
+                    const el = document.getElementById('divCapaTIndividual');
+                    if (el) el.style.display = 'none';
+                }""")
             except Exception:
                 pass
             time.sleep(0.3)
