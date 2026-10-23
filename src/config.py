@@ -42,4 +42,4 @@ EXTRANET_BUZON_URL = os.getenv(
     "https://extranet.inditex.com/AgenteAduanas/Plataformas/getPlataforma.html?method=getBuzonPlataforma"
 )
 EXTRANET_DEFAULT_USER = os.getenv("EXTRANET_USER", "plt_it_transmec_ro")
-EXTRANET_DEFAULT_PASS = os.getenv("EXTRANET_PASS", "iSmPEvvukV9-")
+EXTRANET_DEFAULT_PASS = os.getenv("EXTRANET_PASS", "")
