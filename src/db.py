@@ -493,82 +493,61 @@ def delete_store_record(store_id: str, db_path=DB_PATH):
 
 
 def bulk_update_stores(df_updated: pd.DataFrame, db_path=DB_PATH):
-    """Bulk updates stores table from a modified DataFrame."""
+    """Bulk updates stores table from a modified DataFrame, dynamically updating only columns present."""
+    if df_updated.empty or "store_id" not in df_updated.columns:
+        return 0
+
+    allowed_cols = [
+        "store_name", "punto_vendita", "brand", "giro", "autista", "cell_autista",
+        "tipo_mezzo", "vettore", "indirizzo", "provincia", "cod_sga", "cc",
+        "attivo", "barra", "stender", "formula", "lavorazione", "sdoppiamento_b9",
+        "autista_doppia", "tipo_mezzo_doppia", "scorporo_profumi", "pezzi_profumi"
+    ]
+    cols_to_update = [c for c in df_updated.columns if c in allowed_cols]
+    if not cols_to_update:
+        return 0
+
+    set_sql = ", ".join(f"{c} = ?" for c in cols_to_update)
+    query = f"UPDATE stores SET {set_sql} WHERE store_id = ?"
+
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
         for _, r in df_updated.iterrows():
             sid = str(r["store_id"]).strip()
-            cod_val = r.get("cod_sga")
-            try:
-                cod_sga_int = int(cod_val) if pd.notna(cod_val) and str(cod_val).isdigit() else None
-            except:
-                cod_sga_int = None
+            vals = []
+            for c in cols_to_update:
+                val = r[c]
+                if pd.isna(val):
+                    vals.append(None)
+                elif c == "cod_sga":
+                    try:
+                        vals.append(int(val) if str(val).isdigit() else None)
+                    except:
+                        vals.append(None)
+                elif c in ["attivo", "lavorazione", "scorporo_profumi", "sdoppiamento_b9"]:
+                    vals.append(str(val).strip().upper())
+                else:
+                    vals.append(str(val).strip())
+            vals.append(sid)
+            cursor.execute(query, tuple(vals))
 
-            aut_val = str(r.get("autista", "") or "").strip()
-            cell_val = str(r.get("cell_autista", "") or "").strip()
-            tm_val = str(r.get("tipo_mezzo", "") or "").strip()
-            ind_val = str(r.get("indirizzo", "") or "").strip()
-            prov_val = str(r.get("provincia", "") or "").strip()
-            vet_val = str(r.get("vettore", "LACCHI SPA") or "LACCHI SPA").strip()
-            aut_d_val = str(r.get("autista_doppia", "") or "").strip()
-            tm_d_val = str(r.get("tipo_mezzo_doppia", "") or "").strip()
-            scorp_val = str(r.get("scorporo_profumi", "NO") or "NO").strip().upper()
-            try:
-                pz_prof_val = int(float(r.get("pezzi_profumi", 0) or 0))
-            except Exception:
-                pz_prof_val = 0
+            # Delivery profile sync if driver/vehicle/name changed
+            if any(f in cols_to_update for f in ["autista", "cell_autista", "tipo_mezzo", "indirizzo", "provincia", "store_name"]):
+                cursor.execute("SELECT store_name, punto_vendita, provincia, tipo_mezzo, autista, cell_autista, indirizzo FROM stores WHERE store_id = ?", (sid,))
+                s_row = cursor.fetchone()
+                if s_row:
+                    s_name, s_pv, s_prov, s_tm, s_aut, s_cell, s_ind = s_row
+                    aut_display = f"{s_aut} ({s_cell})" if s_cell and str(s_cell).strip() else (s_aut or "")
+                    cursor.execute("""
+                    INSERT OR REPLACE INTO store_delivery_profiles 
+                    (id_store, tipo_cons, punto_vendita, store_name, provincia, tipo_mezzo, autista, indirizzo)
+                    VALUES (?, 'STD', ?, ?, ?, ?, ?, ?)
+                    """, (sid, s_pv, s_name, s_prov, s_tm, aut_display, s_ind))
 
-            cursor.execute("""
-            UPDATE stores
-            SET store_name = ?, punto_vendita = ?, brand = ?, giro = ?,
-                autista = ?, cell_autista = ?, tipo_mezzo = ?, vettore = ?, indirizzo = ?, provincia = ?,
-                cod_sga = ?, cc = ?, attivo = ?, barra = ?, stender = ?, formula = ?,
-                lavorazione = ?, sdoppiamento_b9 = ?, autista_doppia = ?, tipo_mezzo_doppia = ?,
-                scorporo_profumi = ?, pezzi_profumi = ?
-            WHERE store_id = ?
-            """, (
-                str(r.get("store_name", "")).strip(),
-                str(r.get("punto_vendita", "")).strip(),
-                str(r.get("brand", "")).strip(),
-                str(r.get("giro", "")).strip(),
-                aut_val,
-                cell_val,
-                tm_val,
-                vet_val,
-                ind_val,
-                prov_val,
-                cod_sga_int,
-                str(r.get("cc", "")).strip(),
-                str(r.get("attivo", "SI")).strip().upper(),
-                str(r.get("barra", "BARRA 0")).strip(),
-                str(r.get("stender", "NO")).strip().upper(),
-                str(r.get("formula", "MC/1,9")).strip(),
-                str(r.get("lavorazione", "NO")).strip().upper(),
-                str(r.get("sdoppiamento_b9", "NO")).strip().upper(),
-                aut_d_val,
-                tm_d_val,
-                scorp_val,
-                pz_prof_val,
-                sid
-            ))
-
-            aut_disp = f"{aut_val} ({cell_val})" if cell_val else aut_val
-            cursor.execute("""
-            INSERT OR REPLACE INTO store_delivery_profiles
-            (id_store, tipo_cons, punto_vendita, store_name, provincia, tipo_mezzo, autista, indirizzo)
-            VALUES (?, 'STD', ?, ?, ?, ?, ?, ?)
-            """, (
-                sid,
-                str(r.get("punto_vendita", "")).strip(),
-                str(r.get("store_name", "")).strip(),
-                prov_val,
-                tm_val,
-                aut_disp,
-                ind_val
-            ))
         conn.commit()
     from src.cloud_sync import auto_sync_tables
     auto_sync_tables(["stores", "store_delivery_profiles"])
+    return len(df_updated)
 
 
 
@@ -637,7 +616,8 @@ def delete_vehicle_record(cod_mezzo: str, db_path=DB_PATH):
     """Deletes a vehicle from the registry."""
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM vehicles WHERE cod_mezzo = ?", (str(cod_mezzo).strip().upper(),))
+        c_m = str(cod_mezzo).strip().upper()
+        cursor.execute("DELETE FROM vehicles WHERE UPPER(TRIM(cod_mezzo)) = ?", (c_m,))
         conn.commit()
     from src.cloud_sync import auto_sync_tables
     auto_sync_tables(["vehicles"])
@@ -654,7 +634,7 @@ def bulk_update_vehicles(df_updated: pd.DataFrame, db_path=DB_PATH):
             cursor.execute("""
             UPDATE vehicles
             SET tipo_mezzo = ?, descrizione = ?, capienza_pedane = ?, attivo = ?, note = ?
-            WHERE cod_mezzo = ?
+            WHERE UPPER(TRIM(cod_mezzo)) = ?
             """, (
                 str(r.get("tipo_mezzo", "")).strip().upper(),
                 str(r.get("descrizione", "")).strip(),
