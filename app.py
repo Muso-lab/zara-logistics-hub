@@ -255,33 +255,35 @@ if menu == "📥 1. Previsione & Arrivi":
     # 1. Parametri Ciclo
     col_meta1, col_meta2, col_meta3 = st.columns([1.2, 2, 1.8])
     with col_meta1:
-        run_date = st.date_input("Data Riferimento", value=date.today(), format="DD/MM/YYYY")
+        run_date = st.date_input("📅 Data Riferimento", value=date.today(), format="DD/MM/YYYY")
     with col_meta2:
         default_idx = 0 if run_date.weekday() <= 2 else 1
         cycle_choice = st.selectbox(
-            "Ciclo Settimanale Operativo",
+            "🔄 Ciclo Settimanale Operativo",
             [
-                "LUN-MER (Consegna Mercoledì - Spedizioni Lun-Mer)",
-                "GIOV-DOM (Consegna Sabato - Spedizioni Giov-Dom)",
+                "LUN-MER (Consegna Mercoledì — Spedizioni da Lunedì a Mercoledì)",
+                "GIOV-DOM (Consegna Sabato — Spedizioni da Giovedì a Domenica)",
             ],
             index=default_idx,
         )
         cycle_type = "LUN-MER" if "LUN-MER" in cycle_choice else "GIOV-DOM"
     with col_meta3:
-        notes = st.text_input("Note / Riferimento", value=f"Elaborazione W{run_date.isocalendar()[1]} ({cycle_type})")
+        notes = st.text_input("📝 Note / Riferimento", value=f"Elaborazione W{run_date.isocalendar()[1]} ({cycle_type})")
 
     cycle_desde, cycle_hasta = get_cycle_date_range(cycle_type, run_date)
 
-    # Scorporo Profumi compatto in un expander
-    with st.expander("🧴 Parametri Scorporo Profumi (Negozi con Lavorazione Tessile: 3680, 9226, 3591)", expanded=False):
-        st.caption("Pezzi profumi da scorporare dalla Paquetería per il calcolo netto dei bancali (PLT) e dei capi lavorati:")
-        col_p1, col_p2, col_p3 = st.columns(3)
-        with col_p1:
-            perfume_3680 = st.number_input("Store 3680 (Porta di Roma)", value=1085, min_value=0, step=1, key="perfume_3680")
-        with col_p2:
-            perfume_9226 = st.number_input("Store 9226 (Via del Corso)", value=1791, min_value=0, step=1, key="perfume_9226")
-        with col_p3:
-            perfume_3591 = st.number_input("Store 3591 (Euroma2)", value=1030, min_value=0, step=1, key="perfume_3591")
+    # 2. Scorporo Profumi SEMPRE VISIBILE
+    st.markdown('<div class="quick-bar">', unsafe_allow_html=True)
+    st.markdown("##### 🧴 Scorporo Profumi (Negozi con Lavorazione Tessile: 3680, 9226, 3591)")
+    st.caption("Inserisci i pezzi di profumi da scorporare dai capi piegati prima di avviare l'elaborazione (necessario per il calcolo netto dei bancali PLT e dei capi lavorati):")
+    col_p1, col_p2, col_p3 = st.columns(3)
+    with col_p1:
+        perfume_3680 = st.number_input("Negozio 3680 (Porta di Roma) — Pezzi Profumi", value=1085, min_value=0, step=1, key="perfume_3680")
+    with col_p2:
+        perfume_9226 = st.number_input("Negozio 9226 (Via del Corso) — Pezzi Profumi", value=1791, min_value=0, step=1, key="perfume_9226")
+    with col_p3:
+        perfume_3591 = st.number_input("Negozio 3591 (Euroma2) — Pezzi Profumi", value=1030, min_value=0, step=1, key="perfume_3591")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     perfume_corrections = {
         "3680": float(perfume_3680),
@@ -289,16 +291,95 @@ if menu == "📥 1. Previsione & Arrivi":
         "3591": float(perfume_3591),
     }
 
-    # 2. Caricamento Sorgente Dati (Semplificato e indipendente dal PC)
-    tab_src_upload, tab_src_extranet = st.tabs([
-        "📤 Caricamento Rapido File (Unico Box Multi-File o .ZIP)",
-        "🌐 Prelievo Automatico da Extranet Inditex (1-Clic)",
+    # 3. Sorgente Dati: Default = Prelievo Automatico da Extranet | Secondario = Caricamento Manuale (Emergenza)
+    tab_src_extranet, tab_src_upload = st.tabs([
+        "🌐 Prelievo Automatico da Extranet Inditex (Default)",
+        "📤 Caricamento Manuale File (Emergenza)",
     ])
 
+    with tab_src_extranet:
+        st.caption(
+            f"In base alla **Data Riferimento ({format_date_it(run_date)})** e al ciclo **{cycle_type}**, "
+            f"il sistema ricerca automaticamente su Extranet le spedizioni della settimana dal **{format_date_it(cycle_desde)}** al **{format_date_it(cycle_hasta)}** (puoi modificare le date qui sotto se necessario):"
+        )
+        col_ex1, col_ex2, col_ex3, col_ex4 = st.columns([1.2, 1.2, 1.3, 1.3])
+        with col_ex1:
+            sc_desde = st.date_input("📅 Spedizioni Dal (Inizio)", value=cycle_desde, format="DD/MM/YYYY", key=f"sc_d_{cycle_type}_{run_date}")
+        with col_ex2:
+            sc_hasta = st.date_input("📅 Spedizioni Al (Fine)", value=cycle_hasta, format="DD/MM/YYYY", key=f"sc_h_{cycle_type}_{run_date}")
+        with col_ex3:
+            ex_user = st.text_input("👤 Utente Extranet", value=EXTRANET_DEFAULT_USER, key="ex_usr")
+        with col_ex4:
+            ex_pass = st.text_input("🔑 Password Extranet", value=EXTRANET_DEFAULT_PASS, type="password", key="ex_pwd")
+
+        if st.button("🌐 SCARICA DA EXTRANET ED ELABORA", type="primary", use_container_width=True, key="btn_ask_scrape"):
+            st.session_state["confirm_perfume_mode"] = "extranet"
+
+        if st.session_state.get("confirm_perfume_mode") == "extranet":
+            st.warning(
+                f"🧴 **Hai aggiornato correttamente i profumi?**\n\n"
+                f"Valori impostati: **3680 (Porta di Roma)** = `{perfume_3680}` pz | "
+                f"**9226 (Via del Corso)** = `{perfume_9226}` pz | "
+                f"**3591 (Euroma2)** = `{perfume_3591}` pz"
+            )
+            c_cf1, c_cf2 = st.columns(2)
+            with c_cf1:
+                confirm_extranet_go = st.button("✅ SÌ, HO AGGIORNATO I PROFUMI — AVVIA ESTRAZIONE ED ELABORAZIONE", type="primary", use_container_width=True, key="btn_go_extranet_confirmed")
+            with c_cf2:
+                if st.button("✏️ No, annulla e modifica i profumi sopra", use_container_width=True, key="btn_cancel_extranet_confirm"):
+                    st.session_state.pop("confirm_perfume_mode", None)
+                    st.rerun()
+
+            if confirm_extranet_go:
+                st.session_state.pop("confirm_perfume_mode", None)
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                temp_extract_dir = DATA_DIR / "downloads" / f"extranet_{ts}"
+                temp_extract_dir.mkdir(parents=True, exist_ok=True)
+
+                prog_bar = st.progress(0)
+                status_text = st.empty()
+
+                def update_progress(msg: str, pct: int):
+                    prog_bar.progress(pct)
+                    status_text.write(f"🔄 **{pct}%** - {msg}")
+
+                try:
+                    scraper = InditexExtranetScraper(
+                        username=ex_user,
+                        password=ex_pass,
+                        headless=True,
+                        progress_callback=update_progress,
+                    )
+                    scrape_res = scraper.scrape_all(
+                        desde_date=sc_desde,
+                        hasta_date=sc_hasta,
+                        output_dir=temp_extract_dir,
+                    )
+                    update_progress("Elaborazione Spunta Arrivi e Flussi SGA...", 95)
+                    res = run_pipeline(
+                        total_source=temp_extract_dir / "TOTAL.xls",
+                        shoes_source=(temp_extract_dir / "SHOES.xls") if (temp_extract_dir / "SHOES.xls").exists() else None,
+                        texile_source=(temp_extract_dir / "TEXILE.xls") if (temp_extract_dir / "TEXILE.xls").exists() else None,
+                        ecom_source=(temp_extract_dir / "ECOM.xls") if (temp_extract_dir / "ECOM.xls").exists() else None,
+                        other_source=(temp_extract_dir / "OTHER"),
+                        esportazione_source=None,
+                        run_date=str(run_date),
+                        cycle_type=cycle_type,
+                        notes=f"{notes} [Extranet {format_date_it(sc_desde)}-{format_date_it(sc_hasta)}]",
+                        perfume_corrections=perfume_corrections,
+                        save_to_network=False,
+                    )
+                    prog_bar.progress(100)
+                    status_text.write("✅ **100%** - Estrazione ed elaborazione completate!")
+                    st.session_state["last_run"] = res
+                    st.success(f"🎉 Elaborazione completata! Run ID: **#{res['run_id']}**")
+                except Exception as e:
+                    st.error(f"Errore durante l'estrazione da Extranet: {e}")
+
     with tab_src_upload:
-        st.caption("Seleziona o trascina qui **tutti insieme** i file scaricati da Extranet (`TOTAL`, `SHOES`/`ZAPATOS`, `TEXILE`, `ECOM` ed eventuali file `1.xls, 2.xls...` di `OTHER`, oppure un file `.zip`). Il sistema li riconosce e smista in automatico:")
+        st.caption("Modalità di emergenza: seleziona o trascina qui **tutti insieme** i file scaricati manualmente (`TOTAL`, `SHOES`, `TEXILE`, `ECOM` ed eventuali file di dettaglio `OTHER`, oppure un file `.zip`). Il sistema li riconosce e smista in automatico:")
         uploaded_batch = st.file_uploader(
-            "Trascina qui tutti i file Extranet (.xls, .xlsx, .csv, .zip)",
+            "Trascina qui tutti i file (.xls, .xlsx, .csv, .zip)",
             type=["xls", "xlsx", "csv", "zip"],
             accept_multiple_files=True,
             key="smart_batch_uploader",
@@ -308,89 +389,51 @@ if menu == "📥 1. Previsione & Arrivi":
         if classified:
             s_info = classified["summary"]
             c_s1, c_s2, c_s3, c_s4, c_s5 = st.columns(5)
-            c_s1.success(f"TOTAL: {s_info['total']}") if s_info["total"] else c_s1.warning("TOTAL: Non caricato")
-            c_s2.success(f"SHOES: {s_info['shoes']}") if s_info["shoes"] else c_s2.info("SHOES: Assente (0)")
-            c_s3.success(f"TEXILE: {s_info['texile']}") if s_info["texile"] else c_s3.info("TEXILE: Assente (0)")
-            c_s4.success(f"ECOM: {s_info['ecom']}") if s_info["ecom"] else c_s4.info("ECOM: Assente (0)")
-            c_s5.success(f"OTHER: {s_info['other_count']} file") if s_info["other_count"] > 0 else c_s5.info("OTHER: 0 file")
+            c_s1.success(f"TOTALE: {s_info['total']}") if s_info["total"] else c_s1.warning("TOTALE: Non caricato")
+            c_s2.success(f"CALZATURE: {s_info['shoes']}") if s_info["shoes"] else c_s2.info("CALZATURE: Assente (0)")
+            c_s3.success(f"TESSILE: {s_info['texile']}") if s_info["texile"] else c_s3.info("TESSILE: Assente (0)")
+            c_s4.success(f"E-COMMERCE: {s_info['ecom']}") if s_info["ecom"] else c_s4.info("E-COMMERCE: Assente (0)")
+            c_s5.success(f"ALTRI (OTHER): {s_info['other_count']} file") if s_info["other_count"] > 0 else c_s5.info("ALTRI (OTHER): 0 file")
 
-        if st.button("🚀 ELABORA FILE CARICATI", type="primary", use_container_width=True, disabled=not bool(classified and (classified["total"] or classified["texile"]))):
-            with st.spinner("Calcolo Spunta Arrivi, suddivisione Sdoppiamenti /0-/9 e salvataggio storico..."):
-                try:
-                    res = run_pipeline(
-                        total_source=classified["total"],
-                        shoes_source=classified["shoes"],
-                        texile_source=classified["texile"],
-                        ecom_source=classified["ecom"],
-                        other_source=classified["other"],
-                        esportazione_source=None,
-                        run_date=str(run_date),
-                        cycle_type=cycle_type,
-                        notes=notes,
-                        perfume_corrections=perfume_corrections,
-                        save_to_network=False,
-                    )
-                    st.session_state["last_run"] = res
-                    st.success(f"✅ Elaborazione completata! Run registrata: **#{res['run_id']}**")
-                except Exception as e:
-                    st.error(f"Errore durante l'elaborazione: {e}")
+        if st.button("🚀 ELABORA FILE CARICATI", type="primary", use_container_width=True, disabled=not bool(classified and (classified["total"] or classified["texile"])), key="btn_ask_upload"):
+            st.session_state["confirm_perfume_mode"] = "upload"
 
-    with tab_src_extranet:
-        st.info(f"💡 **Connessione diretta a Extranet Inditex ({cycle_type})**: estrazione spedizioni dal **{format_date_it(cycle_desde)}** al **{format_date_it(cycle_hasta)}**.")
-        col_ex1, col_ex2, col_ex3, col_ex4 = st.columns([1.2, 1.2, 1.3, 1.3])
-        with col_ex1:
-            sc_desde = st.date_input("Data Da (Desde)", value=cycle_desde, format="DD/MM/YYYY", key=f"sc_d_{cycle_type}")
-        with col_ex2:
-            sc_hasta = st.date_input("Data A (Hasta)", value=cycle_hasta, format="DD/MM/YYYY", key=f"sc_h_{cycle_type}")
-        with col_ex3:
-            ex_user = st.text_input("Utente Extranet", value=EXTRANET_DEFAULT_USER, key="ex_usr")
-        with col_ex4:
-            ex_pass = st.text_input("Password Extranet", value=EXTRANET_DEFAULT_PASS, type="password", key="ex_pwd")
+        if st.session_state.get("confirm_perfume_mode") == "upload":
+            st.warning(
+                f"🧴 **Hai aggiornato correttamente i profumi?**\n\n"
+                f"Valori impostati: **3680 (Porta di Roma)** = `{perfume_3680}` pz | "
+                f"**9226 (Via del Corso)** = `{perfume_9226}` pz | "
+                f"**3591 (Euroma2)** = `{perfume_3591}` pz"
+            )
+            c_cu1, c_cu2 = st.columns(2)
+            with c_cu1:
+                confirm_upload_go = st.button("✅ SÌ, HO AGGIORNATO I PROFUMI — AVVIA ELABORAZIONE", type="primary", use_container_width=True, key="btn_go_upload_confirmed")
+            with c_cu2:
+                if st.button("✏️ No, annulla e modifica i profumi sopra", use_container_width=True, key="btn_cancel_upload_confirm"):
+                    st.session_state.pop("confirm_perfume_mode", None)
+                    st.rerun()
 
-        if st.button("🌐 SCARICA DA EXTRANET ED ELABORA SUBITO", type="primary", use_container_width=True, key="btn_scrape_and_run"):
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            temp_extract_dir = DATA_DIR / "downloads" / f"extranet_{ts}"
-            temp_extract_dir.mkdir(parents=True, exist_ok=True)
-
-            prog_bar = st.progress(0)
-            status_text = st.empty()
-
-            def update_progress(msg: str, pct: int):
-                prog_bar.progress(pct)
-                status_text.write(f"🔄 **{pct}%** - {msg}")
-
-            try:
-                scraper = InditexExtranetScraper(
-                    username=ex_user,
-                    password=ex_pass,
-                    headless=True,
-                    progress_callback=update_progress,
-                )
-                scrape_res = scraper.scrape_all(
-                    desde_date=sc_desde,
-                    hasta_date=sc_hasta,
-                    output_dir=temp_extract_dir,
-                )
-                update_progress("Elaborazione Spunta Arrivi e Flussi SGA...", 95)
-                res = run_pipeline(
-                    total_source=temp_extract_dir / "TOTAL.xls",
-                    shoes_source=(temp_extract_dir / "SHOES.xls") if (temp_extract_dir / "SHOES.xls").exists() else None,
-                    texile_source=(temp_extract_dir / "TEXILE.xls") if (temp_extract_dir / "TEXILE.xls").exists() else None,
-                    ecom_source=(temp_extract_dir / "ECOM.xls") if (temp_extract_dir / "ECOM.xls").exists() else None,
-                    other_source=(temp_extract_dir / "OTHER"),
-                    esportazione_source=None,
-                    run_date=str(run_date),
-                    cycle_type=cycle_type,
-                    notes=f"{notes} [Extranet {format_date_it(sc_desde)}-{format_date_it(sc_hasta)}]",
-                    perfume_corrections=perfume_corrections,
-                    save_to_network=False,
-                )
-                prog_bar.progress(100)
-                status_text.write("✅ **100%** - Estrazione ed elaborazione completate!")
-                st.session_state["last_run"] = res
-                st.success(f"🎉 Elaborazione completata! Run ID: **#{res['run_id']}**")
-            except Exception as e:
-                st.error(f"Errore durante l'estrazione da Extranet: {e}")
+            if confirm_upload_go:
+                st.session_state.pop("confirm_perfume_mode", None)
+                with st.spinner("Calcolo Spunta Arrivi, suddivisione Sdoppiamenti /0-/9 e salvataggio storico..."):
+                    try:
+                        res = run_pipeline(
+                            total_source=classified["total"],
+                            shoes_source=classified["shoes"],
+                            texile_source=classified["texile"],
+                            ecom_source=classified["ecom"],
+                            other_source=classified["other"],
+                            esportazione_source=None,
+                            run_date=str(run_date),
+                            cycle_type=cycle_type,
+                            notes=notes,
+                            perfume_corrections=perfume_corrections,
+                            save_to_network=False,
+                        )
+                        st.session_state["last_run"] = res
+                        st.success(f"✅ Elaborazione completata! Run registrata: **#{res['run_id']}**")
+                    except Exception as e:
+                        st.error(f"Errore durante l'elaborazione: {e}")
 
     # 3. Visualizzazione Risultati (mostra la run appena eseguita oppure l'ultima disponibile nel DB)
     active_run_data = st.session_state.get("last_run")
@@ -448,7 +491,7 @@ if menu == "📥 1. Previsione & Arrivi":
                 st.rerun()
 
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        kpi1.metric("Totale Colli (Bultos)", format_number_it(totals["total_bultos"], 0))
+        kpi1.metric("Totale Colli", format_number_it(totals["total_bultos"], 0))
         kpi2.metric("Volume Complessivo", format_number_it(totals["total_volume"], 2) + " m³")
         kpi3.metric("Peso Complessivo", format_number_it(totals["total_weight"], 0) + " kg")
         kpi4.metric("Pedane Stimate", format_number_it(totals["total_pedane"], 0))

@@ -195,7 +195,7 @@ def render_lavorazioni_piattaforma(sb: Optional[Dict[str, Any]], key_prefix: str
         </thead>
         <tbody>
             <tr>
-                <td style="text-align: left; font-weight: 600;">📦 TOTALI COLLI (BULTOS)</td>
+                <td style="text-align: left; font-weight: 600;">📦 TOTALE COLLI</td>
                 <td class="text-strong">{format_number_it(tot_colli_teo, 0)}</td>
                 <td class="text-strong">{format_number_it(chk_colli, 0)}</td>
                 <td>{colli_badge}</td>

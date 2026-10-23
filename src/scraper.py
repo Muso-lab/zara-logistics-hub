@@ -91,28 +91,50 @@ class InditexExtranetScraper:
 
         with sync_playwright() as p:
             browser = None
-            for ch in [None, "msedge", "chrome"]:
-                try:
-                    if ch:
-                        browser = p.chromium.launch(channel=ch, headless=self.headless)
-                    else:
-                        browser = p.chromium.launch(headless=self.headless)
-                    break
-                except Exception:
-                    continue
+            # 1. Prova prima eventuali binari Chromium di sistema (es. Streamlit Cloud Linux)
+            for sys_exec in ["/usr/bin/chromium", "/usr/bin/chromium-browser"]:
+                if Path(sys_exec).exists():
+                    try:
+                        browser = p.chromium.launch(
+                            executable_path=sys_exec,
+                            headless=self.headless,
+                            args=["--no-sandbox", "--disable-dev-shm-usage"],
+                        )
+                        break
+                    except Exception:
+                        continue
+            # 2. Altrimenti prova i canali standard Playwright / Edge / Chrome
             if browser is None:
-                raise RuntimeError("Impossibile avviare il browser Chromium/Edge per Playwright.")
+                for ch in [None, "msedge", "chrome"]:
+                    try:
+                        if ch:
+                            browser = p.chromium.launch(channel=ch, headless=self.headless)
+                        else:
+                            browser = p.chromium.launch(headless=self.headless, args=["--no-sandbox", "--disable-dev-shm-usage"])
+                        break
+                    except Exception:
+                        continue
+            # 3. Se manca l'eseguibile Playwright su server Cloud, installalo al volo
+            if browser is None:
+                try:
+                    import subprocess
+                    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
+                    browser = p.chromium.launch(headless=self.headless, args=["--no-sandbox", "--disable-dev-shm-usage"])
+                except Exception:
+                    pass
+            if browser is None:
+                raise RuntimeError("Impossibile avviare il browser per la connessione a Extranet.")
 
             context = browser.new_context(accept_downloads=True)
             page = context.new_page()
 
             try:
                 # 1. Login
-                self._notify(f"Accesso all'Extranet Inditex ({self.username})...", 10)
+                self._notify(f"Accesso al portale Extranet Inditex ({self.username})...", 10)
                 self._login(page)
 
                 # 2. Go to Buzon Plataforma
-                self._notify("Apertura Buzón Plataforma...", 20)
+                self._notify("Apertura sezione Piattaforma Spedizioni...", 20)
                 page.goto(EXTRANET_BUZON_URL, timeout=30000)
                 time.sleep(2)
 
@@ -180,7 +202,7 @@ class InditexExtranetScraper:
                     result_summary["files"]["textile"] = str(textile_path)
 
                 # 9. Download OTHER/*.xls
-                self._notify("Scansione consegne tessili per estrazione 'Altri bultos'...", 65)
+                self._notify("Scansione consegne tessili per estrazione dettaglio colli (OTHER)...", 65)
                 other_files = self._download_other_files(page, textile_rows, other_dir)
                 result_summary["other_files_downloaded"] = len(other_files)
                 result_summary["files"]["other"] = [str(f) for f in other_files]
