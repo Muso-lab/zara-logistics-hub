@@ -67,12 +67,17 @@ def compute_analisi(
       - ecom colli = ecom.bultos
       - volumes and weights
     """
-    # Index inputs by store_id
-    map_total = df_total.set_index("store_id").to_dict(orient="index") if not df_total.empty else {}
-    map_shoes = df_shoes.set_index("store_id").to_dict(orient="index") if not df_shoes.empty else {}
-    map_texile = df_texile.set_index("store_id").to_dict(orient="index") if not df_texile.empty else {}
-    map_ecom = df_ecom.set_index("store_id").to_dict(orient="index") if not df_ecom.empty else {}
-    map_other = df_other_agg.set_index("store_code").to_dict(orient="index") if not df_other_agg.empty else {}
+    def _to_map(df, default_col="store_id"):
+        if df is None or df.empty:
+            return {}
+        col = default_col if default_col in df.columns else ("store_id" if "store_id" in df.columns else ("store_code" if "store_code" in df.columns else None))
+        return df.set_index(col).to_dict(orient="index") if col else {}
+
+    map_total = _to_map(df_total, "store_id")
+    map_shoes = _to_map(df_shoes, "store_id")
+    map_texile = _to_map(df_texile, "store_id")
+    map_ecom = _to_map(df_ecom, "store_id")
+    map_other = _to_map(df_other_agg, "store_code")
 
     results = []
     # Process distinct stores (excluding 'B' suffix stores from master for base analisi)
@@ -439,8 +444,8 @@ def compute_sga_flows(
     # Data Carico / Scarico:
     # Barra 0: NOW() + 1
     # Barra 9: NOW() + 2
-    dt_b0 = (dt + timedelta(days=1)).strftime("%Y-%m-%d 11:55:00")
-    dt_b9 = (dt + timedelta(days=2)).strftime("%Y-%m-%d 11:55:00")
+    dt_b0 = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    dt_b9 = (dt + timedelta(days=2)).strftime("%Y-%m-%d")
 
     map_codsga = {}
     if df_stores is not None and not df_stores.empty:

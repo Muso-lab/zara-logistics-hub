@@ -70,7 +70,8 @@ from src.bolle_manager import (
     render_bolla_printable_html,
     format_intershops_string,
 )
-from src.exporters import export_planner_roma
+from src.exporters import export_planner_roma, export_sintesi_operativa, export_sga_file
+from src.mailer import send_operativa_email, build_operativa_zip
 from src.scraper import InditexExtranetScraper
 from src.utils import get_cycle_date_range, format_number_it, format_date_it
 from src.components import (
@@ -604,10 +605,14 @@ if menu == "📥 1. Previsione & Arrivi":
                     "df_spunta": det.get("spunta", pd.DataFrame()),
                     "special_breakdowns": det.get("special_breakdowns", {}),
                     "exported_files": {
-                        "zara": OUTPUT_DIR / "ZARA.xlsx",
-                        "sga0": OUTPUT_DIR / "barrazero_Sga.xlsx",
-                        "sga9": OUTPUT_DIR / "barranove_Sga.xlsx",
-                        "planner": OUTPUT_DIR / "Planning ITX_RM.xlsx",
+                        "sintesi": OUTPUT_DIR / f"run_{latest_id}_{r_info.get('run_date', '')}" / "Sintesi_Operativa.xlsx",
+                        "sga0": OUTPUT_DIR / f"run_{latest_id}_{r_info.get('run_date', '')}" / "barrazero_Sga.xlsx",
+                        "sga9": OUTPUT_DIR / f"run_{latest_id}_{r_info.get('run_date', '')}" / "barranove_Sga.xlsx",
+                        "sga0_csv": OUTPUT_DIR / f"run_{latest_id}_{r_info.get('run_date', '')}" / "barrazero_Sga.csv",
+                        "sga9_csv": OUTPUT_DIR / f"run_{latest_id}_{r_info.get('run_date', '')}" / "barranove_Sga.csv",
+                        "operativa_zip": OUTPUT_DIR / f"run_{latest_id}_{r_info.get('run_date', '')}" / f"File_Operativa_{latest_id}_{r_info.get('run_date', '')}.zip",
+                        "zara": OUTPUT_DIR / f"run_{latest_id}_{r_info.get('run_date', '')}" / "ZARA.xlsx",
+                        "planner": OUTPUT_DIR / f"run_{latest_id}_{r_info.get('run_date', '')}" / "Planning ITX_RM.xlsx",
                     },
                     "new_stores_alert": [],
                 }
@@ -630,15 +635,166 @@ if menu == "📥 1. Previsione & Arrivi":
                 )
 
         st.markdown("---")
-        col_hdr_l, col_hdr_r = st.columns([3, 2])
+        col_hdr_l, col_hdr_r = st.columns([2.5, 2.5])
         with col_hdr_l:
             st.markdown("### 📊 Riepilogo Previsione Attiva")
         with col_hdr_r:
-            if st.button("⚡ GENERA BOLLE DI CONSEGNA E VAI ALLE BOLLE 🚚", type="primary", use_container_width=True, key="btn_top_gen_bolle"):
-                n_c, n_s = generate_bolle_from_forecast(curr_rid)
-                st.session_state["flash_bolle_msg"] = f"✅ Generate {n_c} bolle dalla previsione attiva ({n_s} già presenti mantenute)."
-                st.session_state["nav_menu"] = "🚚 2. Bolle di Consegna"
-                st.rerun()
+            show_op_box = st.button("📦 PRODUCI FILE OPERATIVA & INVIA EMAIL ✉️", type="primary", use_container_width=True, key=f"btn_prod_op_{curr_rid}")
+            if show_op_box:
+                st.session_state[f"show_op_panel_{curr_rid}"] = not st.session_state.get(f"show_op_panel_{curr_rid}", False)
+
+        # Sezione Espandibile: File Operativa & Invio Email
+        if st.session_state.get(f"show_op_panel_{curr_rid}", False):
+            r_date = active_run_data.get("run_date", "")
+            out_dir = OUTPUT_DIR / f"run_{curr_rid}_{r_date}"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            p_sintesi = out_dir / "Sintesi_Operativa.xlsx"
+            p_sga0 = out_dir / "barrazero_Sga.xlsx"
+            p_sga9 = out_dir / "barranove_Sga.xlsx"
+            p_sga0_csv = out_dir / "barrazero_Sga.csv"
+            p_sga9_csv = out_dir / "barranove_Sga.csv"
+            p_zip = out_dir / f"File_Operativa_{curr_rid}_{r_date}.zip"
+
+            if not p_sintesi.exists() or p_sintesi.stat().st_size == 0:
+                export_sintesi_operativa(
+                    active_run_data.get("df_spunta", pd.DataFrame()),
+                    active_run_data.get("special_breakdowns", {}),
+                    df_stores_side,
+                    p_sintesi,
+                    run_date=r_date
+                )
+
+            s0_df = active_run_data.get("df_sga0")
+            if (s0_df is None or s0_df.empty) and "sga0" in active_run_data.get("exported_files", {}):
+                det_s = get_run_details(curr_rid)
+                s0_df = det_s.get("sga0", pd.DataFrame())
+            if s0_df is not None and not s0_df.empty and (not p_sga0.exists() or p_sga0.stat().st_size == 0):
+                export_sga_file(s0_df, p_sga0)
+
+            s9_df = active_run_data.get("df_sga9")
+            if (s9_df is None or s9_df.empty) and "sga9" in active_run_data.get("exported_files", {}):
+                det_s = get_run_details(curr_rid)
+                s9_df = det_s.get("sga9", pd.DataFrame())
+            if s9_df is not None and not s9_df.empty and (not p_sga9.exists() or p_sga9.stat().st_size == 0):
+                export_sga_file(s9_df, p_sga9)
+
+            build_operativa_zip({
+                "Sintesi_Operativa.xlsx": p_sintesi,
+                "barrazero_Sga.xlsx": p_sga0,
+                "barranove_Sga.xlsx": p_sga9,
+                "barrazero_Sga.csv": p_sga0_csv,
+                "barranove_Sga.csv": p_sga9_csv,
+            }, p_zip)
+
+            active_run_data.setdefault("exported_files", {})
+            active_run_data["exported_files"]["sintesi"] = p_sintesi
+            active_run_data["exported_files"]["sga0"] = p_sga0
+            active_run_data["exported_files"]["sga9"] = p_sga9
+            active_run_data["exported_files"]["sga0_csv"] = p_sga0_csv
+            active_run_data["exported_files"]["sga9_csv"] = p_sga9_csv
+            active_run_data["exported_files"]["operativa_zip"] = p_zip
+
+            st.markdown('<div class="modern-card" style="border-left: 5px solid #0284C7; margin-bottom: 24px; padding: 20px;">', unsafe_allow_html=True)
+            st.markdown('<div class="modern-section-title">📦 File Operativa Generati & Invio Email</div>', unsafe_allow_html=True)
+            st.caption("I 3 file fondamentali per l'operativa (Sintesi Operativa potenziata, SGA Barra 0 e SGA Barra 9 conformi al tracciato rigido) sono pronti per il download o per la spedizione email:")
+
+            dl_c1, dl_c2, dl_c3, dl_c4 = st.columns(4)
+            if p_sintesi.exists():
+                with dl_c1:
+                    with open(p_sintesi, "rb") as f_s:
+                        st.download_button(
+                            "📊 Sintesi Operativa (.xlsx)",
+                            data=f_s.read(),
+                            file_name=p_sintesi.name,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True,
+                            key=f"dl_box_sintesi_{curr_rid}"
+                        )
+            if p_sga0.exists():
+                with dl_c2:
+                    with open(p_sga0, "rb") as f_0:
+                        st.download_button(
+                            "🚛 SGA Barra 0 (.xlsx)",
+                            data=f_0.read(),
+                            file_name=p_sga0.name,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True,
+                            key=f"dl_box_sga0_{curr_rid}"
+                        )
+            if p_sga9.exists():
+                with dl_c3:
+                    with open(p_sga9, "rb") as f_9:
+                        st.download_button(
+                            "🚚 SGA Barra 9 (.xlsx)",
+                            data=f_9.read(),
+                            file_name=p_sga9.name,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True,
+                            key=f"dl_box_sga9_{curr_rid}"
+                        )
+            if p_zip.exists():
+                with dl_c4:
+                    with open(p_zip, "rb") as f_z:
+                        st.download_button(
+                            "🗂️ Tutto in ZIP (.zip)",
+                            data=f_z.read(),
+                            file_name=p_zip.name,
+                            mime="application/zip",
+                            use_container_width=True,
+                            key=f"dl_box_zip_{curr_rid}"
+                        )
+
+            st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
+            st.markdown("#### ✉️ Invio Email File Operativa")
+            st.caption("Invia direttamente la sintesi e i file SGA ai responsabili del traffico e della logistica:")
+
+            em_col1, em_col2 = st.columns([1.5, 1.5])
+            with em_col1:
+                em_to = st.text_input("Destinatari (separati da virgola)", value="operativa@trasporti.it, traffico@trasporti.it", key=f"em_to_in_{curr_rid}")
+            with em_col2:
+                em_cc = st.text_input("In Copia (CC - opzionale)", value="", key=f"em_cc_in_{curr_rid}")
+
+            em_subj = st.text_input(
+                "Oggetto Email",
+                value=f"[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {r_date}",
+                key=f"em_subj_in_{curr_rid}"
+            )
+
+            default_body = (
+                f"Gentili Colleghi,\n\n"
+                f"in allegato trasmettiamo i file operativi relativi alla spedizione del {r_date}:\n\n"
+                f"- Sintesi Operativa Giri & Lavorazioni (Sintesi_Operativa.xlsx)\n"
+                f"- Flusso Viaggi TMS Barra 0 (barrazero_Sga.xlsx / .csv)\n"
+                f"- Flusso Viaggi TMS Barra 9 Sdoppiati (barranove_Sga.xlsx / .csv)\n\n"
+                f"Riepilogo Totali Spedizione:\n"
+                f"- Totale Colli: {format_number_it(totals['total_bultos'], 0)}\n"
+                f"- Volume Complessivo: {format_number_it(totals['total_volume'], 2)} m³\n"
+                f"- Peso Complessivo: {format_number_it(totals['total_weight'], 0)} kg\n"
+                f"- Pedane Stimate: {format_number_it(totals['total_pedane'], 0)} PLT\n\n"
+                f"Restiamo a disposizione per qualsiasi chiarimento operativo.\n\n"
+                f"Cordiali saluti,\n"
+                f"Ufficio Logistica & Traffico Zara Hub"
+            )
+
+            em_body = st.text_area("Testo del Messaggio", value=default_body, height=140, key=f"em_body_in_{curr_rid}")
+
+            if st.button("🚀 INVIA EMAIL ORA", type="primary", use_container_width=True, key=f"btn_send_now_{curr_rid}"):
+                to_list = [x.strip() for x in em_to.split(",") if x.strip()]
+                cc_list = [x.strip() for x in em_cc.split(",") if x.strip()]
+                att_files = [p_sintesi, p_sga0, p_sga9]
+                success, msg = send_operativa_email(
+                    recipients=to_list,
+                    subject=em_subj,
+                    body_text=em_body,
+                    attachment_paths=att_files,
+                    cc_recipients=cc_list
+                )
+                if success:
+                    st.success(f"🎉 **{msg}**")
+                else:
+                    st.error(f"❌ {msg}")
+
+            st.markdown('</div>', unsafe_allow_html=True)
 
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
         kpi1.metric("Totale Colli", format_number_it(totals["total_bultos"], 0))
@@ -651,10 +807,10 @@ if menu == "📥 1. Previsione & Arrivi":
         if exp_files:
             col_d1, col_d2, col_d3, col_d4 = st.columns(4)
             labels_map = {
-                "zara": ("📄 Scarica Spunta (ZARA.xlsx)", col_d1),
+                "sintesi": ("📊 Scarica Sintesi (.xlsx)", col_d1),
                 "sga0": ("🚛 Scarica SGA Barra 0 (.xlsx)", col_d2),
                 "sga9": ("🚚 Scarica SGA Barra 9 (.xlsx)", col_d3),
-                "planner": ("📅 Scarica Planner Roma (.xlsx)", col_d4),
+                "zara": ("📄 Scarica Spunta (ZARA.xlsx)", col_d4),
             }
             for k, (lbl, col_obj) in labels_map.items():
                 p = exp_files.get(k)

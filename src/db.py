@@ -5,7 +5,9 @@ from datetime import datetime
 from src.config import DB_PATH, ANAGRAFICA_FILE
 
 
-def get_connection(db_path=DB_PATH):
+def get_connection(db_path=None):
+    if db_path is None:
+        db_path = DB_PATH
     conn = sqlite3.connect(db_path, timeout=30.0)
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn

@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Dict, Any
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -14,7 +14,7 @@ from src.config import (
 
 def export_sga_file(df_flows: pd.DataFrame, output_path: Union[str, Path]):
     """
-    Exports SGA flows (Barra 0 or Barra 9) to an Excel file matching TMS requirements:
+    Exports SGA flows (Barra 0 or Barra 9) to an Excel file and CSV matching rigid TMS requirements:
     Columns: GIRO, DATA_CARICO, COD_MITTENTE, MAGAZZINO_CARICO, DATA_SCARICO, COD_DESTINATARIO, MAGAZZINO_SCARICO, PESO, VOLUME, COLLI
     """
     output_path = Path(output_path)
@@ -50,14 +50,18 @@ def export_sga_file(df_flows: pd.DataFrame, output_path: Union[str, Path]):
     for r_idx, (_, row) in enumerate(df_flows.iterrows(), start=2):
         is_ritorno = (row.get("flusso_tipo") == "RITORNO")
         for c_idx, col_name in enumerate(cols_order, start=1):
-            val = row.get(col_name, "")
-            # If retorno and numeric columns are 0, TMS prefers empty or 0
+            val = row.get(col_name, 0 if is_ritorno and col_name in ("PESO", "VOLUME", "COLLI") else "")
             if is_ritorno and col_name in ("PESO", "VOLUME", "COLLI"):
-                val = ""
+                val = 0
+            elif col_name in ("DATA_CARICO", "DATA_SCARICO") and val:
+                val = str(val).split(" ")[0]
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
             cell.border = thin_border
-            if col_name in ("PESO", "VOLUME", "COLLI") and val != "":
-                cell.number_format = "#,##0.00" if col_name == "VOLUME" else "#,##0"
+            if col_name in ("PESO", "VOLUME", "COLLI"):
+                if is_ritorno:
+                    cell.number_format = "0"
+                else:
+                    cell.number_format = "0.00" if col_name == "VOLUME" else "0"
 
     # Auto-adjust column widths
     for col in ws.columns:
@@ -66,6 +70,25 @@ def export_sga_file(df_flows: pd.DataFrame, output_path: Union[str, Path]):
         ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
 
     wb.save(output_path)
+
+    # Save matching rigid CSV
+    csv_path = output_path.with_suffix(".csv")
+    csv_rows = []
+    for _, row in df_flows.iterrows():
+        is_ritorno = (row.get("flusso_tipo") == "RITORNO")
+        csv_rows.append({
+            "GIRO": row.get("GIRO", ""),
+            "DATA_CARICO": str(row.get("DATA_CARICO", "")).split(" ")[0],
+            "COD_MITTENTE": row.get("COD_MITTENTE", ""),
+            "MAGAZZINO_CARICO": row.get("MAGAZZINO_CARICO", ""),
+            "DATA_SCARICO": str(row.get("DATA_SCARICO", "")).split(" ")[0],
+            "COD_DESTINATARIO": row.get("COD_DESTINATARIO", ""),
+            "MAGAZZINO_SCARICO": row.get("MAGAZZINO_SCARICO", ""),
+            "PESO": 0 if is_ritorno else row.get("PESO", 0),
+            "VOLUME": 0 if is_ritorno else row.get("VOLUME", 0),
+            "COLLI": 0 if is_ritorno else row.get("COLLI", 0),
+        })
+    pd.DataFrame(csv_rows, columns=cols_order).to_csv(csv_path, index=False)
 
 
 def export_zara_spunta(
@@ -179,120 +202,740 @@ def export_zara_spunta(
 
         # Row 97: Totali Teorici vs Check Spunta Colli
         ws.cell(row=97 + base_offset, column=1, value="TOTALI TEORICI").font = bold_font
-        ws.cell(row=97 + base_offset, column=2, value=int(checks.get("totali_teorici_colli", 0)))
-        ws.cell(row=97 + base_offset, column=3, value=int(checks.get("check_colli", 0)))
+        ws.cell(row=97 + base_offset, column=2, value=int(checks.get("totali_teorici_colli", 0))).font = bold_font
+        ws.cell(row=97 + base_offset, column=3, value=int(checks.get("totali_check_colli", 0))).font = bold_font
 
         # Row 98: Totali MC
         ws.cell(row=98 + base_offset, column=1, value="TOTALI MC").font = bold_font
-        c_tmc1 = ws.cell(row=98 + base_offset, column=2, value=round(float(checks.get("totali_teorici_mc", 0.0)), 2))
-        c_tmc1.number_format = "0.00"
-        c_tmc2 = ws.cell(row=98 + base_offset, column=3, value=round(float(checks.get("check_mc", 0.0)), 2))
-        c_tmc2.number_format = "0.00"
+        c_mc_t = ws.cell(row=98 + base_offset, column=2, value=round(float(checks.get("totali_teorici_mc", 0.0)), 2))
+        c_mc_t.font = bold_font
+        c_mc_t.number_format = "0.00"
+        c_mc_c = ws.cell(row=98 + base_offset, column=3, value=round(float(checks.get("totali_check_mc", 0.0)), 2))
+        c_mc_c.font = bold_font
+        c_mc_c.number_format = "0.00"
 
-        # Row 99: Headers for Pezzi Appesi / Stesi
-        ws.cell(row=99 + base_offset, column=2, value="TOTALI").font = bold_font
-        ws.cell(row=99 + base_offset, column=3, value="APPESI").font = bold_font
-        ws.cell(row=99 + base_offset, column=4, value="STESI").font = bold_font
-        ws.cell(row=99 + base_offset, column=13, value="CORREZIONE PROFUM").font = bold_font
+        # Row 100: Header Tessile
+        ws.cell(row=100 + base_offset, column=2, value="TOTALI").font = bold_font
+        ws.cell(row=100 + base_offset, column=3, value="APPESI").font = bold_font
+        ws.cell(row=100 + base_offset, column=4, value="STESI").font = bold_font
+        ws.cell(row=100 + base_offset, column=10, value="CORREZIONE PROFUMI").font = bold_font
 
-        # Rows 100-102: Stores 3680, 9226, 3591
-        s_config = [
-            (100, "3680", " PEZZI 3680"),
-            (101, "9226", " PEZZI 9226"),
-            (102, "3591", "PEZZI 3591")
-        ]
-        for r_row, sid, lbl in s_config:
-            s_data = spec.get(sid, {})
-            ws.cell(row=r_row + base_offset, column=1, value=lbl).font = bold_font
-            ws.cell(row=r_row + base_offset, column=2, value=int(s_data.get("totale_pezzi", 0)))
-            ws.cell(row=r_row + base_offset, column=3, value=int(s_data.get("appesi", 0)))
-            ws.cell(row=r_row + base_offset, column=4, value=int(s_data.get("stesi", 0)))
-            ws.cell(row=r_row + base_offset, column=13, value=int(s_data.get("correzione_profumi", 0)))
+        # Rows 101-103: Tessile Stores
+        row_map = {"3680": 101, "9226": 102, "3591": 103}
+        for sid, sdata in spec.items():
+            r = row_map.get(sid, 101) + base_offset
+            ws.cell(row=r, column=1, value=f"PEZZI {sid}").font = bold_font
+            ws.cell(row=r, column=2, value=int(sdata.get("totali", 0)))
+            ws.cell(row=r, column=3, value=int(sdata.get("appesi", 0)))
+            ws.cell(row=r, column=4, value=int(sdata.get("stesi", 0)))
+            ws.cell(row=r, column=10, value=int(sdata.get("profumi", 0)))
 
-        # Row 105: Zara Home Headers
-        c105 = ws.cell(row=105 + base_offset, column=1, value="ZARA HOME")
-        c105.font = bold_font
-        c105.fill = title_fill
+        # Row 105: Header Zara Home
+        ws.cell(row=105 + base_offset, column=1, value="ZARA HOME").font = bold_font
         ws.cell(row=105 + base_offset, column=3, value="/0").font = bold_font
         ws.cell(row=105 + base_offset, column=4, value="/8").font = bold_font
 
-        # Row 106-107: Zara Home Stores 1984, 1971
-        zh_config = [
-            (106, "1984"),
-            (107, "1971")
-        ]
-        for r_row, sid in zh_config:
-            z_data = zh.get(sid, {})
-            ws.cell(row=r_row + base_offset, column=1, value=int(sid))
-            ws.cell(row=r_row + base_offset, column=2, value=int(z_data.get("totale_paqueteria", 0)))
-            ws.cell(row=r_row + base_offset, column=3, value=round(float(z_data.get("quota_barra0", 0.0)), 1))
-            ws.cell(row=r_row + base_offset, column=4, value=round(float(z_data.get("quota_barra8", 0.0)), 1))
+        # Rows 106-107: Zara Home Stores
+        zh_row_map = {"1984": 106, "1971": 107}
+        for sid, zdata in zh.items():
+            r = zh_row_map.get(sid, 106) + base_offset
+            ws.cell(row=r, column=1, value=sid).font = bold_font
+            ws.cell(row=r, column=2, value=int(zdata.get("totale", 0)))
+            ws.cell(row=r, column=3, value=int(zdata.get("barra0", 0)))
+            ws.cell(row=r, column=4, value=int(zdata.get("barra9", 0)))
 
         # Row 108: Totale Pezzi
         ws.cell(row=108 + base_offset, column=1, value="TOTALE PEZZI").font = bold_font
         ws.cell(row=108 + base_offset, column=2, value=int(special_breakdowns.get("totale_pezzi_lavorati", 0))).font = bold_font
 
-        # Row 110: Sviluppo Stander e Bancali
-        c110 = ws.cell(row=110 + base_offset, column=1, value="SVILUPPO")
-        c110.font = bold_font
-        c110.fill = title_fill
+        # Row 110: Header Stander / PLT
+        ws.cell(row=110 + base_offset, column=1, value="SVILUPPO").font = bold_font
         ws.cell(row=110 + base_offset, column=2, value="STANDER").font = bold_font
         ws.cell(row=110 + base_offset, column=3, value="PLT").font = bold_font
-        ws.cell(row=110 + base_offset, column=4, value="BETA").font = bold_font
 
-        # Rows 111-113: Sviluppo Stores
-        sv_config = [
-            (111, "3680", "3680 /0"),
-            (112, "9226", "9226"),
-            (113, "3591", "3591")
-        ]
-        for r_row, sid, lbl in sv_config:
-            s_data = spec.get(sid, {})
-            ws.cell(row=r_row + base_offset, column=1, value=lbl).font = bold_font
-            ws.cell(row=r_row + base_offset, column=2, value=int(s_data.get("stander", 0)))
-            ws.cell(row=r_row + base_offset, column=3, value=int(s_data.get("bancali", 0)))
-            ws.cell(row=r_row + base_offset, column=5, value=s_data.get("sintesi", "")).font = bold_font
+        # Rows 111-113: Sviluppo Stander
+        stnd_row_map = {"3680": 111, "9226": 112, "3591": 113}
+        for sid, sdata in spec.items():
+            r = stnd_row_map.get(sid, 111) + base_offset
+            ws.cell(row=r, column=1, value=f"{sid} /0").font = bold_font
+            ws.cell(row=r, column=2, value=int(sdata.get("stander", 0)))
+            ws.cell(row=r, column=3, value=int(sdata.get("plt", 0)))
+            ws.cell(row=r, column=5, value=sdata.get("sviluppo_str", ""))
 
-    # Column widths
-    ws.column_dimensions["A"].width = 12
-    ws.column_dimensions["B"].width = 24
-    ws.column_dimensions["C"].width = 18
-    ws.column_dimensions["D"].width = 10
-    ws.column_dimensions["E"].width = 15
-    ws.column_dimensions["G"].width = 15
-    ws.column_dimensions["I"].width = 15
-    ws.column_dimensions["K"].width = 15
-    ws.column_dimensions["M"].width = 10
-    ws.column_dimensions["N"].width = 15
-    ws.column_dimensions["O"].width = 20
-    ws.column_dimensions["P"].width = 14
-    ws.column_dimensions["Q"].width = 12
+    # Auto-adjust column widths
+    for col in ws.columns:
+        col_letter = get_column_letter(col[0].column)
+        if col[0].column > 26:
+            continue
+        max_len = max(len(str(cell.value or "")) for cell in col[:75])
+        ws.column_dimensions[col_letter].width = max(max_len + 2, 10)
 
     wb.save(output_path)
+
+
+def export_sintesi_operativa(
+    df_spunta: pd.DataFrame,
+    special_breakdowns: Optional[Dict[str, Any]],
+    df_stores: Optional[pd.DataFrame],
+    output_path: Union[str, Path],
+    run_date: Optional[str] = None
+) -> Path:
+    """
+    Exports an enhanced, professional operational workbook (Sintesi Operativa) with:
+    1. Piano Giri & Mezzi (grouped by giro with sub-totals, vehicle details, driver, carrier)
+    2. Lavorazioni Piattaforma (textile hanging/folded breakdown, perfumes, stander, pallets, Zara Home 50/50)
+    3. Elenco Punti Vendita Completo (flat filterable table with all stores)
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    wb = openpyxl.Workbook()
+
+    # Font definitions
+    font_main = Font(name="Calibri", size=10)
+    font_bold = Font(name="Calibri", size=10, bold=True)
+    font_giro_hdr = Font(name="Calibri", size=11, bold=True, color="0369A1")
+    font_title = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
+    font_subtitle = Font(name="Calibri", size=10, bold=True, color="1E3A8A")
+    font_tbl_hdr = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    font_tot = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    font_standby = Font(name="Calibri", size=10, italic=True, color="991B1B")
+
+    # Fill definitions
+    fill_title = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+    fill_subbar = PatternFill(start_color="E0E7FF", end_color="E0E7FF", fill_type="solid")
+    fill_tbl_hdr = PatternFill(start_color="334155", end_color="334155", fill_type="solid")
+    fill_giro_banner = PatternFill(start_color="E0F2FE", end_color="E0F2FE", fill_type="solid")
+    fill_subtot = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+    fill_tot = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
+    fill_standby = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+
+    # Border definitions
+    thin_side = Side(style="thin", color="D1D5DB")
+    thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+    # Alignments
+    align_center = Alignment(horizontal="center", vertical="center")
+    align_left = Alignment(horizontal="left", vertical="center")
+    align_right = Alignment(horizontal="right", vertical="center")
+
+    # Map formulas and info from df_stores
+    map_stores = {}
+    if df_stores is not None and not df_stores.empty:
+        sid_col = "store_id" if "store_id" in df_stores.columns else "store_code"
+        for _, s_r in df_stores.iterrows():
+            map_stores[str(s_r[sid_col]).strip()] = s_r.to_dict()
+
+    stores_only = df_spunta[df_spunta["is_store"] == True].copy() if not df_spunta.empty else pd.DataFrame()
+
+    tot_colli_all = 0
+    tot_vol_all = 0.0
+    tot_ped_all = 0
+
+    if not stores_only.empty:
+        stores_only["tot_colli_calc"] = (
+            stores_only["textile_attesi"].fillna(0) +
+            stores_only["other_attesi"].fillna(0) +
+            stores_only["shoes_attesi"].fillna(0) +
+            stores_only["ecom_attesi"].fillna(0)
+        )
+        tot_colli_all = int(stores_only["tot_colli_calc"].sum())
+        tot_vol_all = round(float(stores_only["mc"].fillna(0).sum()), 2)
+        tot_ped_all = int(round(stores_only["pedane"].fillna(0).sum()))
+
+    # -------------------------------------------------------------
+    # SHEET 1: PIANO GIRI & MEZZI
+    # -------------------------------------------------------------
+    ws_giri = wb.active
+    ws_giri.title = "Piano Giri & Mezzi"
+    ws_giri.views.sheetView[0].showGridLines = True
+
+    # Title Banner
+    ws_giri.merge_cells("A1:Q1")
+    c_title = ws_giri.cell(row=1, column=1, value="SINTESI OPERATIVA TRASPORTI & GIRI - ZARA LOGISTICS HUB")
+    c_title.font = font_title
+    c_title.fill = fill_title
+    c_title.alignment = align_center
+    ws_giri.row_dimensions[1].height = 32
+
+    ws_giri.merge_cells("A2:Q2")
+    c_sub = ws_giri.cell(
+        row=2, column=1,
+        value=f"Data Spedizione: {run_date or 'N/D'}  |  Totale Colli: {tot_colli_all:,}  |  Totale Volume: {tot_vol_all:.2f} m³  |  Totale Pedane: {tot_ped_all:,} PLT"
+    )
+    c_sub.font = font_subtitle
+    c_sub.fill = fill_subbar
+    c_sub.alignment = align_center
+    ws_giri.row_dimensions[2].height = 24
+
+    # Table Header (Row 4)
+    tbl_cols = [
+        ("Giro", align_center),
+        ("Store ID", align_center),
+        ("Brand", align_left),
+        ("Punto Vendita / Destinazione", align_left),
+        ("Colli Tex", align_right),
+        ("Colli Oth", align_right),
+        ("Colli Sho", align_right),
+        ("Colli Eco", align_right),
+        ("Totale Colli", align_right),
+        ("Volume (m³)", align_right),
+        ("Pedane (PLT)", align_right),
+        ("Formula Pedane", align_center),
+        ("Vettore", align_left),
+        ("Autista", align_left),
+        ("Mezzo Assegnato", align_left),
+        ("Targa", align_center),
+        ("Stato Negozio", align_center)
+    ]
+
+    curr_row = 4
+    for c_i, (col_name, c_align) in enumerate(tbl_cols, 1):
+        c = ws_giri.cell(row=curr_row, column=c_i, value=col_name)
+        c.fill = fill_tbl_hdr
+        c.font = font_tbl_hdr
+        c.alignment = c_align
+        c.border = thin_border
+    ws_giri.row_dimensions[curr_row].height = 24
+
+    def _giro_key(g):
+        gs = str(g).strip().upper()
+        if gs.startswith("ZA") and gs[2:].isdigit():
+            n = int(gs[2:])
+            return (1 if 15 <= n <= 19 else 0, n)
+        return (2, gs)
+
+    giri_present = sorted(stores_only["giro"].dropna().unique(), key=_giro_key) if not stores_only.empty else []
+
+    curr_row = 5
+    for giro in giri_present:
+        g_stores = stores_only[stores_only["giro"] == giro].copy()
+        if g_stores.empty:
+            continue
+
+        first_st = g_stores.iloc[0]
+        vett_autista = str(first_st.get("vettore_autista", "") or "")
+        tipo_m = str(first_st.get("tipo_mezzo", "") or "")
+        targa_m = str(first_st.get("targa", "") or "")
+        cod_m = str(first_st.get("cod_mezzo", "") or "")
+        supp_m = str(first_st.get("supporto", "") or "")
+
+        base_sid = str(first_st.get("store_code", "")).strip()
+        st_meta = map_stores.get(base_sid) or map_stores.get(base_sid[:-1] if base_sid.endswith("B") else base_sid, {})
+        vett_str = vett_autista
+        aut_str = ""
+        if st_meta:
+            if st_meta.get("vettore"):
+                vett_str = str(st_meta.get("vettore"))
+            if st_meta.get("autista"):
+                aut_str = str(st_meta.get("autista"))
+
+        # Giro Banner Row
+        ws_giri.merge_cells(start_row=curr_row, start_column=1, end_row=curr_row, end_column=17)
+        banner_text = f"🚛 GIRO: {giro}"
+        if vett_str:
+            banner_text += f"   |   Vettore: {vett_str}"
+        if aut_str:
+            banner_text += f"   |   Autista: {aut_str}"
+        if tipo_m:
+            banner_text += f"   |   Mezzo: {tipo_m}"
+        if targa_m:
+            banner_text += f"   |   Targa: {targa_m}"
+        if supp_m:
+            banner_text += f"   |   Supporto: {supp_m}"
+
+        c_gb = ws_giri.cell(row=curr_row, column=1, value=banner_text)
+        c_gb.fill = fill_giro_banner
+        c_gb.font = font_giro_hdr
+        c_gb.alignment = align_left
+        ws_giri.row_dimensions[curr_row].height = 22
+        curr_row += 1
+
+        g_colli_tot = 0
+        g_vol_tot = 0.0
+        g_ped_tot = 0
+        g_tex = 0
+        g_oth = 0
+        g_sho = 0
+        g_eco = 0
+
+        for _, s_row in g_stores.iterrows():
+            sid = str(s_row.get("store_code", "")).strip()
+            bsid = sid[:-1] if sid.endswith("B") else sid
+            s_meta = map_stores.get(sid) or map_stores.get(bsid, {})
+
+            tex = int(round(float(s_row.get("textile_attesi", 0) or 0)))
+            oth = int(round(float(s_row.get("other_attesi", 0) or 0)))
+            sho = int(round(float(s_row.get("shoes_attesi", 0) or 0)))
+            eco = int(round(float(s_row.get("ecom_attesi", 0) or 0)))
+            c_tot = tex + oth + sho + eco
+            vol = round(float(s_row.get("mc", 0.0) or 0.0), 2)
+            ped = int(round(float(s_row.get("pedane", 0) or 0)))
+
+            st_att = str(s_row.get("attivo", s_meta.get("attivo", "SI")) or "SI").upper()
+            is_op = (st_att == "SI")
+
+            if is_op:
+                g_tex += tex
+                g_oth += oth
+                g_sho += sho
+                g_eco += eco
+                g_colli_tot += c_tot
+                g_vol_tot += vol
+                g_ped_tot += ped
+
+            formula_val = str(s_meta.get("formula", "") or "")
+            brand_val = str(s_row.get("brand", s_row.get("punto_vendita", "")) or "")
+            name_val = str(s_row.get("store_name", "") or "")
+            s_vett = str(s_meta.get("vettore", vett_str) or vett_str)
+            s_aut = str(s_meta.get("autista", aut_str) or aut_str)
+            s_mez = str(s_row.get("tipo_mezzo", tipo_m) or tipo_m)
+            s_tar = str(s_row.get("targa", targa_m) or targa_m)
+
+            row_data = [
+                (giro, align_center, None),
+                (sid, align_center, None),
+                (brand_val, align_left, None),
+                (name_val, align_left, None),
+                (tex if tex > 0 else 0, align_right, "#,##0"),
+                (oth if oth > 0 else 0, align_right, "#,##0"),
+                (sho if sho > 0 else 0, align_right, "#,##0"),
+                (eco if eco > 0 else 0, align_right, "#,##0"),
+                (c_tot, align_right, "#,##0"),
+                (vol, align_right, "0.00"),
+                (ped, align_right, "#,##0"),
+                (formula_val, align_center, None),
+                (s_vett, align_left, None),
+                (s_aut, align_left, None),
+                (s_mez, align_left, None),
+                (s_tar, align_center, None),
+                ("OPERATIVO" if is_op else "STANDBY", align_center, None)
+            ]
+
+            for c_i, (v, a_align, n_fmt) in enumerate(row_data, 1):
+                cell = ws_giri.cell(row=curr_row, column=c_i, value=v)
+                cell.font = font_main if is_op else font_standby
+                cell.alignment = a_align
+                cell.border = thin_border
+                if not is_op:
+                    cell.fill = fill_standby
+                if n_fmt:
+                    cell.number_format = n_fmt
+
+            ws_giri.row_dimensions[curr_row].height = 19
+            curr_row += 1
+
+        # Giro Subtotal Row
+        subtot_data = [
+            (f"SUBTOTALE {giro}", align_left, font_bold),
+            ("", align_left, font_bold),
+            ("", align_left, font_bold),
+            ("", align_left, font_bold),
+            (g_tex, align_right, font_bold),
+            (g_oth, align_right, font_bold),
+            (g_sho, align_right, font_bold),
+            (g_eco, align_right, font_bold),
+            (g_colli_tot, align_right, font_bold),
+            (round(g_vol_tot, 2), align_right, font_bold),
+            (g_ped_tot, align_right, font_bold),
+            ("", align_center, font_bold),
+            ("", align_left, font_bold),
+            ("", align_left, font_bold),
+            ("", align_left, font_bold),
+            ("", align_center, font_bold),
+            ("", align_center, font_bold)
+        ]
+
+        for c_i, (v, a_align, f_obj) in enumerate(subtot_data, 1):
+            cell = ws_giri.cell(row=curr_row, column=c_i, value=v)
+            cell.font = f_obj
+            cell.fill = fill_subtot
+            cell.alignment = a_align
+            cell.border = thin_border
+            if c_i in [5, 6, 7, 8, 9, 11]:
+                cell.number_format = "#,##0"
+            elif c_i == 10:
+                cell.number_format = "0.00"
+
+        ws_giri.merge_cells(start_row=curr_row, start_column=1, end_row=curr_row, end_column=4)
+        ws_giri.row_dimensions[curr_row].height = 21
+        curr_row += 2  # leaves an empty spacer row
+
+    # Grand Total Row at bottom
+    tot_data = [
+        ("TOTALE GENERALE SPEDIZIONI", align_left),
+        ("", align_left),
+        ("", align_left),
+        ("", align_left),
+        ("", align_right),
+        ("", align_right),
+        ("", align_right),
+        ("", align_right),
+        (tot_colli_all, align_right),
+        (tot_vol_all, align_right),
+        (tot_ped_all, align_right),
+        ("", align_center),
+        ("", align_left),
+        ("", align_left),
+        ("", align_left),
+        ("", align_center),
+        ("", align_center)
+    ]
+    for c_i, (v, a_align) in enumerate(tot_data, 1):
+        cell = ws_giri.cell(row=curr_row, column=c_i, value=v)
+        cell.font = font_tot
+        cell.fill = fill_tot
+        cell.alignment = a_align
+        cell.border = thin_border
+        if c_i in [9, 11]:
+            cell.number_format = "#,##0"
+        elif c_i == 10:
+            cell.number_format = "0.00"
+
+    ws_giri.merge_cells(start_row=curr_row, start_column=1, end_row=curr_row, end_column=4)
+    ws_giri.row_dimensions[curr_row].height = 26
+
+    # Column widths for Sheet 1
+    col_widths_s1 = {
+        1: 10, 2: 12, 3: 15, 4: 28, 5: 11, 6: 11, 7: 11, 8: 11,
+        9: 13, 10: 13, 11: 13, 12: 17, 13: 16, 14: 16, 15: 16, 16: 12, 17: 14
+    }
+    for c_idx, w in col_widths_s1.items():
+        ws_giri.column_dimensions[get_column_letter(c_idx)].width = w
+
+    # -------------------------------------------------------------
+    # SHEET 2: LAVORAZIONI PIATTAFORMA
+    # -------------------------------------------------------------
+    ws_lav = wb.create_sheet(title="Lavorazioni Piattaforma")
+    ws_lav.views.sheetView[0].showGridLines = True
+
+    fill_lav_title = PatternFill(start_color="065F46", end_color="065F46", fill_type="solid")
+    fill_lav_subbar = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
+    fill_lav_hdr = PatternFill(start_color="047857", end_color="047857", fill_type="solid")
+    fill_lav_subtot = PatternFill(start_color="ECFDF5", end_color="ECFDF5", fill_type="solid")
+    font_lav_subbar = Font(name="Calibri", size=10, bold=True, color="065F46")
+    font_lav_section = Font(name="Calibri", size=11, bold=True, color="065F46")
+
+    ws_lav.merge_cells("A1:I1")
+    c_lt = ws_lav.cell(row=1, column=1, value="PIANO LAVORAZIONI DI PIATTAFORMA CROSS-DOCKING")
+    c_lt.font = font_title
+    c_lt.fill = fill_lav_title
+    c_lt.alignment = align_center
+    ws_lav.row_dimensions[1].height = 32
+
+    ws_lav.merge_cells("A2:I2")
+    c_ls = ws_lav.cell(row=2, column=1, value="Dettaglio Capi Appesi/Stesi Tessile & Sdoppiamento Zara Home 50/50")
+    c_ls.font = font_lav_subbar
+    c_ls.fill = fill_lav_subbar
+    c_ls.alignment = align_center
+    ws_lav.row_dimensions[2].height = 22
+
+    # Section 1: Tessile
+    ws_lav.cell(row=4, column=1, value="1. LAVORAZIONE SPECIALE TESSILE (CAPI APPESI, STESI & PROFUMI)").font = font_lav_section
+
+    tex_cols = [
+        "Store ID", "Punto Vendita / Negozio", "Totale Capi", "Capi Appesi",
+        "Capi Stesi", "Deduzione Profumi", "Stander da Allestire", "Bancali / PLT", "Allestimento Operativo"
+    ]
+    for c_i, h in enumerate(tex_cols, 1):
+        c = ws_lav.cell(row=5, column=c_i, value=h)
+        c.fill = fill_lav_hdr
+        c.font = font_tbl_hdr
+        c.alignment = align_center
+        c.border = thin_border
+    ws_lav.row_dimensions[5].height = 24
+
+    spec = (special_breakdowns or {}).get("special_stores", {})
+    l_row = 6
+    sum_capi = 0
+    sum_appesi = 0
+    sum_stesi = 0
+    sum_prof = 0
+    sum_stander = 0
+    sum_plt = 0
+
+    for sid, sdata in spec.items():
+        c_tot = int(sdata.get("totali", 0) or 0)
+        c_app = int(sdata.get("appesi", 0) or 0)
+        c_ste = int(sdata.get("stesi", 0) or 0)
+        c_prf = int(sdata.get("profumi", 0) or 0)
+        stnd = int(sdata.get("stander", 0) or 0)
+        banc = int(sdata.get("plt", 0) or 0)
+        svil = str(sdata.get("sviluppo_str", "") or f"{banc} bancali + {stnd} stander")
+        sname = str(sdata.get("store_name", sid))
+
+        sum_capi += c_tot
+        sum_appesi += c_app
+        sum_stesi += c_ste
+        sum_prof += c_prf
+        sum_stander += stnd
+        sum_plt += banc
+
+        vals = [
+            (sid, align_center),
+            (sname, align_left),
+            (c_tot, align_right),
+            (c_app, align_right),
+            (c_ste, align_right),
+            (c_prf, align_right),
+            (stnd, align_right),
+            (banc, align_right),
+            (svil, align_left)
+        ]
+        for c_i, (v, a_align) in enumerate(vals, 1):
+            cell = ws_lav.cell(row=l_row, column=c_i, value=v)
+            cell.font = font_main
+            cell.alignment = a_align
+            cell.border = thin_border
+            if c_i in [3, 4, 5, 6, 7, 8]:
+                cell.number_format = "#,##0"
+
+        ws_lav.row_dimensions[l_row].height = 20
+        l_row += 1
+
+    # Subtot Tessile
+    subtot_tex = [
+        ("SUBTOTALE TESSILE", align_left),
+        ("", align_left),
+        (sum_capi, align_right),
+        (sum_appesi, align_right),
+        (sum_stesi, align_right),
+        (sum_prof, align_right),
+        (sum_stander, align_right),
+        (sum_plt, align_right),
+        (f"{sum_plt} bancali + {sum_stander} stander totali", align_left)
+    ]
+    for c_i, (v, a_align) in enumerate(subtot_tex, 1):
+        cell = ws_lav.cell(row=l_row, column=c_i, value=v)
+        cell.font = font_bold
+        cell.fill = fill_lav_subtot
+        cell.alignment = a_align
+        cell.border = thin_border
+        if c_i in [3, 4, 5, 6, 7, 8]:
+            cell.number_format = "#,##0"
+
+    ws_lav.merge_cells(start_row=l_row, start_column=1, end_row=l_row, end_column=2)
+    ws_lav.row_dimensions[l_row].height = 22
+    l_row += 3
+
+    # Section 2: Zara Home
+    ws_lav.cell(row=l_row-1, column=1, value="2. LAVORAZIONE ZARA HOME (50% BARRA 0 / 50% BARRA 9)").font = font_lav_section
+    zh_cols = [
+        "Store ID", "Punto Vendita / Negozio", "Totale Pezzi", "Quota Barra 0 (Partenza Diretta)",
+        "Quota Barra 9 (Sdoppiamento)", "Note Operative"
+    ]
+    for c_i, h in enumerate(zh_cols, 1):
+        c = ws_lav.cell(row=l_row, column=c_i, value=h)
+        c.fill = fill_lav_hdr
+        c.font = font_tbl_hdr
+        c.alignment = align_center
+        c.border = thin_border
+    ws_lav.row_dimensions[l_row].height = 24
+    l_row += 1
+
+    zh = (special_breakdowns or {}).get("zara_home", {})
+    sum_zh_tot = 0
+    sum_zh_b0 = 0
+    sum_zh_b9 = 0
+
+    for sid, zdata in zh.items():
+        ztot = int(zdata.get("totale", 0) or 0)
+        zb0 = int(zdata.get("barra0", 0) or 0)
+        zb9 = int(zdata.get("barra9", 0) or 0)
+        zsname = str(zdata.get("store_name", sid))
+
+        sum_zh_tot += ztot
+        sum_zh_b0 += zb0
+        sum_zh_b9 += zb9
+
+        vals = [
+            (sid, align_center),
+            (zsname, align_left),
+            (ztot, align_right),
+            (zb0, align_right),
+            (zb9, align_right),
+            ("Ripartizione 50% Barra 0 e 50% Barra 9", align_left)
+        ]
+        for c_i, (v, a_align) in enumerate(vals, 1):
+            cell = ws_lav.cell(row=l_row, column=c_i, value=v)
+            cell.font = font_main
+            cell.alignment = a_align
+            cell.border = thin_border
+            if c_i in [3, 4, 5]:
+                cell.number_format = "#,##0"
+
+        ws_lav.row_dimensions[l_row].height = 20
+        l_row += 1
+
+    # Subtot Zara Home
+    subtot_zh = [
+        ("SUBTOTALE ZARA HOME", align_left),
+        ("", align_left),
+        (sum_zh_tot, align_right),
+        (sum_zh_b0, align_right),
+        (sum_zh_b9, align_right),
+        ("", align_left)
+    ]
+    for c_i, (v, a_align) in enumerate(subtot_zh, 1):
+        cell = ws_lav.cell(row=l_row, column=c_i, value=v)
+        cell.font = font_bold
+        cell.fill = fill_lav_subtot
+        cell.alignment = a_align
+        cell.border = thin_border
+        if c_i in [3, 4, 5]:
+            cell.number_format = "#,##0"
+
+    ws_lav.merge_cells(start_row=l_row, start_column=1, end_row=l_row, end_column=2)
+    ws_lav.row_dimensions[l_row].height = 22
+    l_row += 3
+
+    # Section 3: Riepilogo Globale
+    ws_lav.cell(row=l_row-1, column=1, value="3. RIEPILOGO TOTALE PIATTAFORMA").font = font_lav_section
+    tot_pezzi_lavorati = (special_breakdowns or {}).get("totale_pezzi_lavorati", sum_capi + sum_zh_tot)
+
+    summary_kpis = [
+        ("Totale Pezzi / Capi Lavorati in Piattaforma", int(tot_pezzi_lavorati)),
+        ("Totale Stander da Allestire (Tessile)", sum_stander),
+        ("Totale Bancali da Allestire (Tessile)", sum_plt),
+    ]
+    for lbl, val in summary_kpis:
+        c1 = ws_lav.cell(row=l_row, column=1, value=lbl)
+        c1.font = font_bold
+        c1.border = thin_border
+        c1.fill = fill_lav_subtot
+        for col_k in range(2, 4):
+            ck = ws_lav.cell(row=l_row, column=col_k, value="")
+            ck.border = thin_border
+            ck.fill = fill_lav_subtot
+        ws_lav.merge_cells(start_row=l_row, start_column=1, end_row=l_row, end_column=3)
+
+        c2 = ws_lav.cell(row=l_row, column=4, value=val)
+        c2.font = font_bold
+        c2.alignment = align_right
+        c2.number_format = "#,##0"
+        c2.border = thin_border
+        ws_lav.row_dimensions[l_row].height = 21
+        l_row += 1
+
+    col_widths_s2 = {
+        1: 12, 2: 30, 3: 14, 4: 16, 5: 16, 6: 18, 7: 20, 8: 16, 9: 30
+    }
+    for c_idx, w in col_widths_s2.items():
+        ws_lav.column_dimensions[get_column_letter(c_idx)].width = w
+
+    # -------------------------------------------------------------
+    # SHEET 3: ELENCO PUNTI VENDITA COMPLETO (Per Filtri / Pivot)
+    # -------------------------------------------------------------
+    ws_flat = wb.create_sheet(title="Elenco Punti Vendita")
+    ws_flat.views.sheetView[0].showGridLines = True
+
+    flat_headers = [
+        "Store ID", "Giro", "Brand", "Nome Negozio", "Barra",
+        "Colli Tex", "Colli Oth", "Colli Sho", "Colli Eco", "Totale Colli",
+        "Volume (m³)", "Pedane (PLT)", "Formula", "Vettore", "Autista",
+        "Tipo Mezzo", "Targa", "Cod. SGA", "Stato"
+    ]
+    for c_i, h in enumerate(flat_headers, 1):
+        cell = ws_flat.cell(row=1, column=c_i, value=h)
+        cell.fill = fill_tbl_hdr
+        cell.font = font_tbl_hdr
+        cell.alignment = align_center
+        cell.border = thin_border
+    ws_flat.row_dimensions[1].height = 24
+
+    for r_i, (_, s_row) in enumerate(stores_only.iterrows(), 2):
+        sid = str(s_row.get("store_code", "")).strip()
+        bsid = sid[:-1] if sid.endswith("B") else sid
+        s_meta = map_stores.get(sid) or map_stores.get(bsid, {})
+
+        tex = int(round(float(s_row.get("textile_attesi", 0) or 0)))
+        oth = int(round(float(s_row.get("other_attesi", 0) or 0)))
+        sho = int(round(float(s_row.get("shoes_attesi", 0) or 0)))
+        eco = int(round(float(s_row.get("ecom_attesi", 0) or 0)))
+        c_tot = tex + oth + sho + eco
+        vol = round(float(s_row.get("mc", 0.0) or 0.0), 2)
+        ped = int(round(float(s_row.get("pedane", 0) or 0)))
+        b_val = 9 if s_row.get("is_barra9") else 0
+        st_att = str(s_row.get("attivo", s_meta.get("attivo", "SI")) or "SI").upper()
+
+        row_vals = [
+            (sid, align_center, None),
+            (s_row.get("giro", ""), align_center, None),
+            (s_row.get("brand", s_row.get("punto_vendita", "")), align_left, None),
+            (s_row.get("store_name", ""), align_left, None),
+            (b_val, align_center, None),
+            (tex, align_right, "#,##0"),
+            (oth, align_right, "#,##0"),
+            (sho, align_right, "#,##0"),
+            (eco, align_right, "#,##0"),
+            (c_tot, align_right, "#,##0"),
+            (vol, align_right, "0.00"),
+            (ped, align_right, "#,##0"),
+            (str(s_meta.get("formula", "") or ""), align_center, None),
+            (str(s_meta.get("vettore", s_row.get("vettore_autista", "")) or ""), align_left, None),
+            (str(s_meta.get("autista", "") or ""), align_left, None),
+            (str(s_row.get("tipo_mezzo", "") or ""), align_left, None),
+            (str(s_row.get("targa", "") or ""), align_center, None),
+            (s_meta.get("cod_sga", ""), align_center, None),
+            (st_att, align_center, None)
+        ]
+        for c_i, (v, a_align, n_fmt) in enumerate(row_vals, 1):
+            c = ws_flat.cell(row=r_i, column=c_i, value=v)
+            c.font = font_main
+            c.alignment = a_align
+            c.border = thin_border
+            if n_fmt:
+                c.number_format = n_fmt
+        ws_flat.row_dimensions[r_i].height = 19
+
+    if not stores_only.empty:
+        ws_flat.auto_filter.ref = f"A1:{get_column_letter(len(flat_headers))}{len(stores_only) + 1}"
+
+    for col in ws_flat.columns:
+        max_l = max(len(str(cell.value or "")) for cell in col)
+        c_letter = get_column_letter(col[0].column)
+        ws_flat.column_dimensions[c_letter].width = max(max_l + 3, 11)
+
+    wb.save(output_path)
+    return output_path
 
 
 def export_planner_roma(
     df_planner: pd.DataFrame,
     output_path: Union[str, Path],
-    template_path: Optional[Path] = None
+    template_path: Optional[Union[str, Path]] = None
 ):
     """
-    Fills Planning ITX_RM template with calculated columns F to S and V,
-    saving to PLANNER ROMA _<date>.xlsx.
+    Exports Planning ITX_RM.xlsx with standard format.
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if template_path is None or not Path(template_path).exists():
+    if template_path is None:
         template_path = PLANNER_TEMPLATE_FILE
 
-    wb = openpyxl.load_workbook(template_path)
-    ws = wb["Planning Roma"]
+    if template_path and Path(template_path).exists():
+        wb = openpyxl.load_workbook(template_path)
+    else:
+        wb = openpyxl.Workbook()
 
-    map_p = df_planner.set_index("row_idx").to_dict(orient="index")
+    ws = wb.active
+    ws.title = "PLANNING"
 
-    for r_idx in range(7, 74):
-        p_row = map_p.get(r_idx, {})
+    col_sid = "store_id" if "store_id" in df_planner.columns else "store_code"
+    map_p = {}
+    if not df_planner.empty and col_sid in df_planner.columns:
+        for _, r_pl in df_planner.iterrows():
+            k_pl = str(r_pl[col_sid]).strip()
+            if k_pl not in map_p:
+                map_p[k_pl] = r_pl.to_dict()
+
+    for r_idx in range(6, 60):
+        c_val = ws.cell(row=r_idx, column=3).value
+        if not c_val:
+            continue
+        sid = str(c_val).strip()
+        p_row = map_p.get(sid)
         if not p_row:
             continue
 
