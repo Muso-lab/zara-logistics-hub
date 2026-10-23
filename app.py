@@ -65,7 +65,11 @@ from src.bolle_manager import (
 from src.exporters import export_planner_roma
 from src.scraper import InditexExtranetScraper
 from src.utils import get_cycle_date_range, format_number_it, format_date_it
-from src.components import render_lavorazioni_piattaforma
+from src.components import (
+    render_lavorazioni_piattaforma,
+    render_spunta_arrivi_modern,
+    render_riepilogo_giri_modern,
+)
 
 # ==============================================================================
 # CONFIGURAZIONE PAGINA & STILE
@@ -526,72 +530,22 @@ if menu == "📥 1. Previsione & Arrivi":
                                 key=f"dl_{k}_{curr_rid}",
                             )
 
-        tab_spunta, tab_lav, tab_prev = st.tabs([
-            "📋 Spunta Arrivi & Pedane per Giro",
+        tab_spunta, tab_giri, tab_lav = st.tabs([
+            "📋 Spunta Arrivi (Per Negozio)",
+            "🚛 Vista per Giro & Vettori",
             "🏭 Lavorazioni Piattaforma (Tessile 3680/9226/3591 & Home)",
-            "📊 Tabella Previsioni per Punto Vendita",
         ])
 
+        df_sp_view = active_run_data.get("df_spunta", pd.DataFrame())
+
         with tab_spunta:
-            df_sp_view = active_run_data.get("df_spunta", pd.DataFrame()).copy()
-            if not df_sp_view.empty:
-                # Filtra eventuali righe di intestazione/separazione template per mostrare solo i negozi reali
-                if "is_store" in df_sp_view.columns:
-                    df_sp_view = df_sp_view[df_sp_view["is_store"] == True].copy()
-                elif "store_code" in df_sp_view.columns:
-                    df_sp_view = df_sp_view[
-                        ~df_sp_view["store_code"].astype(str).str.strip().str.upper().isin(["", "NEGOZIO", "STORE ID", "EXTRA", "NONE"])
-                    ].copy()
+            render_spunta_arrivi_modern(df_sp_view)
 
-                for int_col in ["textile_attesi", "shoes_attesi", "other_attesi", "ecom_attesi", "pedane", "totale_pedane", "is_barra9"]:
-                    if int_col in df_sp_view.columns:
-                        df_sp_view[int_col] = pd.to_numeric(df_sp_view[int_col], errors="coerce").fillna(0).round().astype(int)
-                if "mc" in df_sp_view.columns:
-                    df_sp_view["mc"] = pd.to_numeric(df_sp_view["mc"], errors="coerce").fillna(0.0).round(2)
-
-                st.caption("Include la divisione automatica dei volumi 70% (Barra 0) e 30% (Barra 9 'B') per i negozi con Sdoppiamento attivo:")
-                cols_sp = [c for c in ["store_code", "store_name", "brand", "giro", "mc", "textile_attesi", "other_attesi", "shoes_attesi", "ecom_attesi", "pedane", "totale_pedane", "is_barra9"] if c in df_sp_view.columns]
-                st.dataframe(
-                    df_sp_view[cols_sp],
-                    use_container_width=True,
-                    height=480,
-                    hide_index=True,
-                    column_config={
-                        "store_code": st.column_config.TextColumn("Negozio"),
-                        "store_name": st.column_config.TextColumn("Punto Vendita"),
-                        "brand": st.column_config.TextColumn("Insegna"),
-                        "giro": st.column_config.TextColumn("Giro"),
-                        "mc": st.column_config.NumberColumn("MC (m³)", format="%.2f"),
-                        "textile_attesi": st.column_config.NumberColumn("Tessile Attesi", format="%d"),
-                        "other_attesi": st.column_config.NumberColumn("Altri (Other)", format="%d"),
-                        "shoes_attesi": st.column_config.NumberColumn("Calzature Attese", format="%d"),
-                        "ecom_attesi": st.column_config.NumberColumn("E-Com Attesi", format="%d"),
-                        "pedane": st.column_config.NumberColumn("Pedane", format="%d"),
-                        "totale_pedane": st.column_config.NumberColumn("Totale Pedane Giro", format="%d"),
-                        "is_barra9": st.column_config.NumberColumn("Barra 9", format="%d"),
-                    },
-                )
-            else:
-                st.info("Nessun dato di spunta disponibile.")
+        with tab_giri:
+            render_riepilogo_giri_modern(df_sp_view, df_stores=df_stores_side)
 
         with tab_lav:
             render_lavorazioni_piattaforma(active_run_data.get("special_breakdowns", {}), key_prefix=f"p1_{curr_rid}")
-
-        with tab_prev:
-            df_an_view = active_run_data.get("df_analisi", pd.DataFrame()).copy()
-            if not df_an_view.empty:
-                for int_col in [
-                    "crts_textile_total", "planned_others", "planned_textile", "weight_textile",
-                    "planned_shoes", "weight_shoes", "planned_ecom", "weight_ecom",
-                    "total_weight", "total_planned_crts", "received_textile", "received_others",
-                    "received_shoes", "received_ecom", "total_received_crts"
-                ]:
-                    if int_col in df_an_view.columns:
-                        df_an_view[int_col] = pd.to_numeric(df_an_view[int_col], errors="coerce").fillna(0).round().astype(int)
-                for flt_col in ["vol_textile", "vol_shoes", "vol_ecom", "total_vol"]:
-                    if flt_col in df_an_view.columns:
-                        df_an_view[flt_col] = pd.to_numeric(df_an_view[flt_col], errors="coerce").fillna(0.0).round(2)
-                st.dataframe(df_an_view, use_container_width=True, height=450, hide_index=True)
 
 
 # ==============================================================================
