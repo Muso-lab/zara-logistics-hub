@@ -370,14 +370,15 @@ def test_platform_footprint_calculation_9226():
         {"store_code": "9226", "brand": "ZARA", "mc": 29.84, "textile_attesi": 202, "other_attesi": 22, "shoes_attesi": 48, "ecom_attesi": 0, "pedane": 25, "is_store": True}
     ])
     df_stores = pd.DataFrame([
-        {"store_id": "9226", "store_name": "ROM-P BOCCONI", "lavorazione": "SI TESSILE", "scorporo_profumi": "SI", "pezzi_profumi": 1791.0}
+        {"store_id": "9226", "store_name": "ROM-P BOCCONI", "lavorazione": "SI TESSILE", "scorporo_profumi": "SI"}
     ])
 
     sb = compute_special_breakdowns(
         df_spunta=df_sp,
         df_total=df_tot,
         df_shoes=df_sho,
-        df_stores=df_stores
+        df_stores=df_stores,
+        perfume_corrections_override={"9226": 1791.0}
     )
 
     s9226 = sb["special_stores"]["9226"]

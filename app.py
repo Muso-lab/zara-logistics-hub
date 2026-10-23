@@ -319,8 +319,8 @@ if menu == "📥 1. Previsione & Arrivi":
         df_prof_stores = df_all_stores[df_all_stores["store_id"].isin(["3680", "9226", "3591"])].copy()
 
     st.markdown('<div class="quick-bar">', unsafe_allow_html=True)
-    st.markdown("##### 🧴 Scorporo Profumi (Negozi Abilitati in Anagrafica)")
-    st.caption("Pezzi di profumi da scorporare dai capi piegati per il calcolo netto dei bancali (PLT) e dei capi lavorati. Puoi abilitare/disabilitare i negozi dall'Anagrafica Negozi:")
+    st.markdown("##### 🧴 Scorporo Profumi (Dato Dinamico per questa Operativa)")
+    st.caption("I pezzi profumi sono un dato dinamico da inserire manualmente ad ogni specifica run per i negozi abilitati. Se non pervenuti o assenti per questo ciclo, lasciare a 0:")
 
     perfume_corrections = {}
     if not df_prof_stores.empty:
@@ -328,14 +328,14 @@ if menu == "📥 1. Previsione & Arrivi":
         for idx_p, (_, prow) in enumerate(df_prof_stores.iterrows()):
             p_sid = str(prow["store_id"]).strip()
             p_sname = str(prow.get("store_name", "")).strip()
-            default_pz = int(float(prow.get("pezzi_profumi", 0) or 0))
             with prof_cols[idx_p % len(prof_cols)]:
                 val_pz = st.number_input(
                     f"Negozio {p_sid} ({p_sname}) — Pezzi Profumi",
-                    value=default_pz,
+                    value=0,
                     min_value=0,
                     step=1,
                     key=f"perfume_{p_sid}",
+                    help="Dato dinamico per questa specifica run. Se mancante o assente, lasciare a 0."
                 )
                 perfume_corrections[p_sid] = float(val_pz)
     else:
@@ -380,10 +380,6 @@ if menu == "📥 1. Previsione & Arrivi":
 
             if confirm_extranet_go:
                 st.session_state.pop("confirm_perfume_mode", None)
-                # Salva i valori aggiornati dei profumi direttamente in Anagrafica Negozi
-                for p_sid, p_val in perfume_corrections.items():
-                    update_store_record(p_sid, {"pezzi_profumi": int(p_val)})
-
                 status_banner = st.empty()
                 prog_bar = st.progress(5)
                 status_banner.markdown("""
@@ -479,7 +475,7 @@ if menu == "📥 1. Previsione & Arrivi":
                     </div>
                     """, unsafe_allow_html=True)
                     st.session_state["last_run"] = res
-                    st.toast("✅ Hai aggiornato correttamente i profumi in anagrafica!", icon="🧴")
+                    
                 except Exception as e:
                     status_banner.empty()
                     st.error(f"Errore durante l'estrazione da Extranet: {e}")
@@ -522,9 +518,6 @@ if menu == "📥 1. Previsione & Arrivi":
 
             if confirm_upload_go:
                 st.session_state.pop("confirm_perfume_mode", None)
-                for p_sid, p_val in perfume_corrections.items():
-                    update_store_record(p_sid, {"pezzi_profumi": int(p_val)})
-
                 status_banner_up = st.empty()
                 prog_bar_up = st.progress(25)
                 status_banner_up.markdown("""
@@ -581,7 +574,7 @@ if menu == "📥 1. Previsione & Arrivi":
                     </div>
                     """, unsafe_allow_html=True)
                     st.session_state["last_run"] = res
-                    st.toast("✅ Hai aggiornato correttamente i profumi in anagrafica!", icon="🧴")
+                    
                 except Exception as e:
                     status_banner_up.empty()
                     st.error(f"Errore durante l'elaborazione: {e}")
@@ -1353,7 +1346,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
 
         cols_order = [
             "store_id", "store_name", "brand", "giro", "attivo", "lavorazione",
-            "scorporo_profumi", "pezzi_profumi", "formula", "tipo_mezzo", "autista", "cell_autista",
+            "scorporo_profumi", "formula", "tipo_mezzo", "autista", "cell_autista",
             "sdoppiamento_b9", "tipo_mezzo_doppia", "autista_doppia",
             "indirizzo", "provincia", "cod_sga", "cc"
         ]
@@ -1368,8 +1361,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                 "giro": st.column_config.TextColumn("Giro", required=True, width="small"),
                 "attivo": st.column_config.SelectboxColumn("Stato", options=["SI", "NO"], required=True, width="small", help="SI = Operativo, NO = Standby / Ristrutturazione (escluso dal carico)"),
                 "lavorazione": st.column_config.SelectboxColumn("Lavorazione Piattaforma", options=["NO", "SI TESSILE", "SI HOME"], required=True, width="medium"),
-                "scorporo_profumi": st.column_config.SelectboxColumn("Scorporo Profumi", options=["NO", "SI"], required=True, width="small"),
-                "pezzi_profumi": st.column_config.NumberColumn("Pezzi Profumi", min_value=0, step=1, format="%d", width="small"),
+                "scorporo_profumi": st.column_config.SelectboxColumn("Scorporo Profumi", options=["NO", "SI"], required=True, width="small", help="Abilita il negozio allo scorporo profumi (il numero di pezzi viene inserito dinamicamente ad ogni run)"),
                 "formula": st.column_config.TextColumn("Formula Pedane", required=True, width="medium"),
                 "tipo_mezzo": st.column_config.SelectboxColumn("Mezzo Assegnato", options=mezzi_list_full, width="medium"),
                 "autista": st.column_config.TextColumn("Autista STD", width="medium"),

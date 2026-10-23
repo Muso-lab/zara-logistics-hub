@@ -984,7 +984,7 @@ def compute_special_breakdowns(
             for _, s_row in df_stores.iterrows():
                 sid_s = str(s_row["store_id"]).strip()
                 if str(s_row.get("scorporo_profumi", "NO")).strip().upper() == "SI":
-                    perfume_corrections[sid_s] = _safe_float(s_row.get("pezzi_profumi", perfume_corrections.get(sid_s, 0.0)))
+                    perfume_corrections[sid_s] = 0.0
                     if sid_s not in tessile_ids:
                         tessile_ids.append(sid_s)
                 else:

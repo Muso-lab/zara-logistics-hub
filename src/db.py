@@ -63,9 +63,7 @@ def init_db(db_path=DB_PATH):
         cursor.execute("UPDATE stores SET lavorazione = 'SI HOME' WHERE store_id IN ('1984', '1971') AND (lavorazione IS NULL OR lavorazione = 'NO')")
         cursor.execute("UPDATE stores SET sdoppiamento_b9 = 'SI' WHERE store_id IN ('14010', '14825', '16723', '1984', '3503', '3680', '5349', '5367', '6525', '8428', '14010B', '14825B', '16723B', '1984B', '3503B', '3680B', '5349B', '5367B', '6525B', '8428B') AND (sdoppiamento_b9 IS NULL OR sdoppiamento_b9 = 'NO')")
         cursor.execute("UPDATE stores SET scorporo_profumi = 'SI' WHERE store_id IN ('3680', '9226', '3591') AND (scorporo_profumi IS NULL OR scorporo_profumi = 'NO')")
-        cursor.execute("UPDATE stores SET pezzi_profumi = 1085 WHERE store_id = '3680' AND (pezzi_profumi IS NULL OR pezzi_profumi = 0)")
-        cursor.execute("UPDATE stores SET pezzi_profumi = 1791 WHERE store_id = '9226' AND (pezzi_profumi IS NULL OR pezzi_profumi = 0)")
-        cursor.execute("UPDATE stores SET pezzi_profumi = 1030 WHERE store_id = '3591' AND (pezzi_profumi IS NULL OR pezzi_profumi = 0)")
+        cursor.execute("UPDATE stores SET pezzi_profumi = 0 WHERE pezzi_profumi IS NULL OR pezzi_profumi > 0")
 
         # Execution Runs / Batches (Weekly / Cycle runs)
         cursor.execute("""
