@@ -9,10 +9,11 @@ venv/
 env/
 
 # Local generated outputs and temporary files
-output/*.xlsx
-output/extranet_downloads/
+output/
+data/downloads/
 *.tmp
 *.bak
+~$*
 
 # OS files
 .DS_Store
