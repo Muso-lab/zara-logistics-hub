@@ -102,12 +102,10 @@ st.markdown("""
 
 @st.cache_resource
 def _initialize_system_once():
-    """Esegue l'inizializzazione del DB una sola volta all'avvio del server e sincronizza in background."""
+    """Esegue l'inizializzazione del DB una sola volta all'avvio del server."""
     init_db()
     init_bolle_tables()
     seed_anagrafica_if_empty()
-    if get_cloud_url():
-        threading.Thread(target=pull_all_from_cloud, daemon=True).start()
     return True
 
 _initialize_system_once()

@@ -89,6 +89,14 @@ class InditexExtranetScraper:
 
         self._notify("Avvio del browser per connessione a Extranet Inditex...", 5)
 
+        chromium_args = [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-extensions",
+            "--disable-software-rasterizer",
+        ]
+
         with sync_playwright() as p:
             browser = None
             # 1. Prova prima eventuali binari Chromium di sistema (es. Streamlit Cloud Linux)
@@ -98,7 +106,7 @@ class InditexExtranetScraper:
                         browser = p.chromium.launch(
                             executable_path=sys_exec,
                             headless=self.headless,
-                            args=["--no-sandbox", "--disable-dev-shm-usage"],
+                            args=chromium_args,
                         )
                         break
                     except Exception:
@@ -108,9 +116,9 @@ class InditexExtranetScraper:
                 for ch in [None, "msedge", "chrome"]:
                     try:
                         if ch:
-                            browser = p.chromium.launch(channel=ch, headless=self.headless)
+                            browser = p.chromium.launch(channel=ch, headless=self.headless, args=chromium_args)
                         else:
-                            browser = p.chromium.launch(headless=self.headless, args=["--no-sandbox", "--disable-dev-shm-usage"])
+                            browser = p.chromium.launch(headless=self.headless, args=chromium_args)
                         break
                     except Exception:
                         continue
@@ -119,7 +127,7 @@ class InditexExtranetScraper:
                 try:
                     import subprocess
                     subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
-                    browser = p.chromium.launch(headless=self.headless, args=["--no-sandbox", "--disable-dev-shm-usage"])
+                    browser = p.chromium.launch(headless=self.headless, args=chromium_args)
                 except Exception:
                     pass
             if browser is None:
@@ -215,7 +223,20 @@ class InditexExtranetScraper:
                 self._notify(f"Errore durante l'estrazione: {e}", 100)
                 raise
             finally:
-                browser.close()
+                try:
+                    page.close()
+                except Exception:
+                    pass
+                try:
+                    context.close()
+                except Exception:
+                    pass
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                import gc
+                gc.collect()
 
         self._notify("Processo browser terminato.", 100)
         return result_summary
