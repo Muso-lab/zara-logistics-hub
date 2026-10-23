@@ -79,31 +79,37 @@ def test_engine_calculations():
     assert (df_sga9["flusso_tipo"] == "ANDATA").sum() == (df_sga9["flusso_tipo"] == "RITORNO").sum()
 
 def test_full_pipeline():
-    res = run_pipeline(
-        total_source=REF_DIR / "TOTAL.xls",
-        shoes_source=REF_DIR / "SHOES.xls",
-        texile_source=REF_DIR / "TEXILE.xls",
-        ecom_source=REF_DIR / "ECOM.xls",
-        other_source=REF_DIR / "OTHER",
-        esportazione_source=REF_DIR / "esportazione.xlsx",
-        run_date="2026-10-22",
-        cycle_type="GIOV-DOM"
-    )
-    assert res["run_id"] > 0
-    assert res["totals"]["total_bultos"] == 8169.0
-    for name, p in res["exported_files"].items():
-        assert p.exists()
-        assert p.stat().st_size > 0
+    from src.db import delete_run
+    res = {}
+    try:
+        res = run_pipeline(
+            total_source=REF_DIR / "TOTAL.xls",
+            shoes_source=REF_DIR / "SHOES.xls",
+            texile_source=REF_DIR / "TEXILE.xls",
+            ecom_source=REF_DIR / "ECOM.xls",
+            other_source=REF_DIR / "OTHER",
+            esportazione_source=REF_DIR / "esportazione.xlsx",
+            run_date="2026-10-22",
+            cycle_type="GIOV-DOM"
+        )
+        assert res["run_id"] > 0
+        assert res["totals"]["total_bultos"] == 8169.0
+        for name, p in res["exported_files"].items():
+            assert p.exists()
+            assert p.stat().st_size > 0
 
-    # Test special breakdowns
-    sb = res["special_breakdowns"]
-    assert "stander_summary" in sb
-    assert isinstance(sb["stander_summary"], pd.DataFrame)
-    assert len(sb["stander_summary"]) == 3
-    assert "zh_summary" in sb
-    assert isinstance(sb["zh_summary"], pd.DataFrame)
-    assert len(sb["zh_summary"]) == 2
-    assert sb["totale_pezzi_lavorati"] > 0
+        # Test special breakdowns
+        sb = res["special_breakdowns"]
+        assert "stander_summary" in sb
+        assert isinstance(sb["stander_summary"], pd.DataFrame)
+        assert len(sb["stander_summary"]) == 3
+        assert "zh_summary" in sb
+        assert isinstance(sb["zh_summary"], pd.DataFrame)
+        assert len(sb["zh_summary"]) == 2
+        assert sb["totale_pezzi_lavorati"] > 0
+    finally:
+        if res.get("run_id"):
+            delete_run(res["run_id"])
 
 
 def test_utils_localization_and_cycles():
@@ -130,7 +136,7 @@ def test_utils_localization_and_cycles():
 
 
 def test_store_options_and_auto_onboarding():
-    from src.db import add_store_record, update_store_record, delete_store_record, get_stores_df
+    from src.db import add_store_record, update_store_record, delete_store_record, get_stores_df, delete_run
     
     # 1. Test add_store_record
     test_store = {
@@ -166,6 +172,7 @@ def test_store_options_and_auto_onboarding():
 
     # 3. Test auto-onboarding in run_pipeline with mock new store in total
     delete_store_record("9999")  # ensure clean start
+    res = {}
     try:
         df_tot = parse_grupo_envio(REF_DIR / "TOTAL.xls").copy()
         # Add a mock row for unknown store 9999
@@ -209,8 +216,10 @@ def test_store_options_and_auto_onboarding():
         assert not sp_9999.empty
         assert sp_9999.iloc[0]["giro"] == "DA ASSEGNARE"
     finally:
-        # Clean up test store 9999
+        # Clean up test store 9999 and test run
         delete_store_record("9999")
+        if res.get("run_id"):
+            delete_run(res["run_id"])
 
 
 def test_delete_run():
