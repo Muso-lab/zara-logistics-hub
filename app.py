@@ -6,19 +6,7 @@ from pathlib import Path
 import io
 import sqlite3
 import json
-import importlib
-
-import src.config
-import src.db
-import src.parsers
-import src.engine
-import src.bolle_manager
-import src.pipeline
-import src.exporters
-import src.cloud_sync
-
-for _mod in (src.config, src.db, src.parsers, src.engine, src.bolle_manager, src.pipeline, src.exporters, src.cloud_sync):
-    importlib.reload(_mod)
+import threading
 
 from src.cloud_sync import (
     get_cloud_url,
@@ -112,10 +100,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Inizializzazione DB (crea tutte le tabelle necessarie su qualsiasi PC o Server Cloud)
-init_db()
-init_bolle_tables()
-seed_anagrafica_if_empty()
+@st.cache_resource
+def _initialize_system_once():
+    """Esegue l'inizializzazione del DB una sola volta all'avvio del server e sincronizza in background."""
+    init_db()
+    init_bolle_tables()
+    seed_anagrafica_if_empty()
+    if get_cloud_url():
+        threading.Thread(target=pull_all_from_cloud, daemon=True).start()
+    return True
+
+_initialize_system_once()
 
 # ==============================================================================
 # SISTEMA DI LOGIN SEMPLICE (ADMIN vs SOLA VISUALIZZAZIONE)
@@ -170,12 +165,6 @@ if not st.session_state.get("authenticated", False):
 
 USER_ROLE = st.session_state.get("auth_role", "viewer")
 IS_ADMIN = USER_ROLE == "admin"
-
-# Sincronizzazione automatica iniziale da Google Sheets (se configurato)
-if "cloud_initial_sync_done" not in st.session_state:
-    st.session_state["cloud_initial_sync_done"] = True
-    if get_cloud_url():
-        pull_all_from_cloud()
 
 # ==============================================================================
 # SIDEBAR: NAVIGAZIONE & STATO OPERATIVO

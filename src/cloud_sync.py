@@ -259,13 +259,18 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
 
 def auto_sync_tables(table_names: list[str]):
     """
-    Sincronizza automaticamente le tabelle modificate verso Google Sheets
-    se l'URL Cloud e' configurato.
+    Sincronizza automaticamente in background (thread asincrono non bloccante)
+    le tabelle modificate verso Google Sheets se l'URL Cloud e' configurato.
     """
     url = get_cloud_url()
     if not url:
         return
-    try:
-        push_tables_to_cloud(table_names=table_names, timeout=15)
-    except Exception:
-        pass
+    import threading
+
+    def _bg_push():
+        try:
+            push_tables_to_cloud(table_names=table_names, timeout=20)
+        except Exception:
+            pass
+
+    threading.Thread(target=_bg_push, daemon=True).start()
