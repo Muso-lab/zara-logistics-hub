@@ -542,7 +542,11 @@ if menu == "📥 1. Previsione & Arrivi":
             render_spunta_arrivi_modern(df_sp_view)
 
         with tab_giri:
-            render_riepilogo_giri_modern(df_sp_view, df_stores=df_stores_side)
+            render_riepilogo_giri_modern(
+                df_sp_view,
+                df_stores=df_stores_side,
+                special_breakdowns=active_run_data.get("special_breakdowns", {}),
+            )
 
         with tab_lav:
             render_lavorazioni_piattaforma(active_run_data.get("special_breakdowns", {}), key_prefix=f"p1_{curr_rid}")

@@ -985,17 +985,40 @@ def compute_special_breakdowns(
         stesi = int(round(max(0.0, tot_paq - sho_paq - corr)))
         tot_pezzi = int(appesi + stesi)
 
-        # Stander & Bancali: store 3680 has factor 0.65 (Barra 0)
-        if sid == "3680":
-            stander = int(math.floor(appesi * 0.65 / 200.0)) if appesi > 0 else 0
-            bancali = int(math.floor(stesi * 0.65 / 15.0 / 20.0)) if stesi > 0 else 0
-            label_negozio = "3680 /0"
-        else:
-            stander = int(math.floor(appesi / 200.0)) if appesi > 0 else 0
-            bancali = int(math.floor(stesi / 15.0 / 20.0)) if stesi > 0 else 0
-            label_negozio = sid
+        # Stander & Bancali Stesi: store 3680 has factor 0.65 (Barra 0)
+        # Other stores factor 1.0 (unless configured)
+        b0_factor = 0.65 if sid == "3680" else 1.0
+        label_negozio = "3680 /0" if sid == "3680" else sid
 
-        sintesi = f"{bancali} bancali + {stander} stander"
+        stander = int(math.floor(appesi * b0_factor / 200.0)) if appesi > 0 else 0
+        bancali_stesi = int(math.floor(stesi * b0_factor / 15.0 / 20.0)) if stesi > 0 else 0
+
+        # Calcolo bancali per colli non-tessile (calzature / accessori / e-com)
+        # Nello sviluppo banchina reale, i colli non appesi viaggiano su bancali (~18 colli/bancale)
+        sp_row = None
+        pedane_senza_lav = 0
+        if df_spunta is not None and not df_spunta.empty and "store_code" in df_spunta.columns:
+            m = df_spunta[df_spunta["store_code"].astype(str).str.strip() == sid]
+            if not m.empty:
+                sp_row = m.iloc[0]
+                pedane_senza_lav = int(round(pd.to_numeric(sp_row.get("pedane", 0), errors="coerce") or 0))
+
+        bancali_extra = 0
+        if sp_row is not None:
+            shoes_c = float(pd.to_numeric(sp_row.get("shoes_attesi", 0), errors="coerce") or 0)
+            other_c = float(pd.to_numeric(sp_row.get("other_attesi", 0), errors="coerce") or 0)
+            ecom_c = float(pd.to_numeric(sp_row.get("ecom_attesi", 0), errors="coerce") or 0)
+            non_tex_colli = (shoes_c + other_c + ecom_c) * b0_factor
+            bancali_extra = int(round(non_tex_colli / 18.0)) if non_tex_colli > 0 else 0
+        elif sid in map_sho:
+            sho_bultos = float(map_sho[sid].get("bultos", 0.0)) * b0_factor
+            bancali_extra = int(round(sho_bultos / 18.0)) if sho_bultos > 0 else 0
+
+        bancali_totali = bancali_stesi + bancali_extra
+        # Regola di carico: 2 stander occupano lo spazio di 4 bancali "a madonna" (1 stander = 2 pedane eq.)
+        stander_pedane_eq = stander * 2
+        impronta_a_terra = bancali_totali + stander_pedane_eq
+        sintesi = f"{bancali_totali} bancali + {stander} stander"
         s_name = store_names.get(sid, f"Store {sid}")
 
         special_stores[sid] = {
@@ -1006,7 +1029,13 @@ def compute_special_breakdowns(
             "totale_pezzi": tot_pezzi,
             "correzione_profumi": corr,
             "stander": stander,
-            "bancali": bancali,
+            "bancali_stesi": bancali_stesi,
+            "bancali_extra": bancali_extra,
+            "bancali": bancali_totali,
+            "stander_pedane_eq": stander_pedane_eq,
+            "impronta_a_terra": impronta_a_terra,
+            "pedane_senza_lavorazione": pedane_senza_lav,
+            "delta_pedane": impronta_a_terra - pedane_senza_lav if pedane_senza_lav > 0 else 0,
             "sintesi": sintesi
         }
 
@@ -1018,8 +1047,13 @@ def compute_special_breakdowns(
             "Stesi (Netto)": stesi,
             "Correzione Profumi": corr,
             "Stander": stander,
-            "Bancali (PLT)": bancali,
-            "Sintesi Allestimento": sintesi
+            "Stander Eq. (PLT)": stander_pedane_eq,
+            "Bancali Stesi": bancali_stesi,
+            "Bancali Scarpe/Altri": bancali_extra,
+            "Bancali (PLT)": bancali_totali,
+            "Sintesi Allestimento": sintesi,
+            "Impronta a Terra (PLT)": impronta_a_terra,
+            "Teorico Senza Lav.": pedane_senza_lav,
         })
 
     df_stander = pd.DataFrame(stander_rows)

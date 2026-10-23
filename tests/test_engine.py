@@ -326,5 +326,62 @@ def test_classify_uploaded_files():
     assert len(classified_zip["other"]) == 2
 
 
+def test_vehicle_capacity_parsing():
+    from src.components import parse_vehicle_capacity
+
+    assert parse_vehicle_capacity("BILICO 33") == 33
+    assert parse_vehicle_capacity("BILICO") == 33
+    assert parse_vehicle_capacity("BILICO x 3") == 99
+    assert parse_vehicle_capacity("MOTRICE 14x3") == 42
+    assert parse_vehicle_capacity("MOTRICE 18 PLT") == 18
+    assert parse_vehicle_capacity("MOTRICE 18") == 18
+    assert parse_vehicle_capacity("MOTRICE EE 18") == 18
+    assert parse_vehicle_capacity("MOTRICE 14") == 14
+    assert parse_vehicle_capacity("MOTRICE EE 14") == 14
+    assert parse_vehicle_capacity("EUROCARGO 75") == 14
+    assert parse_vehicle_capacity("FURGONE 8") == 8
+    assert parse_vehicle_capacity("FURG") == 8
+    assert parse_vehicle_capacity("FURGONE") == 8
+    assert parse_vehicle_capacity("") == 0
+    assert parse_vehicle_capacity("Da Assegnare") == 0
+
+
+def test_platform_footprint_calculation_9226():
+    from src.engine import compute_special_breakdowns
+    import pandas as pd
+
+    # Mock inputs matching run 91 operational reality for 9226
+    df_tot = pd.DataFrame([
+        {"store_id": "9226", "p_colgada": 3288.0, "paqueteria": 5383.0, "bultos": 272.0, "volumen": 29.83, "peso": 2500.0}
+    ])
+    df_sho = pd.DataFrame([
+        {"store_id": "9226", "p_colgada": 736.0, "paqueteria": 39.0, "bultos": 48.0, "volumen": 4.72, "peso": 500.0}
+    ])
+    df_sp = pd.DataFrame([
+        {"store_code": "9226", "brand": "ZARA", "mc": 29.84, "textile_attesi": 202, "other_attesi": 22, "shoes_attesi": 48, "ecom_attesi": 0, "pedane": 25, "is_store": True}
+    ])
+    df_stores = pd.DataFrame([
+        {"store_id": "9226", "store_name": "ROM-P BOCCONI", "lavorazione": "SI TESSILE", "scorporo_profumi": "SI", "pezzi_profumi": 1791.0}
+    ])
+
+    sb = compute_special_breakdowns(
+        df_spunta=df_sp,
+        df_total=df_tot,
+        df_shoes=df_sho,
+        df_stores=df_stores
+    )
+
+    s9226 = sb["special_stores"]["9226"]
+    assert s9226["stander"] == 12
+    assert s9226["bancali_stesi"] == 11
+    assert s9226["bancali_extra"] == 4  # 70 non-textile colli / 18 = 4 bancali
+    assert s9226["bancali"] == 15      # 11 stesi + 4 extra = 15 bancali
+    assert s9226["stander_pedane_eq"] == 24  # 12 stander * 2 ("a madonna") = 24 pedane equivalenti
+    assert s9226["impronta_a_terra"] == 39   # 15 bancali + 24 stander eq = 39 pedane totali
+    assert s9226["pedane_senza_lavorazione"] == 25
+    assert s9226["sintesi"] == "15 bancali + 12 stander"
+
+
+
 
 
