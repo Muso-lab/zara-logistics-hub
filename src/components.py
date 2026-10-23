@@ -1227,24 +1227,24 @@ def render_anagrafica_negozi_modern(df_stores: pd.DataFrame):
             loc_str.append(f"<em>({cc})</em>")
         loc_html = "<br>".join(loc_str) if loc_str else "<span class='text-muted-custom'>—</span>"
 
-        return f'''
-        <tr class="{row_cls}">
-            <td style="text-align: left;">
-                <span class="text-strong" style="font-size: 14.5px;">{sid}</span>
-                <span style="font-size: 13px; font-weight: 600; margin-left: 6px;">{sname}</span>
-                <div style="margin-top: 3px;">{brand_badge}</div>
-            </td>
-            <td>{giro_badge}</td>
-            <td>{status_badge}</td>
-            <td style="text-align: left;">{mezzo_badge}</td>
-            <td style="text-align: left; font-size: 12.5px;">{aut_cell}</td>
-            <td>{lav_badge}</td>
-            <td>{scorp_badge}</td>
-            <td>{sdop_badge}</td>
-            <td style="font-family: monospace; font-size: 12px; font-weight: 600; color: #0284C7;">{form}</td>
-            <td style="text-align: left; font-size: 11.5px; max-width: 200px; color: #64748B;">{loc_html}</td>
-        </tr>
-        '''
+        return (
+            f'<tr class="{row_cls}">'
+            f'<td style="text-align: left;">'
+            f'<span class="text-strong" style="font-size: 14.5px;">{sid}</span>'
+            f'<span style="font-size: 13px; font-weight: 600; margin-left: 6px;">{sname}</span>'
+            f'<div style="margin-top: 3px;">{brand_badge}</div>'
+            f'</td>'
+            f'<td>{giro_badge}</td>'
+            f'<td>{status_badge}</td>'
+            f'<td style="text-align: left;">{mezzo_badge}</td>'
+            f'<td style="text-align: left; font-size: 12.5px;">{aut_cell}</td>'
+            f'<td>{lav_badge}</td>'
+            f'<td>{scorp_badge}</td>'
+            f'<td>{sdop_badge}</td>'
+            f'<td style="font-family: monospace; font-size: 12px; font-weight: 600; color: #0284C7;">{form}</td>'
+            f'<td style="text-align: left; font-size: 11.5px; max-width: 200px; color: #64748B;">{loc_html}</td>'
+            f'</tr>'
+        )
 
     rows_html = []
     # 1. Active stores
@@ -1253,13 +1253,11 @@ def render_anagrafica_negozi_modern(df_stores: pd.DataFrame):
 
     # 2. Standby stores (bottom section)
     if not df_standby.empty:
-        rows_html.append(f'''
-        <tr class="section-divider-standby">
-            <td colspan="10">
-                ⏸️ PUNTI VENDITA NON ATTIVI (STANDBY / RISTRUTTURAZIONE) — {len(df_standby)} Negozi (Esclusi dal carico e dai volumi trasportati)
-            </td>
-        </tr>
-        ''')
+        rows_html.append(
+            '<tr class="section-divider-standby">'
+            f'<td colspan="10">⏸️ PUNTI VENDITA NON ATTIVI (STANDBY / RISTRUTTURAZIONE) — {len(df_standby)} Negozi (Esclusi dal carico e dai volumi trasportati)</td>'
+            '</tr>'
+        )
         for _, r in df_standby.iterrows():
             rows_html.append(_render_store_row(r, is_standby=True))
 
@@ -1267,37 +1265,33 @@ def render_anagrafica_negozi_modern(df_stores: pd.DataFrame):
     tot_standby = len(df_standby)
     tot_all = tot_active + tot_standby
 
-    table_html = f'''
-    <div class="modern-card">
-        <div class="modern-section-title">
-            <span>🏢 Elenco Ufficiale Punti Vendita & Configurazione Operativa</span>
-            <span style="font-size: 12px; font-weight: 500; opacity: 0.7; margin-left: auto;">
-                Totale: <strong>{tot_all}</strong> negozi ({tot_active} attivi, {tot_standby} standby)
-            </span>
-        </div>
-        <div style="overflow-x: auto; width: 100%;">
-            <table class="modern-tbl">
-                <thead>
-                    <tr>
-                        <th style="text-align: left; min-width: 210px;">Negozio & Insegna</th>
-                        <th style="min-width: 80px;">Giro</th>
-                        <th style="min-width: 95px;">Stato</th>
-                        <th style="text-align: left; min-width: 130px;">Mezzo STD</th>
-                        <th style="text-align: left; min-width: 140px;">Autista & Cellulare</th>
-                        <th style="min-width: 110px;">Lavorazione</th>
-                        <th style="min-width: 90px;">Profumi</th>
-                        <th style="min-width: 90px;">Sdopp. /9</th>
-                        <th style="min-width: 90px;">Formula</th>
-                        <th style="text-align: left; min-width: 180px;">Indirizzo & CC</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {''.join(rows_html)}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    '''
+    table_html = (
+        '<div class="modern-card">'
+        '<div class="modern-section-title">'
+        '<span>🏢 Elenco Ufficiale Punti Vendita & Configurazione Operativa</span>'
+        f'<span style="font-size: 12px; font-weight: 500; opacity: 0.7; margin-left: auto;">Totale: <strong>{tot_all}</strong> negozi ({tot_active} attivi, {tot_standby} standby)</span>'
+        '</div>'
+        '<div style="overflow-x: auto; width: 100%;">'
+        '<table class="modern-tbl">'
+        '<thead><tr>'
+        '<th style="text-align: left; min-width: 210px;">Negozio & Insegna</th>'
+        '<th style="min-width: 80px;">Giro</th>'
+        '<th style="min-width: 95px;">Stato</th>'
+        '<th style="text-align: left; min-width: 130px;">Mezzo STD</th>'
+        '<th style="text-align: left; min-width: 140px;">Autista & Cellulare</th>'
+        '<th style="min-width: 110px;">Lavorazione</th>'
+        '<th style="min-width: 90px;">Profumi</th>'
+        '<th style="min-width: 90px;">Sdopp. /9</th>'
+        '<th style="min-width: 90px;">Formula</th>'
+        '<th style="text-align: left; min-width: 180px;">Indirizzo & CC</th>'
+        '</tr></thead>'
+        '<tbody>'
+        + "".join(rows_html) +
+        '</tbody>'
+        '</table>'
+        '</div>'
+        '</div>'
+    )
     st.markdown(table_html, unsafe_allow_html=True)
 
 
@@ -1351,47 +1345,41 @@ def render_parco_mezzi_modern(df_vehicles: pd.DataFrame):
 
         tipo_badge = f'<span class="badge-pill-blue" style="font-size: 11px; padding: 2px 8px;">{tipo}</span>'
 
-        rows_html.append(f'''
-        <tr class="{row_cls}">
-            <td style="text-align: left;">
-                <span class="text-strong" style="font-size: 14px;">🚛 {cod}</span>
-            </td>
-            <td>{tipo_badge}</td>
-            <td style="text-align: left; font-size: 13px;">{desc}</td>
-            <td>{cap_badge}</td>
-            <td>{status_badge}</td>
-            <td style="text-align: left; font-size: 12px; color: #64748B;">{note}</td>
-        </tr>
-        ''')
+        rows_html.append(
+            f'<tr class="{row_cls}">'
+            f'<td style="text-align: left;"><span class="text-strong" style="font-size: 14px;">🚛 {cod}</span></td>'
+            f'<td>{tipo_badge}</td>'
+            f'<td style="text-align: left; font-size: 13px;">{desc}</td>'
+            f'<td>{cap_badge}</td>'
+            f'<td>{status_badge}</td>'
+            f'<td style="text-align: left; font-size: 12px; color: #64748B;">{note}</td>'
+            f'</tr>'
+        )
 
-    table_html = f'''
-    <div class="modern-card">
-        <div class="modern-section-title">
-            <span>🚛 Anagrafica Ufficiale Parco Mezzi & Capienze Operative</span>
-            <span style="font-size: 12px; font-weight: 500; opacity: 0.7; margin-left: auto;">
-                Veicoli Attivi: <strong>{tot_active}</strong> / {len(df)} • Flotta Totale: <strong>{tot_cap} PLT</strong>
-            </span>
-        </div>
-        <div style="overflow-x: auto; width: 100%;">
-            <table class="modern-tbl">
-                <thead>
-                    <tr>
-                        <th style="text-align: left; min-width: 170px;">Codice Mezzo / Denominazione</th>
-                        <th style="min-width: 100px;">Tipologia</th>
-                        <th style="text-align: left; min-width: 220px;">Descrizione / Allestimento</th>
-                        <th style="min-width: 120px;">Capienza (PLT)</th>
-                        <th style="min-width: 100px;">Stato</th>
-                        <th style="text-align: left; min-width: 180px;">Note Operative</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {''.join(rows_html)}
-                </tbody>
-            </table>
-        </div>
-        <div class="callout-box" style="margin-top: 14px;">
-            💡 <strong>Algoritmo Proposta Mezzi di Supporto:</strong> I veicoli attivi sopra elencati alimentano automaticamente l\'assegnazione nei giri standard (/0) e sdoppiati (/9), e definiscono la proposta automatica del veicolo di rinforzo idoneo in caso di sovraccarico del giro.
-        </div>
-    </div>
-    '''
+    table_html = (
+        '<div class="modern-card">'
+        '<div class="modern-section-title">'
+        '<span>🚛 Anagrafica Ufficiale Parco Mezzi & Capienze Operative</span>'
+        f'<span style="font-size: 12px; font-weight: 500; opacity: 0.7; margin-left: auto;">Veicoli Attivi: <strong>{tot_active}</strong> / {len(df)} • Flotta Totale: <strong>{tot_cap} PLT</strong></span>'
+        '</div>'
+        '<div style="overflow-x: auto; width: 100%;">'
+        '<table class="modern-tbl">'
+        '<thead><tr>'
+        '<th style="text-align: left; min-width: 170px;">Codice Mezzo / Denominazione</th>'
+        '<th style="min-width: 100px;">Tipologia</th>'
+        '<th style="text-align: left; min-width: 220px;">Descrizione / Allestimento</th>'
+        '<th style="min-width: 120px;">Capienza (PLT)</th>'
+        '<th style="min-width: 100px;">Stato</th>'
+        '<th style="text-align: left; min-width: 180px;">Note Operative</th>'
+        '</tr></thead>'
+        '<tbody>'
+        + "".join(rows_html) +
+        '</tbody>'
+        '</table>'
+        '</div>'
+        '<div class="callout-box" style="margin-top: 14px;">'
+        '💡 <strong>Algoritmo Proposta Mezzi di Supporto:</strong> I veicoli attivi sopra elencati alimentano automaticamente l\'assegnazione nei giri standard (/0) e sdoppiati (/9), e definiscono la proposta automatica del veicolo di rinforzo idoneo in caso di sovraccarico del giro.'
+        '</div>'
+        '</div>'
+    )
     st.markdown(table_html, unsafe_allow_html=True)
