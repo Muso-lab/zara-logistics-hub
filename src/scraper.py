@@ -267,42 +267,34 @@ class InditexExtranetScraper:
 
     def _clear_overlays_and_select(self, page: Page, target_ids: List[str]):
         """
-        Chiude/nasconde qualsiasi finestra modale o livello semitrasparente (es. divCapaObservaciones)
-        che potrebbe intercettare i clic e seleziona direttamente via JS i checkbox richiesti
-        senza rischiare errori di 'Element is not attached to the DOM'.
+        Chiude eventuali finestre modali aperte, nasconde il livello divCapaObservaciones
+        e seleziona i checkbox richiesti invocando cb.click() per attivare gli handler onclick di Inditex.
         """
         page.evaluate(
             """(targetIds) => {
-                // 1. Nascondi eventuali overlay bloccanti di Inditex Extranet
-                const overlayIds = [
-                    'divCapaObservaciones',
-                    'divCapaTAgrupacion',
-                    'divCapaTIndividual',
-                    'divCapaEntrega'
-                ];
-                overlayIds.forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) {
-                        el.style.display = 'none';
-                        el.style.visibility = 'hidden';
-                    }
+                // 1. Chiudi correttamente eventuali modali aperte da iterazioni precedenti
+                ['divCapaObservaciones', 'divCapaTAgrupacion', 'divCapaTIndividual'].forEach(id => {
                     try {
                         if (typeof cerrarCapa === 'function') cerrarCapa(id);
                     } catch (e) {}
                 });
-                document.querySelectorAll('.capaSemiTransparenteObservaciones, [class*="capaSemiTransparente"]').forEach(el => {
+                const obs = document.getElementById('divCapaObservaciones');
+                if (obs) {
+                    obs.style.display = 'none';
+                    obs.style.visibility = 'hidden';
+                }
+                document.querySelectorAll('.capaSemiTransparenteObservaciones').forEach(el => {
                     el.style.display = 'none';
                     el.style.visibility = 'hidden';
                 });
 
-                // 2. Seleziona/deseleziona i checkbox direttamente nel DOM
+                // 2. Seleziona/deseleziona i checkbox invocando .click() per popolare gli array JS di Inditex
                 const idSet = new Set(targetIds);
                 const checkboxes = document.querySelectorAll('input[id^="checkGroup_"]');
                 checkboxes.forEach(cb => {
                     const shouldCheck = idSet.has(cb.id);
                     if (cb.checked !== shouldCheck) {
-                        cb.checked = shouldCheck;
-                        cb.dispatchEvent(new Event('change', { bubbles: true }));
+                        cb.click();
                     }
                 });
             }""",
@@ -312,20 +304,31 @@ class InditexExtranetScraper:
     def _download_group_file(self, page: Page, cids: List[str], target_path: Path):
         """
         Selects specified checkboxes, opens Grupo de entrega modal,
+        waits for DWR callback to populate global `envios` array,
         triggers generarExcelDetalleAgrupacion() download, saves and closes.
         """
         self._clear_overlays_and_select(page, cids)
         time.sleep(0.5)
 
-        # Open modal Grupo de entrega via JS click to avoid pointer interception
+        # Reset global envios variable and open modal Grupo de entrega
         page.evaluate("""() => {
+            try { window.envios = undefined; } catch (e) {}
             const btn = document.getElementById('botonAgrupacionPlat');
             if (btn) btn.click();
         }""")
-        time.sleep(3)
+
+        # Attendi che la chiamata DWR di Inditex popoli l'array globale `envios`
+        try:
+            page.wait_for_function(
+                "() => typeof envios !== 'undefined' && envios !== null && envios.length > 0",
+                timeout=15000,
+            )
+        except Exception:
+            time.sleep(2.5)
+        time.sleep(0.5)
 
         # Trigger download
-        with page.expect_download(timeout=25000) as download_info:
+        with page.expect_download(timeout=30000) as download_info:
             page.evaluate("generarExcelDetalleAgrupacion()")
         download = download_info.value
         download.save_as(str(target_path))
@@ -335,11 +338,11 @@ class InditexExtranetScraper:
             page.evaluate("""() => {
                 const closeBtn = document.getElementById('cl_02des5');
                 if (closeBtn) closeBtn.click();
-                if (typeof cerrarCapa === 'function') cerrarCapa('divCapaTAgrupacion');
+                else if (typeof cerrarCapa === 'function') cerrarCapa('divCapaTAgrupacion');
             }""")
         except Exception:
             pass
-        time.sleep(0.8)
+        time.sleep(0.6)
 
     def _download_other_files(
         self, page: Page, textile_rows: List[Dict[str, Any]], other_dir: Path
