@@ -1,0 +1,22 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local generated outputs and temporary files
+output/*.xlsx
+output/extranet_downloads/
+*.tmp
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Streamlit secrets (never commit credentials)
+.streamlit/secrets.toml

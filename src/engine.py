@@ -1,0 +1,1065 @@
+import json
+import math
+import re
+from pathlib import Path
+from typing import Dict, Any, List, Tuple, Optional
+from datetime import datetime, timedelta
+import pandas as pd
+import numpy as np
+
+from src.config import (
+    PESO_SPECIFICO_COLLO_KG,
+    VOLUME_DIVISORE_COLLI_BARRA9,
+    VOLUME_DIVISORE_PEDANA,
+    PERCENTUALE_BARRA0_SPLIT,
+    PERCENTUALE_BARRA9_SPLIT,
+    MAGAZZINO_CARICO_DEFAULT,
+    COD_MITTENTE_DEFAULT,
+    DATA_DIR
+)
+
+
+def evaluate_pedane(mc: float, formula_str: str = "") -> int:
+    """
+    Evaluates store-specific pedane formula.
+    Supported formats from anagrafica:
+    - 'MC/1,9'
+    - 'MC*1,5/1,8'
+    - 'MC/1,5'
+    - '(MC*1,5/1,8)*0,7'
+    - Custom arithmetic expressions using MC
+    """
+    if mc <= 0:
+        return 0
+    if not formula_str or pd.isna(formula_str):
+        return math.ceil(mc / VOLUME_DIVISORE_PEDANA)
+    
+    clean_f = str(formula_str).upper().replace(" ", "").replace(",", ".")
+    # Replace variable MC with numeric value
+    expr = clean_f.replace("MC", f"({mc})")
+    # Verify allowed arithmetic characters only
+    if not re.match(r"^[0-9\.\+\-\*\/\(\)]+$", expr):
+        return math.ceil(mc / VOLUME_DIVISORE_PEDANA)
+    try:
+        val = eval(expr, {"__builtins__": None}, {})
+        return math.ceil(val)
+    except:
+        return math.ceil(mc / VOLUME_DIVISORE_PEDANA)
+
+
+def compute_analisi(
+    df_stores: pd.DataFrame,
+    df_total: pd.DataFrame,
+    df_shoes: pd.DataFrame,
+    df_texile: pd.DataFrame,
+    df_ecom: pd.DataFrame,
+    df_other_agg: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Computes the central ANALISI table:
+    For each store in df_stores:
+      - textile colli = max(0, texile.bultos - other.otros_enviado)
+      - others colli = other.otros_enviado
+      - shoes colli = shoes.bultos
+      - ecom colli = ecom.bultos
+      - volumes and weights
+    """
+    # Index inputs by store_id
+    map_total = df_total.set_index("store_id").to_dict(orient="index") if not df_total.empty else {}
+    map_shoes = df_shoes.set_index("store_id").to_dict(orient="index") if not df_shoes.empty else {}
+    map_texile = df_texile.set_index("store_id").to_dict(orient="index") if not df_texile.empty else {}
+    map_ecom = df_ecom.set_index("store_id").to_dict(orient="index") if not df_ecom.empty else {}
+    map_other = df_other_agg.set_index("store_code").to_dict(orient="index") if not df_other_agg.empty else {}
+
+    results = []
+    # Process distinct stores (excluding 'B' suffix stores from master for base analisi)
+    base_stores = df_stores[~df_stores["store_id"].str.endswith("B")].copy()
+
+    for _, srow in base_stores.iterrows():
+        sid = str(srow["store_id"]).strip()
+        brand = str(srow.get("punto_vendita", "") or srow.get("brand", ""))
+        sname = str(srow.get("store_name", ""))
+        giro = str(srow.get("giro", ""))
+
+        tex_data = map_texile.get(sid, {})
+        sho_data = map_shoes.get(sid, {})
+        eco_data = map_ecom.get(sid, {})
+        oth_data = map_other.get(sid, {})
+
+        # Textile total bultos
+        crts_textile_total = float(tex_data.get("bultos", 0.0))
+        vol_textile = float(tex_data.get("volumen", 0.0))
+        weight_textile = float(tex_data.get("peso", 0.0))
+
+        # Others bultos
+        planned_others = float(oth_data.get("otros_enviado", 0.0))
+
+        # Planned textile = Textile total - Others
+        if crts_textile_total > 0:
+            planned_textile = max(0.0, crts_textile_total - planned_others)
+        else:
+            planned_textile = 0.0
+
+        # Shoes
+        planned_shoes = float(sho_data.get("bultos", 0.0))
+        vol_shoes = float(sho_data.get("volumen", 0.0))
+        weight_shoes = float(sho_data.get("peso", 0.0))
+
+        # Ecom
+        planned_ecom = float(eco_data.get("bultos", 0.0))
+        vol_ecom = float(eco_data.get("volumen", 0.0))
+        weight_ecom = float(eco_data.get("peso", 0.0))
+
+        # Totals
+        total_vol = vol_textile + vol_shoes + vol_ecom
+        total_weight = weight_textile + weight_shoes + weight_ecom
+        total_planned_crts = planned_textile + planned_others + planned_shoes + planned_ecom
+
+        # Fallback to TOTAL file if sub-category files didn't include this store
+        tot_d = map_total.get(sid, {})
+        if total_planned_crts == 0 and (float(tot_d.get("bultos", 0.0)) > 0 or float(tot_d.get("volumen", 0.0)) > 0):
+            planned_textile = float(tot_d.get("bultos", 0.0))
+            crts_textile_total = planned_textile
+            vol_textile = float(tot_d.get("volumen", 0.0))
+            weight_textile = float(tot_d.get("peso", 0.0))
+            total_vol = vol_textile
+            total_weight = weight_textile
+            total_planned_crts = planned_textile
+
+        results.append({
+            "store_id": sid,
+            "brand": brand,
+            "store_name": sname,
+            "giro": giro,
+            "crts_textile_total": crts_textile_total,
+            "planned_others": planned_others,
+            "planned_textile": planned_textile,
+            "vol_textile": vol_textile,
+            "weight_textile": weight_textile,
+            "planned_shoes": planned_shoes,
+            "vol_shoes": vol_shoes,
+            "weight_shoes": weight_shoes,
+            "planned_ecom": planned_ecom,
+            "vol_ecom": vol_ecom,
+            "weight_ecom": weight_ecom,
+            "total_vol": total_vol,
+            "total_weight": total_weight,
+            "total_planned_crts": total_planned_crts
+        })
+
+    return pd.DataFrame(results)
+
+
+def compute_spunta_arrivi(
+    df_analisi: pd.DataFrame,
+    df_stores: Optional[pd.DataFrame] = None,
+    template_path: Optional[Path] = None
+) -> pd.DataFrame:
+    """
+    Builds the SPUNTA ARRIVI table using the layout defined in spunta_template.json.
+    Computes MC, Pedane (using store-specific formula), Totali Pedane per giro,
+    and values for both Barra 0 and Barra 9 rows.
+    """
+    if template_path is None:
+        template_path = DATA_DIR / "spunta_template.json"
+
+    with open(template_path, "r", encoding="utf-8") as f:
+        tpl_rows = json.load(f)
+
+    map_a = {}
+    if df_analisi is not None and not df_analisi.empty:
+        sid_col = "store_id" if "store_id" in df_analisi.columns else ("store_code" if "store_code" in df_analisi.columns else None)
+        if sid_col:
+            for _, r in df_analisi.iterrows():
+                k = str(r[sid_col]).strip()
+                bk = k[:-1] if k.endswith("B") else k
+                map_a[bk] = r.to_dict()
+                if k != bk:
+                    map_a[k] = r.to_dict()
+
+    map_formula = {}
+    map_sdoppia = {}
+    if df_stores is not None and not df_stores.empty:
+        sid_col = "store_id" if "store_id" in df_stores.columns else ("store_code" if "store_code" in df_stores.columns else None)
+        if sid_col and "formula" in df_stores.columns:
+            map_formula = df_stores.set_index(sid_col)["formula"].dropna().to_dict()
+        if sid_col and "sdoppiamento_b9" in df_stores.columns:
+            map_sdoppia = df_stores.set_index(sid_col)["sdoppiamento_b9"].fillna("NO").astype(str).str.upper().to_dict()
+    else:
+        try:
+            from src.db import get_stores_df
+            sdf = get_stores_df()
+            if not sdf.empty:
+                map_sdoppia = sdf.set_index("store_id")["sdoppiamento_b9"].fillna("NO").astype(str).str.upper().to_dict()
+        except:
+            pass
+
+    spunta_records = []
+    for row in tpl_rows:
+        ridx = row["row_idx"]
+        is_store = row["is_store"]
+        sid = row["store_id"]
+        is_b9 = row.get("is_barra9", 0)
+        factor = row.get("factor", 1.0)
+
+        colli_factor = row.get("colli_factor", 1.0)
+        if ridx in [68, 69, 70]:
+            factor = 1.0 / 3.0
+            colli_factor = 1.0 / 3.0
+
+        if not is_store:
+            # Section Header row
+            spunta_records.append({
+                "row_idx": ridx,
+                "is_store": False,
+                "store_code": sid,
+                "store_name": row["store_name"],
+                "punto_vendita": row["brand"],
+                "brand": row["brand"],
+                "mc": 0.0,
+                "textile_attesi": 0.0,
+                "other_attesi": 0.0,
+                "shoes_attesi": 0.0,
+                "ecom_attesi": 0.0,
+                "pedane": 0,
+                "totale_pedane": 0.0,
+                "vettore_autista": "",
+                "tipo_mezzo": "",
+                "targa": "",
+                "cod_mezzo": "",
+                "supporto": "",
+                "giro": row["giro"],
+                "is_barra9": is_b9
+            })
+            continue
+
+        # Dynamic sdoppiamento check from store master data
+        base_sid = sid[:-1] if sid.endswith("B") else sid
+        if base_sid in map_sdoppia:
+            is_sdop = (map_sdoppia[base_sid] == "SI")
+            if is_b9:
+                factor = 0.3 if is_sdop else 0.0
+                colli_factor = 0.3 if is_sdop else 0.0
+            else:
+                if is_sdop:
+                    if ridx not in [68, 69, 70]:
+                        factor = 0.7
+                        colli_factor = 0.7
+                else:
+                    factor = 1.0
+                    colli_factor = 1.0
+
+        a_data = map_a.get(base_sid, {})
+
+        tot_vol = float(a_data.get("total_vol", 0.0))
+        # Volume
+        mc = tot_vol * factor
+
+        if is_b9:
+            # Barra 9 rows: colli are not in textile/shoes, they are calculated by volume
+            textile_attesi = 0.0
+            other_attesi = 0.0
+            shoes_attesi = 0.0
+            ecom_attesi = 0.0
+        else:
+            textile_attesi = float(a_data.get("planned_textile", 0.0)) * colli_factor
+            other_attesi = float(a_data.get("planned_others", 0.0)) * colli_factor
+            shoes_attesi = float(a_data.get("planned_shoes", 0.0)) * colli_factor
+            ecom_attesi = float(a_data.get("planned_ecom", 0.0)) * colli_factor
+
+        # Pedane calculation using store-specific formula if available
+        store_formula = map_formula.get(sid, map_formula.get(base_sid, ""))
+        pedane = evaluate_pedane(mc, store_formula)
+
+        spunta_records.append({
+            "row_idx": ridx,
+            "is_store": True,
+            "store_code": sid,
+            "store_name": row["store_name"],
+            "punto_vendita": row["brand"],
+            "brand": row["brand"],
+            "mc": mc,
+            "textile_attesi": textile_attesi,
+            "other_attesi": other_attesi,
+            "shoes_attesi": shoes_attesi,
+            "ecom_attesi": ecom_attesi,
+            "pedane": pedane,
+            "totale_pedane": 0.0,  # Will compute below per group
+            "vettore_autista": row["vettore_autista"],
+            "tipo_mezzo": row["tipo_mezzo"],
+            "targa": row["targa"],
+            "cod_mezzo": row["cod_mezzo"],
+            "supporto": row["supporto"],
+            "giro": row["giro"],
+            "is_barra9": is_b9
+        })
+
+    df_sp = pd.DataFrame(spunta_records)
+
+    # Detect unmapped stores from df_analisi with volume or colli
+    tpl_sids = {str(r["store_id"]).strip() for r in tpl_rows if r.get("is_store")}
+    tpl_base_sids = {s[:-1] if s.endswith("B") else s for s in tpl_sids}
+
+    unmapped = []
+    for _, a_row in df_analisi.iterrows():
+        sid = str(a_row["store_id"]).strip()
+        if sid not in tpl_base_sids and (float(a_row.get("total_planned_crts", 0)) > 0 or float(a_row.get("total_vol", 0)) > 0):
+            unmapped.append(a_row)
+
+    if unmapped:
+        max_ridx = max((int(r["row_idx"]) for r in tpl_rows), default=75) + 1
+        # Add Section Header
+        spunta_records.append({
+            "row_idx": max_ridx,
+            "is_store": False,
+            "store_code": "EXTRA",
+            "store_name": "SPEDIZIONI DA ASSEGNARE / FUORI POLO",
+            "punto_vendita": "FUORI POLO",
+            "brand": "DA ASSEGNARE",
+            "mc": 0.0,
+            "textile_attesi": 0.0,
+            "other_attesi": 0.0,
+            "shoes_attesi": 0.0,
+            "ecom_attesi": 0.0,
+            "pedane": 0,
+            "totale_pedane": 0.0,
+            "vettore_autista": "",
+            "tipo_mezzo": "",
+            "targa": "",
+            "cod_mezzo": "",
+            "supporto": "",
+            "giro": "DA ASSEGNARE",
+            "is_barra9": 0
+        })
+        for u in unmapped:
+            max_ridx += 1
+            u_sid = str(u["store_id"]).strip()
+            u_mc = float(u.get("total_vol", 0.0))
+            u_form = map_formula.get(u_sid, "MC/1,9")
+            u_ped = evaluate_pedane(u_mc, u_form)
+            u_giro = str(u.get("giro", "DA ASSEGNARE")) if u.get("giro") else "DA ASSEGNARE"
+            spunta_records.append({
+                "row_idx": max_ridx,
+                "is_store": True,
+                "store_code": u_sid,
+                "store_name": str(u.get("store_name", u_sid)),
+                "punto_vendita": str(u.get("brand", "DA ASSEGNARE")),
+                "brand": str(u.get("brand", "DA ASSEGNARE")),
+                "mc": u_mc,
+                "textile_attesi": float(u.get("planned_textile", 0.0)),
+                "other_attesi": float(u.get("planned_others", 0.0)),
+                "shoes_attesi": float(u.get("planned_shoes", 0.0)),
+                "ecom_attesi": float(u.get("planned_ecom", 0.0)),
+                "pedane": u_ped,
+                "totale_pedane": 0.0,
+                "vettore_autista": "",
+                "tipo_mezzo": "",
+                "targa": "",
+                "cod_mezzo": "",
+                "supporto": "",
+                "giro": u_giro,
+                "is_barra9": 0
+            })
+
+        df_sp = pd.DataFrame(spunta_records)
+
+    # Compute totale_pedane per giro group
+    # Group contiguous blocks of same giro
+    for giro_name, grp in df_sp[df_sp["is_store"]].groupby("giro", sort=False):
+        sum_ped = grp["pedane"].sum()
+        first_idx = grp.index[0]
+        df_sp.loc[first_idx, "totale_pedane"] = float(sum_ped)
+
+    return df_sp
+
+
+def compute_sga_flows(
+    df_spunta: pd.DataFrame,
+    df_stores: pd.DataFrame,
+    run_date: str
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Generates Andata & Ritorno flows for:
+    - Barra 0 (saved to barrazero_Sga.xlsx)
+    - Barra 9 (saved to barranove_Sga.xlsx)
+    """
+    # Parse run_date
+    try:
+        dt = datetime.strptime(run_date[:10], "%Y-%m-%d")
+    except:
+        dt = datetime.now()
+
+    # Data Carico / Scarico:
+    # Barra 0: NOW() + 1
+    # Barra 9: NOW() + 2
+    dt_b0 = (dt + timedelta(days=1)).strftime("%Y-%m-%d 11:55:00")
+    dt_b9 = (dt + timedelta(days=2)).strftime("%Y-%m-%d 11:55:00")
+
+    map_codsga = {}
+    if df_stores is not None and not df_stores.empty:
+        sid_col = "store_id" if "store_id" in df_stores.columns else ("store_code" if "store_code" in df_stores.columns else None)
+        if sid_col and "cod_sga" in df_stores.columns:
+            map_codsga = df_stores.set_index(sid_col)["cod_sga"].dropna().to_dict()
+
+    # 1. Barra 0 Flows
+    b0_stores = df_spunta[(df_spunta["is_store"]) & (df_spunta["is_barra9"] == 0)].copy()
+    b0_flows = []
+
+    for _, r in b0_stores.iterrows():
+        sid = str(r["store_code"]).strip()
+        giro = str(r["giro"]).strip()
+        cod_sga = map_codsga.get(sid, None)
+        if pd.isna(cod_sga) or cod_sga is None:
+            # Fallback
+            cod_sga = int(sid) if sid.isdigit() else 0
+        else:
+            cod_sga = int(cod_sga)
+
+        mc = float(r["mc"])
+        colli = float(r["textile_attesi"] + r["other_attesi"] + r["shoes_attesi"] + r["ecom_attesi"])
+        peso = colli * PESO_SPECIFICO_COLLO_KG
+
+        if colli > 0:
+            # ANDATA
+            b0_flows.append({
+                "GIRO": giro,
+                "DATA_CARICO": dt_b0,
+                "COD_MITTENTE": COD_MITTENTE_DEFAULT,
+                "MAGAZZINO_CARICO": MAGAZZINO_CARICO_DEFAULT,
+                "DATA_SCARICO": dt_b0,
+                "COD_DESTINATARIO": cod_sga,
+                "MAGAZZINO_SCARICO": giro,
+                "PESO": peso,
+                "VOLUME": mc,
+                "COLLI": colli,
+                "store_code": sid,
+                "barra": 0,
+                "flusso_tipo": "ANDATA"
+            })
+            # RITORNO
+            b0_flows.append({
+                "GIRO": giro,
+                "DATA_CARICO": dt_b0,
+                "COD_MITTENTE": cod_sga,
+                "MAGAZZINO_CARICO": giro,
+                "DATA_SCARICO": dt_b0,
+                "COD_DESTINATARIO": COD_MITTENTE_DEFAULT,
+                "MAGAZZINO_SCARICO": MAGAZZINO_CARICO_DEFAULT,
+                "PESO": 0.0,
+                "VOLUME": 0.0,
+                "COLLI": 0.0,
+                "store_code": sid,
+                "barra": 0,
+                "flusso_tipo": "RITORNO"
+            })
+
+    # 2. Barra 9 Flows
+    b9_stores = df_spunta[(df_spunta["is_store"]) & (df_spunta["is_barra9"] == 1)].copy()
+    b9_flows = []
+
+    for _, r in b9_stores.iterrows():
+        sid = str(r["store_code"]).strip()
+        giro = str(r["giro"]).strip()
+        cod_sga = map_codsga.get(sid, None)
+        if pd.isna(cod_sga) or cod_sga is None:
+            base_sid = sid[:-1] if sid.endswith("B") else sid
+            cod_sga = map_codsga.get(base_sid, 0)
+        cod_sga = int(cod_sga) if cod_sga else 0
+
+        mc = float(r["mc"])
+        colli = mc / VOLUME_DIVISORE_COLLI_BARRA9 if mc > 0 else 0.0
+        peso = colli * PESO_SPECIFICO_COLLO_KG
+
+        if colli > 0:
+            # ANDATA
+            b9_flows.append({
+                "GIRO": giro,
+                "DATA_CARICO": dt_b9,
+                "COD_MITTENTE": COD_MITTENTE_DEFAULT,
+                "MAGAZZINO_CARICO": MAGAZZINO_CARICO_DEFAULT,
+                "DATA_SCARICO": dt_b9,
+                "COD_DESTINATARIO": cod_sga,
+                "MAGAZZINO_SCARICO": giro,
+                "PESO": peso,
+                "VOLUME": mc,
+                "COLLI": colli,
+                "store_code": sid,
+                "barra": 9,
+                "flusso_tipo": "ANDATA"
+            })
+            # RITORNO
+            b9_flows.append({
+                "GIRO": giro,
+                "DATA_CARICO": dt_b9,
+                "COD_MITTENTE": cod_sga,
+                "MAGAZZINO_CARICO": giro,
+                "DATA_SCARICO": dt_b9,
+                "COD_DESTINATARIO": COD_MITTENTE_DEFAULT,
+                "MAGAZZINO_SCARICO": MAGAZZINO_CARICO_DEFAULT,
+                "PESO": 0.0,
+                "VOLUME": 0.0,
+                "COLLI": 0.0,
+                "store_code": sid,
+                "barra": 9,
+                "flusso_tipo": "RITORNO"
+            })
+
+    return pd.DataFrame(b0_flows), pd.DataFrame(b9_flows)
+
+
+def _safe_float(val, default: float = 0.0) -> float:
+    try:
+        if pd.isna(val) or val is None or str(val).strip() == "":
+            return default
+        return float(val)
+    except:
+        return default
+
+
+def compute_planning_roma(
+    df_analisi: pd.DataFrame,
+    df_actuals: pd.DataFrame,
+    template_path: Optional[Path] = None,
+    df_stores: Optional[pd.DataFrame] = None
+) -> pd.DataFrame:
+    """
+    Fills the Planning Roma table comparing Planned vs Received across all categories.
+    Handles df_analisi indexed by either 'store_id' or 'store_code' gracefully.
+    Avoids double-counting shoes on Zara stores with dedicated SHOES rows and
+    properly segments STD vs DOPPIA (/9) actuals.
+    """
+    if template_path is None:
+        template_path = DATA_DIR / "planner_template.json"
+
+    with open(template_path, "r", encoding="utf-8") as f:
+        tpl_rows = json.load(f)
+
+    # Stores that have dedicated SHOES rows in the planner template
+    stores_with_shoes_row = {
+        str(r["store_code"]).strip()
+        for r in tpl_rows
+        if "SHOES" in str(r.get("brand", "")).upper()
+    }
+
+    # Stores that have a Barra 9 row in the planner template
+    tpl_b9_stores = {
+        str(r["store_code"])[:-1].strip()
+        for r in tpl_rows
+        if str(r.get("store_code", "")).endswith("B")
+    }
+
+    # Dynamic sdoppiamento status from df_stores or database
+    map_sdoppia = {}
+    if df_stores is not None and not df_stores.empty:
+        sid_col = "store_id" if "store_id" in df_stores.columns else ("store_code" if "store_code" in df_stores.columns else None)
+        if sid_col and "sdoppiamento_b9" in df_stores.columns:
+            map_sdoppia = df_stores.set_index(sid_col)["sdoppiamento_b9"].fillna("NO").astype(str).str.upper().to_dict()
+    else:
+        try:
+            from src.db import get_stores_df
+            sdf = get_stores_df()
+            if not sdf.empty:
+                map_sdoppia = sdf.set_index("store_id")["sdoppiamento_b9"].fillna("NO").astype(str).str.upper().to_dict()
+        except:
+            pass
+
+    # Rows 47 (3680 Zara secondary), 51 (9226 Zara secondary), 56 (3591 Zara secondary)
+    # in Inditex template are reserved empty placeholder rows that must not duplicate store numbers
+    placeholder_row_indices = {47, 51, 56}
+
+    # Build planned map flexibly (handles store_id, store_code, id_store)
+    # Also indexes by (base_sid, is_shoes) to support DataFrames having separate brand rows (like planning_results)
+    map_a = {}
+    map_a_brand = {}
+    if df_analisi is not None and not df_analisi.empty:
+        sid_col = None
+        for cand in ["store_id", "store_code", "id_store", "ID_STORE"]:
+            if cand in df_analisi.columns:
+                sid_col = cand
+                break
+        if sid_col is not None:
+            has_brand = "brand" in df_analisi.columns
+            for _, r in df_analisi.iterrows():
+                sid_raw = str(r[sid_col]).strip()
+                base_sid = sid_raw[:-1] if sid_raw.endswith("B") else sid_raw
+                r_dict = r.to_dict()
+
+                if has_brand:
+                    is_sho = "SHOES" in str(r.get("brand", "")).upper()
+                    if (base_sid, is_sho) not in map_a_brand:
+                        map_a_brand[(base_sid, is_sho)] = r_dict
+                    if (sid_raw, is_sho) not in map_a_brand:
+                        map_a_brand[(sid_raw, is_sho)] = r_dict
+
+                if base_sid not in map_a:
+                    map_a[base_sid] = r_dict.copy()
+                else:
+                    # Update fields non-destructively so textile or shoes aren't overwritten with 0
+                    for num_col in ["planned_textile", "vol_textile", "weight_textile",
+                                    "planned_shoes", "vol_shoes", "weight_shoes",
+                                    "planned_others", "planned_ecom", "vol_ecom", "weight_ecom",
+                                    "total_vol", "total_weight", "total_planned_crts"]:
+                        if _safe_float(r_dict.get(num_col, 0)) > 0 and _safe_float(map_a[base_sid].get(num_col, 0)) == 0:
+                            map_a[base_sid][num_col] = r_dict[num_col]
+
+    # Build actuals map: segmented into STD, DOPPIA, and TOT
+    map_act_std = {}
+    map_act_doppia = {}
+    map_act_tot = {}
+    if df_actuals is not None and not df_actuals.empty:
+        act_col = None
+        for cand in ["ID_STORE", "id_store", "store_id", "store_code"]:
+            if cand in df_actuals.columns:
+                act_col = cand
+                break
+        if act_col is not None:
+            has_tipo_cons = "tipo_cons" in df_actuals.columns
+            if has_tipo_cons:
+                for (sid, tcons), grp in df_actuals.groupby([act_col, df_actuals["tipo_cons"].fillna("STD").astype(str).str.upper()]):
+                    sid_str = str(sid).strip()
+                    base_sid = sid_str[:-1] if sid_str.endswith("B") else sid_str
+                    c_abb = _safe_float(grp["TOT_ABBIGL"].sum()) if "TOT_ABBIGL" in grp.columns else _safe_float(grp.get("colli_abbigl", 0).sum())
+                    c_calz = _safe_float(grp["TOT_CALZAT"].sum()) if "TOT_CALZAT" in grp.columns else _safe_float(grp.get("colli_calzat", 0).sum())
+                    c_eco = _safe_float(grp["TOT_ECOM"].sum()) if "TOT_ECOM" in grp.columns else _safe_float(grp.get("colli_ecom", 0).sum())
+                    c_oth = _safe_float(grp["TOT_OTHERS"].sum()) if "TOT_OTHERS" in grp.columns else _safe_float(grp.get("colli_others", 0).sum())
+                    str_list = [str(s) for s in grp["stringa"].dropna() if str(s).strip()] if "stringa" in grp.columns else []
+                    d_info = {
+                        "tot_abbigl": c_abb,
+                        "tot_calzat": c_calz,
+                        "tot_ecom": c_eco,
+                        "tot_others": c_oth,
+                        "stringa": " ".join(str_list)
+                    }
+                    if tcons == "DOPPIA":
+                        map_act_doppia[base_sid] = d_info
+                    else:
+                        map_act_std[base_sid] = d_info
+
+            for sid, grp in df_actuals.groupby(act_col):
+                sid_str = str(sid).strip()
+                base_sid = sid_str[:-1] if sid_str.endswith("B") else sid_str
+                c_abb = _safe_float(grp["TOT_ABBIGL"].sum()) if "TOT_ABBIGL" in grp.columns else _safe_float(grp.get("colli_abbigl", 0).sum())
+                c_calz = _safe_float(grp["TOT_CALZAT"].sum()) if "TOT_CALZAT" in grp.columns else _safe_float(grp.get("colli_calzat", 0).sum())
+                c_eco = _safe_float(grp["TOT_ECOM"].sum()) if "TOT_ECOM" in grp.columns else _safe_float(grp.get("colli_ecom", 0).sum())
+                c_oth = _safe_float(grp["TOT_OTHERS"].sum()) if "TOT_OTHERS" in grp.columns else _safe_float(grp.get("colli_others", 0).sum())
+                str_list = [str(s) for s in grp["stringa"].dropna() if str(s).strip()] if "stringa" in grp.columns else []
+                map_act_tot[base_sid] = {
+                    "tot_abbigl": c_abb,
+                    "tot_calzat": c_calz,
+                    "tot_ecom": c_eco,
+                    "tot_others": c_oth,
+                    "stringa": " ".join(str_list)
+                }
+
+            if not has_tipo_cons:
+                map_act_std = map_act_tot
+
+    records = []
+    for row in tpl_rows:
+        ridx = row["row_idx"]
+        route_id = row["route_id"]
+        store_code = row["store_code"]
+        brand_raw = row["brand"]
+        store_name = row["store_name"]
+        delivery_day = row["delivery_day"]
+
+        # Base store lookup
+        base_sid = store_code[:-1] if store_code.endswith("B") else store_code
+        is_shoes_row = "SHOES" in brand_raw.upper()
+        is_home_app_row = "HOME APP" in brand_raw.upper()
+        is_b9_row = store_code.endswith("B")
+        is_placeholder = ridx in placeholder_row_indices
+
+        # Lookup in map_a_brand first if present, otherwise fallback to store-level map_a
+        lookup_sid = store_code if is_b9_row else base_sid
+        a_data = map_a_brand.get((lookup_sid, is_shoes_row))
+        if not a_data and is_b9_row:
+            a_data = map_a_brand.get((base_sid, is_shoes_row))
+        if not a_data:
+            a_data = map_a.get(lookup_sid, map_a.get(base_sid, {}))
+
+        # Initialize quantities
+        pl_text = 0.0
+        rec_text = 0.0
+        pl_oth = 0.0
+        rec_oth = 0.0
+        vol_text = 0.0
+        wt_text = 0.0
+
+        pl_sho = 0.0
+        rec_sho = 0.0
+        vol_sho = 0.0
+        wt_sho = 0.0
+
+        pl_eco = 0.0
+        rec_eco = 0.0
+        vol_eco = 0.0
+        wt_eco = 0.0
+
+        intershops = map_act_tot.get(base_sid, {}).get("stringa", "")
+
+        if is_placeholder:
+            # Secondary reserved lines in template (empty by default)
+            pass
+
+        elif is_shoes_row:
+            # Dedicated shoes row (e.g. ZARA SHOES)
+            pl_sho = _safe_float(a_data.get("planned_shoes", 0.0))
+            act_s = map_act_std.get(base_sid, {}) if base_sid in tpl_b9_stores else map_act_tot.get(base_sid, {})
+            rec_sho = _safe_float(act_s.get("tot_calzat", 0.0))
+            vol_sho = round(_safe_float(a_data.get("vol_shoes", 0.0)), 2)
+            wt_sho = _safe_float(a_data.get("weight_shoes", 0.0))
+
+        elif is_home_app_row:
+            # Zara Home Appesi (special display row)
+            pass
+
+        elif is_b9_row:
+            # Barra 9 row (e.g. 5349B, 6525B, 3680B, 3503B)
+            is_sdop = map_sdoppia.get(base_sid, "SI" if base_sid in tpl_b9_stores else "NO") == "SI"
+            if is_sdop:
+                already_split = str(a_data.get("store_code", "")).endswith("B")
+                b9_mult = 1.0 if already_split else PERCENTUALE_BARRA9_SPLIT
+
+                pl_text = round(_safe_float(a_data.get("planned_textile", 0.0)) * b9_mult, 1)
+                if base_sid not in stores_with_shoes_row:
+                    pl_sho = round(_safe_float(a_data.get("planned_shoes", 0.0)) * b9_mult, 1)
+                pl_oth = round(_safe_float(a_data.get("planned_others", 0.0)) * b9_mult, 1)
+                if pl_oth == 0.0:
+                    pl_oth = round(_safe_float(map_a.get(base_sid, {}).get("planned_others", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
+                pl_eco = round(_safe_float(a_data.get("planned_ecom", 0.0)) * b9_mult, 1)
+                if pl_eco == 0.0:
+                    pl_eco = round(_safe_float(map_a.get(base_sid, {}).get("planned_ecom", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
+
+                act_d = map_act_doppia.get(base_sid, {})
+                rec_text = _safe_float(act_d.get("tot_abbigl", 0.0))
+                if base_sid not in stores_with_shoes_row:
+                    rec_sho = _safe_float(act_d.get("tot_calzat", 0.0))
+                rec_oth = _safe_float(act_d.get("tot_others", 0.0))
+                rec_eco = _safe_float(act_d.get("tot_ecom", 0.0))
+            else:
+                pl_text = 0.0
+                pl_sho = 0.0
+                pl_oth = 0.0
+                pl_eco = 0.0
+                rec_text = 0.0
+                rec_sho = 0.0
+                rec_oth = 0.0
+                rec_eco = 0.0
+
+        else:
+            # Standard store row
+            is_sdop = map_sdoppia.get(base_sid, "SI" if base_sid in tpl_b9_stores else "NO") == "SI"
+            # If store has active sdoppiamento and is in tpl_b9_stores or has a DOPPIA delivery
+            if is_sdop and (base_sid in tpl_b9_stores or base_sid in map_act_doppia):
+                std_factor = 1.0 - PERCENTUALE_BARRA9_SPLIT
+                act_row = map_act_std.get(base_sid, {})
+                pl_text = round(_safe_float(a_data.get("planned_textile", 0.0)) * std_factor, 1)
+                pl_oth = round(_safe_float(a_data.get("planned_others", 0.0)) * std_factor, 1)
+                pl_eco = round(_safe_float(a_data.get("planned_ecom", 0.0)) * std_factor, 1)
+            else:
+                act_row = map_act_tot.get(base_sid, {})
+                pl_text = round(_safe_float(a_data.get("planned_textile", 0.0)), 1)
+                pl_oth = round(_safe_float(a_data.get("planned_others", 0.0)), 1)
+                pl_eco = round(_safe_float(a_data.get("planned_ecom", 0.0)), 1)
+
+            rec_text = _safe_float(act_row.get("tot_abbigl", 0.0))
+            rec_oth = _safe_float(act_row.get("tot_others", 0.0))
+            rec_eco = _safe_float(act_row.get("tot_ecom", 0.0))
+
+            vol_text = round(_safe_float(a_data.get("vol_textile", 0.0)), 2)
+            wt_text = _safe_float(a_data.get("weight_textile", 0.0))
+            vol_eco = round(_safe_float(a_data.get("vol_ecom", 0.0)), 2)
+            wt_eco = _safe_float(a_data.get("weight_ecom", 0.0))
+
+            # Shoes handling: only if store does NOT have a dedicated SHOES row
+            if base_sid in stores_with_shoes_row:
+                pl_sho = 0.0
+                rec_sho = 0.0
+                vol_sho = 0.0
+                wt_sho = 0.0
+            else:
+                if is_sdop and (base_sid in tpl_b9_stores or base_sid in map_act_doppia):
+                    pl_sho = round(_safe_float(a_data.get("planned_shoes", 0.0)) * (1.0 - PERCENTUALE_BARRA9_SPLIT), 1)
+                else:
+                    pl_sho = round(_safe_float(a_data.get("planned_shoes", 0.0)), 1)
+                rec_sho = _safe_float(act_row.get("tot_calzat", 0.0))
+                vol_sho = round(_safe_float(a_data.get("vol_shoes", 0.0)), 2)
+                wt_sho = _safe_float(a_data.get("weight_shoes", 0.0))
+
+        tot_vol = round(vol_text + vol_sho + vol_eco, 2)
+        tot_wt = round(wt_text + wt_sho + wt_eco, 2)
+        tot_pl_crts = round(pl_text + pl_oth + pl_sho + pl_eco, 1)
+        tot_rec_crts = round(rec_text + rec_oth + rec_sho + rec_eco, 1)
+
+        records.append({
+            "row_idx": ridx,
+            "route_id": route_id,
+            "store_code": store_code,
+            "brand": brand_raw,
+            "store_name": store_name,
+            "delivery_day": delivery_day,
+            "planned_textile": pl_text,
+            "received_textile": rec_text,
+            "planned_others": pl_oth,
+            "received_others": rec_oth,
+            "vol_textile": vol_text,
+            "weight_textile": wt_text,
+            "planned_shoes": pl_sho,
+            "received_shoes": rec_sho,
+            "vol_shoes": vol_sho,
+            "weight_shoes": wt_sho,
+            "planned_ecom": pl_eco,
+            "received_ecom": rec_eco,
+            "vol_ecom": vol_eco,
+            "weight_ecom": wt_eco,
+            "total_vol": tot_vol,
+            "total_weight": tot_wt,
+            "total_planned_crts": tot_pl_crts,
+            "total_received_crts": tot_rec_crts,
+            "intershops": intershops
+        })
+
+    # For any store that had DOPPIA actuals but wasn't in template as a B row, append it cleanly
+    existing_b_codes = {str(r["store_code"]).strip() for r in records}
+    max_idx = max((int(r["row_idx"]) for r in records), default=75)
+    for b_sid, d_info in map_act_doppia.items():
+        b_code = f"{b_sid}B"
+        if b_code not in existing_b_codes:
+            max_idx += 1
+            meta = {}
+            if df_stores is not None and not df_stores.empty:
+                sid_col = "store_id" if "store_id" in df_stores.columns else "store_code"
+                m_sub = df_stores[df_stores[sid_col].astype(str).str.strip() == b_sid]
+                if not m_sub.empty:
+                    meta = m_sub.iloc[0].to_dict()
+            pv_name = meta.get("brand") or meta.get("punto_vendita") or "INDITEX"
+            st_name = (meta.get("store_name") or b_sid) + " APT9"
+            rec_t = _safe_float(d_info.get("tot_abbigl", 0.0))
+            rec_s = _safe_float(d_info.get("tot_calzat", 0.0))
+            rec_e = _safe_float(d_info.get("tot_ecom", 0.0))
+            rec_o = _safe_float(d_info.get("tot_others", 0.0))
+            tot_rec = round(rec_t + rec_s + rec_e + rec_o, 1)
+
+            # Planned 30% from base store forecast
+            a_d = map_a.get(b_sid, {})
+            pl_t = round(_safe_float(a_d.get("planned_textile", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
+            pl_s = round(_safe_float(a_d.get("planned_shoes", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
+            pl_e = round(_safe_float(a_d.get("planned_ecom", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
+            pl_o = round(_safe_float(a_d.get("planned_others", 0.0)) * PERCENTUALE_BARRA9_SPLIT, 1)
+            tot_pl = round(pl_t + pl_s + pl_e + pl_o, 1)
+
+            records.append({
+                "row_idx": max_idx,
+                "route_id": 1,
+                "store_code": b_code,
+                "brand": pv_name,
+                "store_name": st_name,
+                "delivery_day": "MERCOLEDI / GIOVEDI",
+                "planned_textile": pl_t,
+                "received_textile": rec_t,
+                "planned_others": pl_o,
+                "received_others": rec_o,
+                "vol_textile": 0.0,
+                "weight_textile": 0.0,
+                "planned_shoes": pl_s,
+                "received_shoes": rec_s,
+                "vol_shoes": 0.0,
+                "weight_shoes": 0.0,
+                "planned_ecom": pl_e,
+                "received_ecom": rec_e,
+                "vol_ecom": 0.0,
+                "weight_ecom": 0.0,
+                "total_vol": 0.0,
+                "total_weight": 0.0,
+                "total_planned_crts": tot_pl,
+                "total_received_crts": tot_rec,
+                "intershops": d_info.get("stringa", "")
+            })
+
+    return pd.DataFrame(records)
+
+
+def compute_special_breakdowns(
+    df_spunta: pd.DataFrame,
+    df_total: pd.DataFrame,
+    df_shoes: pd.DataFrame,
+    df_texile: Optional[pd.DataFrame] = None,
+    df_ecom: Optional[pd.DataFrame] = None,
+    perfume_corrections_override: Optional[Dict[str, float]] = None,
+    df_stores: Optional[pd.DataFrame] = None
+) -> Dict[str, Any]:
+    """
+    Computes special operational breakdowns:
+    - Perfume corrections & Stesi/Appesi for textile stores (currently 3680, 9226, 3591)
+    - Stander and bancali calculations
+    - Zara Home 50/50 split for home stores (currently 1984 and 1971)
+    - Check totals for theoretical vs actual spunta
+    """
+    map_tot = df_total.set_index("store_id").to_dict(orient="index") if not df_total.empty else {}
+    map_sho = df_shoes.set_index("store_id").to_dict(orient="index") if not df_shoes.empty else {}
+
+    # Default perfume corrections (subtracted from stesi)
+    perfume_corrections = {
+        "3680": 1085.0,
+        "9226": 1791.0,
+        "3591": 1030.0
+    }
+    if perfume_corrections_override:
+        perfume_corrections.update(perfume_corrections_override)
+
+    store_names = {
+        "3680": "C.C. Porta di Roma",
+        "9226": "Via del Corso (P.zza Bocconi)",
+        "3591": "C.C. Euroma2"
+    }
+    zh_names = {
+        "1984": "ROMA COLA DI RIENZO",
+        "1971": "ROMA PORTA DI ROMA"
+    }
+
+    tessile_ids = []
+    home_ids = []
+    if df_stores is not None and not df_stores.empty:
+        if "lavorazione" in df_stores.columns:
+            tessile_ids = df_stores[df_stores["lavorazione"] == "SI TESSILE"]["store_id"].dropna().astype(str).tolist()
+            home_ids = df_stores[df_stores["lavorazione"] == "SI HOME"]["store_id"].dropna().astype(str).tolist()
+        for _, s_row in df_stores.iterrows():
+            sid_s = str(s_row["store_id"]).strip()
+            sname = str(s_row.get("store_name", "")).strip()
+            if sname:
+                store_names[sid_s] = sname
+                zh_names[sid_s] = sname
+
+    if not tessile_ids:
+        tessile_ids = ["3680", "9226", "3591"]
+    if not home_ids:
+        home_ids = ["1984", "1971"]
+
+    special_stores = {}
+    stander_rows = []
+
+    for sid in tessile_ids:
+        tot_d = map_tot.get(sid, {})
+        sho_d = map_sho.get(sid, {})
+        tot_colgada = float(tot_d.get("p_colgada", 0.0))
+        sho_colgada = float(sho_d.get("p_colgada", 0.0))
+        tot_paq = float(tot_d.get("paqueteria", 0.0))
+        sho_paq = float(sho_d.get("paqueteria", 0.0))
+
+        appesi = max(0.0, tot_colgada - sho_colgada)
+        corr = perfume_corrections.get(sid, 0.0)
+        stesi = max(0.0, tot_paq - sho_paq - corr)
+        tot_pezzi = appesi + stesi
+
+        # Stander & Bancali: store 3680 has factor 0.65 (Barra 0)
+        if sid == "3680":
+            stander = math.floor(appesi * 0.65 / 200.0) if appesi > 0 else 0
+            bancali = math.floor(stesi * 0.65 / 15.0 / 20.0) if stesi > 0 else 0
+            label_negozio = "3680 /0"
+        else:
+            stander = math.floor(appesi / 200.0) if appesi > 0 else 0
+            bancali = math.floor(stesi / 15.0 / 20.0) if stesi > 0 else 0
+            label_negozio = sid
+
+        sintesi = f"{bancali} bancali + {stander} stander"
+        s_name = store_names.get(sid, f"Store {sid}")
+
+        special_stores[sid] = {
+            "label": label_negozio,
+            "store_name": s_name,
+            "appesi": appesi,
+            "stesi": stesi,
+            "totale_pezzi": tot_pezzi,
+            "correzione_profumi": corr,
+            "stander": stander,
+            "bancali": bancali,
+            "sintesi": sintesi
+        }
+
+        stander_rows.append({
+            "Negozio": label_negozio,
+            "Punto Vendita": s_name,
+            "Totale Pezzi": tot_pezzi,
+            "Appesi": appesi,
+            "Stesi (Netto)": stesi,
+            "Correzione Profumi": corr,
+            "Stander": stander,
+            "Bancali (PLT)": bancali,
+            "Sintesi Allestimento": sintesi
+        })
+
+    df_stander = pd.DataFrame(stander_rows)
+
+    # Zara Home 50/50 split
+    zh_stores = {}
+    zh_rows = []
+
+    for sid in home_ids:
+        tot_d = map_tot.get(sid, {})
+        paq = float(tot_d.get("paqueteria", 0.0))
+        quota_0 = paq / 2.0
+        quota_8 = paq - quota_0
+        s_name = zh_names.get(sid, f"Store {sid}")
+        zh_stores[sid] = {
+            "store_name": s_name,
+            "totale_paqueteria": paq,
+            "quota_barra0": quota_0,
+            "quota_barra8": quota_8
+        }
+        zh_rows.append({
+            "Store ID": sid,
+            "Punto Vendita": s_name,
+            "Totale Pezzi (Paqueteria)": paq,
+            "Quota Barra 0 (/0)": quota_0,
+            "Quota Barra 8 (/8)": quota_8
+        })
+
+    df_zh = pd.DataFrame(zh_rows)
+
+    # Platform Totals & Checks
+    tot_pezzi_lavorati = sum(s["totale_pezzi"] for s in special_stores.values()) + sum(z["totale_paqueteria"] for z in zh_stores.values())
+
+    tot_teorici_colli = float(df_total["bultos"].sum()) if not df_total.empty else 0.0
+    tot_teorici_mc = float(df_total["volumen"].sum()) if not df_total.empty else 0.0
+    tot_teorici_peso = float(df_total["peso"].sum()) if not df_total.empty else 0.0
+
+    # Sum of categories (SHOES + TEXILE + ECOM)
+    sum_voci_colli = 0.0
+    sum_voci_mc = 0.0
+    if df_texile is not None and not df_texile.empty:
+        sum_voci_colli += float(df_texile["bultos"].sum())
+        sum_voci_mc += float(df_texile["volumen"].sum())
+    if not df_shoes.empty:
+        sum_voci_colli += float(df_shoes["bultos"].sum())
+        sum_voci_mc += float(df_shoes["volumen"].sum())
+    if df_ecom is not None and not df_ecom.empty:
+        sum_voci_colli += float(df_ecom["bultos"].sum())
+        sum_voci_mc += float(df_ecom["volumen"].sum())
+
+    # Sum of spunta (stores only)
+    spunta_stores = df_spunta[df_spunta["is_store"] == True] if "is_store" in df_spunta.columns else df_spunta
+    check_colli = float(spunta_stores["textile_attesi"].sum() + spunta_stores["other_attesi"].sum() + spunta_stores["shoes_attesi"].sum() + spunta_stores["ecom_attesi"].sum()) if not spunta_stores.empty else 0.0
+    check_mc = float(spunta_stores["mc"].sum()) if not spunta_stores.empty else 0.0
+
+    return {
+        "special_stores": special_stores,
+        "zara_home": zh_stores,
+        "stander_summary": df_stander,
+        "zh_summary": df_zh,
+        "totale_pezzi_lavorati": tot_pezzi_lavorati,
+        "perfume_corrections": perfume_corrections,
+        "check_totals": {
+            "totali_teorici_colli": tot_teorici_colli,
+            "check_colli": check_colli,
+            "diff_colli": check_colli - tot_teorici_colli,
+            "totali_teorici_mc": tot_teorici_mc,
+            "check_mc": check_mc,
+            "diff_mc": check_mc - tot_teorici_mc,
+            "tot_teorici_peso": tot_teorici_peso,
+            "sum_voci_colli": sum_voci_colli,
+            "sum_voci_mc": sum_voci_mc,
+            "diff_voci_colli": sum_voci_colli - tot_teorici_colli if sum_voci_colli > 0 else 0.0,
+            "diff_voci_mc": sum_voci_mc - tot_teorici_mc if sum_voci_mc > 0 else 0.0,
+        }
+    }

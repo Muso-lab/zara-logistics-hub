@@ -1,0 +1,538 @@
+[
+  {
+    "row_idx": 7,
+    "route_id": "1",
+    "store_code": "8601",
+    "brand": "BERSHKA",
+    "store_name": "TER-GRAN SASSO",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 8,
+    "route_id": "1",
+    "store_code": "8364",
+    "brand": "BERSHKA",
+    "store_name": "ROM-ROMA EST",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 9,
+    "route_id": "1",
+    "store_code": "14825",
+    "brand": "BERSHKA",
+    "store_name": "ROM-P.DI ROMA",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 10,
+    "route_id": "1",
+    "store_code": "12899",
+    "brand": "BERSHKA",
+    "store_name": "ROM-GRAN ROMA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 11,
+    "route_id": "1",
+    "store_code": "8428",
+    "brand": "BERSHKA",
+    "store_name": "ROM-EUROMA2",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 12,
+    "route_id": "1",
+    "store_code": "8453",
+    "brand": "BERSHKA",
+    "store_name": "PER-COLLESTRADA",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 13,
+    "route_id": "1",
+    "store_code": "16037",
+    "brand": "BERSHKA",
+    "store_name": "LATI-LATINAFIOR",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 14,
+    "route_id": "1",
+    "store_code": "11796",
+    "brand": "BERSHKA",
+    "store_name": "CITT-PESCARA NO",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 15,
+    "route_id": "1",
+    "store_code": "16351",
+    "brand": "BERSHKA",
+    "store_name": "CHIETI-MEGALO",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 16,
+    "route_id": "1",
+    "store_code": "14010",
+    "brand": "BERSHKA",
+    "store_name": "ROM-OTTAVIANO",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 17,
+    "route_id": "1",
+    "store_code": "4518",
+    "brand": "MASSIMO DUTTI",
+    "store_name": "ROM-EUROMA2",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 18,
+    "route_id": "1",
+    "store_code": "2435",
+    "brand": "OYSHO",
+    "store_name": "ROM-P.DI ROMA",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 19,
+    "route_id": "1",
+    "store_code": "2414",
+    "brand": "OYSHO",
+    "store_name": "ROM-EUROMA2",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 20,
+    "route_id": "1",
+    "store_code": "16269",
+    "brand": "STRADIVARIUS",
+    "store_name": "LATI-LATINAFIOR",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 21,
+    "route_id": "1",
+    "store_code": "16060",
+    "brand": "PULL&BEAR",
+    "store_name": "LATI-LATINAFIOR",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 22,
+    "route_id": "1",
+    "store_code": "12152",
+    "brand": "PULL&BEAR",
+    "store_name": "TER-GRAN SASSO",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 23,
+    "route_id": "1",
+    "store_code": "5306",
+    "brand": "PULL&BEAR",
+    "store_name": "ROM-ROMA EST",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 24,
+    "route_id": "1",
+    "store_code": "5367",
+    "brand": "PULL&BEAR",
+    "store_name": "ROM-P.DI ROMA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 25,
+    "route_id": "1",
+    "store_code": "10504",
+    "brand": "PULL&BEAR",
+    "store_name": "ROM-GRAN ROMA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 26,
+    "route_id": "1",
+    "store_code": "5349",
+    "brand": "PULL&BEAR",
+    "store_name": "ROM-EUROMA2 APT0",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 27,
+    "route_id": "1",
+    "store_code": "5349B",
+    "brand": "PULL&BEAR",
+    "store_name": "ROM-EUROMA2 APT9",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 28,
+    "route_id": "1",
+    "store_code": "6525",
+    "brand": "PULL&BEAR",
+    "store_name": "PER-COLLESTRADA APT0",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 29,
+    "route_id": "1",
+    "store_code": "6525B",
+    "brand": "PULL&BEAR",
+    "store_name": "PER-COLLESTRADA APT9",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 30,
+    "route_id": "1",
+    "store_code": "16564",
+    "brand": "PULL&BEAR",
+    "store_name": "CHIETI-MEGALO",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 31,
+    "route_id": "1",
+    "store_code": "11629",
+    "brand": "PULL&BEAR",
+    "store_name": "ASC-AL BATTENT",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 32,
+    "route_id": "1",
+    "store_code": "7593",
+    "brand": "STRADIVARIUS",
+    "store_name": "ROM-VIA TUSCOLA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 33,
+    "route_id": "1",
+    "store_code": "2898",
+    "brand": "STRADIVARIUS",
+    "store_name": "ROM-ROMA EST",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 34,
+    "route_id": "1",
+    "store_code": "12093",
+    "brand": "STRADIVARIUS",
+    "store_name": "ROM-GRAN ROMA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 35,
+    "route_id": "1",
+    "store_code": "2917",
+    "brand": "STRADIVARIUS",
+    "store_name": "ROM-EUROMA2",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 36,
+    "route_id": "1",
+    "store_code": "10265",
+    "brand": "STRADIVARIUS",
+    "store_name": "PES-VITTORIO E",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 37,
+    "route_id": "1",
+    "store_code": "16647",
+    "brand": "STRADIVARIUS",
+    "store_name": "CHIETI-MEGALO",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 38,
+    "route_id": "1",
+    "store_code": "12154",
+    "brand": "STRADIVARIUS",
+    "store_name": "ASC-AL BATTENT",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 39,
+    "route_id": "1",
+    "store_code": "12271",
+    "brand": "ZARA",
+    "store_name": "TER-GRAN SASSO",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 40,
+    "route_id": "1",
+    "store_code": "12271",
+    "brand": "ZARA SHOES",
+    "store_name": "TER-GRAN SASSO",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 41,
+    "route_id": "1",
+    "store_code": "1265",
+    "brand": "ZARA",
+    "store_name": "ROM-VIA APPIA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 42,
+    "route_id": "1",
+    "store_code": "1265",
+    "brand": "ZARA SHOES",
+    "store_name": "ROM-VIA APPIA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 43,
+    "route_id": "1",
+    "store_code": "3534",
+    "brand": "ZARA",
+    "store_name": "ROM-ROMA EST",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 44,
+    "route_id": "1",
+    "store_code": "3534",
+    "brand": "ZARA SHOES",
+    "store_name": "ROM-ROMA EST",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 45,
+    "route_id": "1",
+    "store_code": "3680",
+    "brand": "ZARA",
+    "store_name": "ROM-P.DI ROMA  APT 0",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 46,
+    "route_id": "1",
+    "store_code": "3680",
+    "brand": "ZARA SHOES",
+    "store_name": "ROM-P.DI ROMA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 47,
+    "route_id": "1",
+    "store_code": "3680",
+    "brand": "ZARA",
+    "store_name": "ROM-P.DI ROMA  APT0",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 48,
+    "route_id": "1",
+    "store_code": "3680B",
+    "brand": "ZARA",
+    "store_name": "ROM-P.DI ROMA  APT9",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 49,
+    "route_id": "1",
+    "store_code": "9226",
+    "brand": "ZARA",
+    "store_name": "ROM-P BOCCONI",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 50,
+    "route_id": "1",
+    "store_code": "9226",
+    "brand": "ZARA SHOES",
+    "store_name": "ROM-P BOCCONI",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 51,
+    "route_id": "1",
+    "store_code": "9226",
+    "brand": "ZARA",
+    "store_name": "ROM-P BOCCONI",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 52,
+    "route_id": "1",
+    "store_code": "12059",
+    "brand": "ZARA",
+    "store_name": "ROM-GRAN ROMA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 53,
+    "route_id": "1",
+    "store_code": "12059",
+    "brand": "ZARA SHOES",
+    "store_name": "ROM-GRAN ROMA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 54,
+    "route_id": "1",
+    "store_code": "3591",
+    "brand": "ZARA",
+    "store_name": "ROM-EUROMA2",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 55,
+    "route_id": "1",
+    "store_code": "3591",
+    "brand": "ZARA SHOES",
+    "store_name": "ROM-EUROMA2",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 56,
+    "route_id": "1",
+    "store_code": "3591",
+    "brand": "ZARA",
+    "store_name": "ROM-EUROMA2",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 57,
+    "route_id": "1",
+    "store_code": "16723",
+    "brand": "ZARA",
+    "store_name": "PER-COLLESTRADA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 58,
+    "route_id": "1",
+    "store_code": "16723",
+    "brand": "ZARA SHOES",
+    "store_name": "PER-COLLESTRADA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 59,
+    "route_id": "1",
+    "store_code": "3503",
+    "brand": "ZARA",
+    "store_name": "CHIETI-MEGALO APT0",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 60,
+    "route_id": "1",
+    "store_code": "3503",
+    "brand": "ZARA SHOES",
+    "store_name": "CHIETI-MEGALO",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 61,
+    "route_id": "1",
+    "store_code": "3503B",
+    "brand": "ZARA",
+    "store_name": "CHIETI-MEGALO APT9",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 62,
+    "route_id": "1",
+    "store_code": "1971",
+    "brand": "ZARA HOME",
+    "store_name": "ROM-P.DI ROMA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 63,
+    "route_id": "1",
+    "store_code": "1755",
+    "brand": "ZARA HOME",
+    "store_name": "ROM-EUROMA2",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 64,
+    "route_id": "1",
+    "store_code": "1984",
+    "brand": "ZARA HOME",
+    "store_name": "ROM-COLA RIENZO",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 65,
+    "route_id": "1",
+    "store_code": "1971",
+    "brand": "ZARA HOME APP",
+    "store_name": "ROM-P.DI ROMA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 66,
+    "route_id": "1",
+    "store_code": "1984",
+    "brand": "ZARA HOME APP",
+    "store_name": "ROM-COLA RIENZO",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 67,
+    "route_id": "1",
+    "store_code": "6760",
+    "brand": "STRADIVARIUS",
+    "store_name": "ROM-P.DI ROMA",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 68,
+    "route_id": "1",
+    "store_code": "15733",
+    "brand": "ZARA",
+    "store_name": "CD2-IT-ROMA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 69,
+    "route_id": "1",
+    "store_code": "15733",
+    "brand": "ZARA SHOES",
+    "store_name": "CD2-IT-ROMA",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 70,
+    "route_id": "1",
+    "store_code": "5641",
+    "brand": "BERSHKA",
+    "store_name": "MAC-ADRIATICO",
+    "delivery_day": "MERCOLEDI'"
+  },
+  {
+    "row_idx": 71,
+    "route_id": "1",
+    "store_code": "5405",
+    "brand": "PULL&BEAR",
+    "store_name": "MAC-ADRIATICO",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 72,
+    "route_id": "1",
+    "store_code": "2972",
+    "brand": "STRADIVARIUS",
+    "store_name": "MAC-ADRIATICO",
+    "delivery_day": "GIOVEDI'"
+  },
+  {
+    "row_idx": 73,
+    "route_id": "1",
+    "store_code": "17019",
+    "brand": "MASSIMO DUTTI",
+    "store_name": "RUSPOLI",
+    "delivery_day": "MERCOLEDI'"
+  }
+]
