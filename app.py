@@ -1307,10 +1307,27 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # --- 3. TABELLA INTERATTIVA DINAMICA PUNTI VENDITA ---
+        FORMULA_OPTIONS = [
+            "MC/1,9",
+            "MC*1,5/1,8",
+            "MC/1,5",
+            "(MC*1,5/1,8)*0,7",
+            "(MC/1,9)*0,7",
+            "(MC/1,5 )* 0,7",
+        ]
+
+        # --- 3. SELETTORE MODALITÀ & TABELLA PUNTI VENDITA ---
         st.markdown('<div class="modern-card">', unsafe_allow_html=True)
-        st.markdown('<div class="modern-section-title">📋 Anagrafica Punti Vendita & Giri (Modifica Dinamica Diretta)</div>', unsafe_allow_html=True)
-        st.caption("Modifica liberamente le celle direttamente nella tabella. Puoi filtrare per giro, brand o stato. Clicca 'SALVA MODIFICHE' in alto o in basso per aggiornare il database:")
+        col_vm_l, col_vm_r = st.columns([2.5, 2.5])
+        with col_vm_l:
+            st.markdown('<div class="modern-section-title">🏢 Elenco & Configurazione Punti Vendita</div>', unsafe_allow_html=True)
+        with col_vm_r:
+            anag_view_mode = st.radio(
+                "Modalità Vista",
+                ["🎨 Tabella Grafica con Scheda Modifica", "✏️ Griglia Modifica Dinamica (Excel)"],
+                horizontal=True,
+                key="anag_view_mode_toggle"
+            )
 
         cf1, cf2, cf3, cf4, cf5 = st.columns([1.5, 1.2, 1.2, 1.2, 1.2])
         with cf1:
@@ -1324,6 +1341,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
             f_lav = st.selectbox("Lavorazione", ["TUTTI", "SI TESSILE", "SI HOME", "NO"], key="anag_f_lav")
         with cf5:
             f_att = st.selectbox("Stato Negozio", ["TUTTI", "SI (Operativo)", "NO (Standby)"], key="anag_f_att")
+        st.markdown('</div>', unsafe_allow_html=True)
 
         df_filtered = df_stores.copy() if not df_stores.empty else pd.DataFrame()
         if not df_filtered.empty:
@@ -1346,57 +1364,168 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
             elif f_att == "NO (Standby)":
                 df_filtered = df_filtered[df_filtered["attivo"].fillna("SI").str.upper() == "NO"]
 
-        cols_order = [
-            "store_id", "store_name", "brand", "giro", "attivo", "lavorazione",
-            "scorporo_profumi", "formula", "tipo_mezzo", "autista", "cell_autista",
-            "sdoppiamento_b9", "tipo_mezzo_doppia", "autista_doppia",
-            "indirizzo", "provincia", "cod_sga", "cc"
-        ]
-        df_grid_edit = df_filtered[[c for c in cols_order if c in df_filtered.columns]].copy() if not df_filtered.empty else pd.DataFrame(columns=cols_order)
+        if anag_view_mode == "🎨 Tabella Grafica con Scheda Modifica":
+            # 1. TABELLA GRAFICA MODERNA
+            render_anagrafica_negozi_modern(df_filtered)
 
-        col_save_s_top, col_cnt_s = st.columns([2.5, 3.5])
-        with col_save_s_top:
-            save_s_top = st.button("💾 SALVA MODIFICHE PUNTI VENDITA", type="primary", use_container_width=True, key="btn_save_stores_top")
-        with col_cnt_s:
-            st.markdown(f"<div style='margin-top:8px; font-size:13px; color:#64748B;'>Negozi visualizzati: <strong>{len(df_grid_edit)}</strong> / {len(df_stores)}</div>", unsafe_allow_html=True)
+            # 2. SCHEDA MODIFICA RAPIDA CON SELETTORE FORMULE
+            st.markdown('<div class="modern-card">', unsafe_allow_html=True)
+            st.markdown('<div class="modern-section-title">✏️ Scheda Modifica Rapida Negozio</div>', unsafe_allow_html=True)
+            st.caption("Seleziona qualsiasi negozio per modificarne i parametri e scegliere la formula da elenco. Il salvataggio aggiorna istantaneamente il database:")
 
-        edited_df = st.data_editor(
-            df_grid_edit,
-            column_config={
-                "store_id": st.column_config.TextColumn("Store ID", disabled=True, width="small"),
-                "store_name": st.column_config.TextColumn("Nome Negozio / Insegna", required=True, width="medium"),
-                "brand": st.column_config.SelectboxColumn("Brand", options=["ZARA", "BERSHKA", "PULL&BEAR", "MASSIMO DUTTI", "OYSHO", "STRADIVARIUS", "ZARA HOME", "ALTRO"], required=True, width="small"),
-                "giro": st.column_config.TextColumn("Giro", required=True, width="small"),
-                "attivo": st.column_config.SelectboxColumn("Stato", options=["SI", "NO"], required=True, width="small", help="SI = Operativo, NO = Standby / Ristrutturazione (escluso dal carico dei viaggi)"),
-                "lavorazione": st.column_config.SelectboxColumn("Lavorazione Piattaforma", options=["NO", "SI TESSILE", "SI HOME"], required=True, width="medium"),
-                "scorporo_profumi": st.column_config.SelectboxColumn("Scorporo Profumi", options=["NO", "SI"], required=True, width="small", help="Se SI, il campo per i pezzi da dedurre viene presentato dinamicamente in elaborazione run"),
-                "formula": st.column_config.TextColumn("Formula Pedane", required=True, width="medium"),
-                "tipo_mezzo": st.column_config.SelectboxColumn("Mezzo STD", options=mezzi_list_full, width="medium"),
-                "autista": st.column_config.TextColumn("Autista STD", width="medium"),
-                "cell_autista": st.column_config.TextColumn("Cellulare", width="small"),
-                "sdoppiamento_b9": st.column_config.SelectboxColumn("Sdopp. /9", options=["NO", "SI"], required=True, width="small"),
-                "tipo_mezzo_doppia": st.column_config.SelectboxColumn("Mezzo /9", options=mezzi_list_full, width="medium"),
-                "autista_doppia": st.column_config.TextColumn("Autista /9", width="small"),
-                "indirizzo": st.column_config.TextColumn("Indirizzo Scarico", width="large"),
-                "provincia": st.column_config.TextColumn("Prov.", width="small"),
-                "cod_sga": st.column_config.NumberColumn("Cod. SGA", format="%d", width="small"),
-                "cc": st.column_config.TextColumn("Centro Comm.", width="medium"),
-            },
-            use_container_width=True,
-            height=520,
-            key="anagrafica_editor_main",
-        )
+            store_opts = [f"{r['store_id']} - {r['store_name']} ({r.get('brand', '')})" for _, r in df_stores.iterrows()] if not df_stores.empty else []
+            sel_st_card = st.selectbox("Seleziona Punto Vendita da Modificare", store_opts, key="sel_st_card_edit")
 
-        col_save_s_bot, _ = st.columns([2.5, 3.5])
-        with col_save_s_bot:
-            save_s_bot = st.button("💾 SALVA MODIFICHE PUNTI VENDITA (IN BASSO)", type="primary", use_container_width=True, key="btn_save_stores_bot")
+            if sel_st_card:
+                target_sid = sel_st_card.split(" - ")[0].strip()
+                s_data = df_stores[df_stores["store_id"] == target_sid].iloc[0] if not df_stores[df_stores["store_id"] == target_sid].empty else None
 
-        if save_s_top or save_s_bot:
-            n_up = bulk_update_stores(edited_df)
-            st.success(f"✅ Aggiornati con successo **{n_up}** punti vendita nel Database!")
-            st.rerun()
+                if s_data is not None:
+                    ce1, ce2, ce3 = st.columns(3)
+                    with ce1:
+                        e_sn = st.text_input("Nome Negozio / Insegna", value=str(s_data.get("store_name", "")), key=f"e_sn_{target_sid}")
+                        b_opts = ["ZARA", "BERSHKA", "PULL&BEAR", "MASSIMO DUTTI", "OYSHO", "STRADIVARIUS", "ZARA HOME", "ALTRO"]
+                        curr_b = str(s_data.get("brand", "ZARA") or "ZARA").strip().upper()
+                        idx_b = b_opts.index(curr_b) if curr_b in b_opts else 0
+                        e_br = st.selectbox("Brand", b_opts, index=idx_b, key=f"e_br_{target_sid}")
 
-        st.markdown('</div>', unsafe_allow_html=True)
+                        att_opts = ["SI (Operativo)", "NO (Standby)"]
+                        curr_att = "SI (Operativo)" if str(s_data.get("attivo", "SI")).strip().upper() == "SI" else "NO (Standby)"
+                        e_att_sel = st.selectbox("Stato Negozio", att_opts, index=att_opts.index(curr_att), key=f"e_att_{target_sid}")
+                        e_att_val = "SI" if "SI" in e_att_sel else "NO"
+
+                        # FORMULA WITH PRESET OPTIONS
+                        curr_form = str(s_data.get("formula", "MC/1,9") or "MC/1,9").strip()
+                        f_opts = list(FORMULA_OPTIONS)
+                        if curr_form and curr_form not in f_opts:
+                            f_opts.append(curr_form)
+                        idx_f = f_opts.index(curr_form) if curr_form in f_opts else 0
+                        e_form = st.selectbox("Formula Calcolo Pedane", f_opts, index=idx_f, key=f"e_form_{target_sid}")
+
+                    with ce2:
+                        curr_g = str(s_data.get("giro", "ZA1") or "ZA1").strip()
+                        e_g = st.text_input("Giro Assegnato", value=curr_g, key=f"e_g_{target_sid}").strip().upper()
+
+                        curr_m = str(s_data.get("tipo_mezzo", "MOTRICE 18 PLT") or "MOTRICE 18 PLT").strip()
+                        idx_m = mezzi_list_full.index(curr_m) if curr_m in mezzi_list_full else 0
+                        e_m = st.selectbox("Tipo Mezzo STD", options=mezzi_list_full, index=idx_m, key=f"e_m_{target_sid}")
+
+                        curr_aut = "" if str(s_data.get("autista", "")) in ["None", "nan"] else str(s_data.get("autista", ""))
+                        e_aut = st.text_input("Autista STD", value=curr_aut, key=f"e_aut_{target_sid}")
+
+                        curr_cell = "" if str(s_data.get("cell_autista", "")) in ["None", "nan"] else str(s_data.get("cell_autista", ""))
+                        e_cell = st.text_input("Cellulare Autista", value=curr_cell, key=f"e_cell_{target_sid}")
+
+                        lav_opts = ["NO", "SI TESSILE", "SI HOME"]
+                        curr_lav = str(s_data.get("lavorazione", "NO") or "NO").strip().upper()
+                        idx_lav = lav_opts.index(curr_lav) if curr_lav in lav_opts else 0
+                        e_lav = st.selectbox("Lavorazione Piattaforma", lav_opts, index=idx_lav, key=f"e_lav_{target_sid}")
+
+                    with ce3:
+                        scorp_opts = ["NO", "SI"]
+                        curr_scorp = str(s_data.get("scorporo_profumi", "NO") or "NO").strip().upper()
+                        idx_scorp = scorp_opts.index(curr_scorp) if curr_scorp in scorp_opts else 0
+                        e_scorp = st.selectbox("Scorporo Profumi", scorp_opts, index=idx_scorp, key=f"e_scorp_{target_sid}")
+
+                        sdop_opts = ["NO", "SI"]
+                        curr_sdop = str(s_data.get("sdoppiamento_b9", "NO") or "NO").strip().upper()
+                        idx_sdop = sdop_opts.index(curr_sdop) if curr_sdop in sdop_opts else 0
+                        e_sdop = st.selectbox("Sdoppiamento Barra 9 (/9)", sdop_opts, index=idx_sdop, key=f"e_sdop_{target_sid}")
+
+                        curr_md = str(s_data.get("tipo_mezzo_doppia", "FURGONE 8") or "FURGONE 8").strip()
+                        idx_md = mezzi_list_full.index(curr_md) if curr_md in mezzi_list_full else 0
+                        e_md = st.selectbox("Mezzo /9", options=mezzi_list_full, index=idx_md, key=f"e_md_{target_sid}")
+
+                        curr_autd = "" if str(s_data.get("autista_doppia", "")) in ["None", "nan"] else str(s_data.get("autista_doppia", ""))
+                        e_autd = st.text_input("Autista /9", value=curr_autd, key=f"e_autd_{target_sid}")
+
+                        e_ind = st.text_input("Indirizzo Scarico", value=str(s_data.get("indirizzo", "") or ""), key=f"e_ind_{target_sid}")
+                        e_cc = st.text_input("Centro Commerciale", value=str(s_data.get("cc", "") or ""), key=f"e_cc_{target_sid}")
+
+                    if st.button(f"💾 SALVA MODIFICHE PER NEGOZIO {target_sid}", type="primary", use_container_width=True, key=f"btn_save_st_{target_sid}"):
+                        update_store_record(target_sid, {
+                            "store_name": e_sn.strip(),
+                            "brand": e_br,
+                            "punto_vendita": e_br,
+                            "attivo": e_att_val,
+                            "giro": e_g or "DA ASSEGNARE",
+                            "tipo_mezzo": e_m,
+                            "autista": e_aut.strip(),
+                            "cell_autista": e_cell.strip(),
+                            "lavorazione": e_lav,
+                            "scorporo_profumi": e_scorp,
+                            "sdoppiamento_b9": e_sdop,
+                            "tipo_mezzo_doppia": e_md,
+                            "autista_doppia": e_autd.strip(),
+                            "formula": e_form.strip(),
+                            "indirizzo": e_ind.strip(),
+                            "cc": e_cc.strip(),
+                        })
+                        st.success(f"🎉 Negozio **{target_sid}** ({e_sn}) aggiornato con successo nel Database!")
+                        st.rerun()
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        else:
+            # INTERACTIVE GRID WITH FORMULA OPTIONS AS SELECTBOX COLUMN
+            st.markdown('<div class="modern-card">', unsafe_allow_html=True)
+            col_save_s_top, col_cnt_s = st.columns([2.5, 3.5])
+            with col_save_s_top:
+                save_s_top = st.button("💾 SALVA MODIFICHE PUNTI VENDITA", type="primary", use_container_width=True, key="btn_save_stores_top")
+            with col_cnt_s:
+                st.markdown(f"<div style='margin-top:8px; font-size:13px; color:#64748B;'>Negozi visualizzati: <strong>{len(df_filtered)}</strong> / {len(df_stores)}</div>", unsafe_allow_html=True)
+
+            cols_order = [
+                "store_id", "store_name", "brand", "giro", "attivo", "lavorazione",
+                "scorporo_profumi", "formula", "tipo_mezzo", "autista", "cell_autista",
+                "sdoppiamento_b9", "tipo_mezzo_doppia", "autista_doppia",
+                "indirizzo", "provincia", "cod_sga", "cc"
+            ]
+            df_grid_edit = df_filtered[[c for c in cols_order if c in df_filtered.columns]].copy() if not df_filtered.empty else pd.DataFrame(columns=cols_order)
+
+            # Ensure all formulas in grid are valid selectbox options
+            f_opts_grid = list(FORMULA_OPTIONS)
+            for f_val in df_grid_edit["formula"].dropna().unique():
+                if f_val and f_val not in f_opts_grid:
+                    f_opts_grid.append(str(f_val))
+
+            edited_df = st.data_editor(
+                df_grid_edit,
+                column_config={
+                    "store_id": st.column_config.TextColumn("Store ID", disabled=True, width="small"),
+                    "store_name": st.column_config.TextColumn("Nome Negozio / Insegna", required=True, width="medium"),
+                    "brand": st.column_config.SelectboxColumn("Brand", options=["ZARA", "BERSHKA", "PULL&BEAR", "MASSIMO DUTTI", "OYSHO", "STRADIVARIUS", "ZARA HOME", "ALTRO"], required=True, width="small"),
+                    "giro": st.column_config.TextColumn("Giro", required=True, width="small"),
+                    "attivo": st.column_config.SelectboxColumn("Stato", options=["SI", "NO"], required=True, width="small"),
+                    "lavorazione": st.column_config.SelectboxColumn("Lavorazione Piattaforma", options=["NO", "SI TESSILE", "SI HOME"], required=True, width="medium"),
+                    "scorporo_profumi": st.column_config.SelectboxColumn("Scorporo Profumi", options=["NO", "SI"], required=True, width="small"),
+                    "formula": st.column_config.SelectboxColumn("Formula Pedane", options=f_opts_grid, required=True, width="medium"),
+                    "tipo_mezzo": st.column_config.SelectboxColumn("Mezzo STD", options=mezzi_list_full, width="medium"),
+                    "autista": st.column_config.TextColumn("Autista STD", width="medium"),
+                    "cell_autista": st.column_config.TextColumn("Cellulare", width="small"),
+                    "sdoppiamento_b9": st.column_config.SelectboxColumn("Sdopp. /9", options=["NO", "SI"], required=True, width="small"),
+                    "tipo_mezzo_doppia": st.column_config.SelectboxColumn("Mezzo /9", options=mezzi_list_full, width="medium"),
+                    "autista_doppia": st.column_config.TextColumn("Autista /9", width="small"),
+                    "indirizzo": st.column_config.TextColumn("Indirizzo Scarico", width="large"),
+                    "provincia": st.column_config.TextColumn("Prov.", width="small"),
+                    "cod_sga": st.column_config.NumberColumn("Cod. SGA", format="%d", width="small"),
+                    "cc": st.column_config.TextColumn("Centro Comm.", width="medium"),
+                },
+                use_container_width=True,
+                height=520,
+                key="anagrafica_editor_main",
+            )
+
+            col_save_s_bot, _ = st.columns([2.5, 3.5])
+            with col_save_s_bot:
+                save_s_bot = st.button("💾 SALVA MODIFICHE PUNTI VENDITA (IN BASSO)", type="primary", use_container_width=True, key="btn_save_stores_bot")
+
+            if save_s_top or save_s_bot:
+                n_up = bulk_update_stores(edited_df)
+                st.success(f"✅ Aggiornati con successo **{n_up}** punti vendita nel Database!")
+                st.rerun()
+
+            st.markdown('</div>', unsafe_allow_html=True)
 
         # --- 4. GESTIONE AGGIUNTA & ELIMINAZIONE NEGOZI ---
         st.markdown('<div class="modern-card">', unsafe_allow_html=True)
@@ -1415,7 +1544,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                 with ns2:
                     new_aut = st.text_input("Autista STD").strip()
                     new_mez = st.selectbox("Mezzo STD", options=mezzi_list_full)
-                    new_form = st.text_input("Formula Pedane", value="MC/1,9").strip()
+                    new_form = st.selectbox("Formula Pedane", FORMULA_OPTIONS)
                     new_att = st.selectbox("Stato Negozio", ["SI", "NO"])
                 btn_create_st = st.form_submit_button("➕ REGISTRA NEGOZIO", type="primary", use_container_width=True)
                 if btn_create_st:
@@ -1432,7 +1561,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                             "giro": new_g or "DA ASSEGNARE",
                             "autista": new_aut,
                             "tipo_mezzo": new_mez,
-                            "formula": new_form or "MC/1,9",
+                            "formula": new_form,
                             "lavorazione": "NO",
                             "scorporo_profumi": "NO",
                             "sdoppiamento_b9": "NO",
@@ -1503,44 +1632,109 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
         """
         st.markdown(kpi_mezzi_html, unsafe_allow_html=True)
 
-        # --- 2. TABELLA INTERATTIVA DINAMICA PARCO MEZZI ---
+        # --- 2. SELETTORE VISTA PARCO MEZZI ---
         st.markdown('<div class="modern-card">', unsafe_allow_html=True)
-        st.markdown('<div class="modern-section-title">🚛 Gestione Parco Mezzi & Capienze Operative (Modifica Dinamica)</div>', unsafe_allow_html=True)
-        st.caption("Modifica liberamente capienza pedane, allestimento e stato operativo direttamente nelle celle sottostanti. I mezzi attivi governano sia l'assegnazione nei giri che l'algoritmo di proposta supporto:")
-
-        col_save_v_top, col_cnt_v = st.columns([2.5, 3.5])
-        with col_save_v_top:
-            save_v_top = st.button("💾 SALVA MODIFICHE PARCO MEZZI", type="primary", use_container_width=True, key="btn_save_veh_top")
-        with col_cnt_v:
-            st.markdown(f"<div style='margin-top:8px; font-size:13px; color:#64748B;'>Veicoli registrati: <strong>{len(df_vehicles)}</strong> ({att_m} operativi)</div>", unsafe_allow_html=True)
-
-        edited_mezzi_df = st.data_editor(
-            df_vehicles,
-            column_config={
-                "cod_mezzo": st.column_config.TextColumn("Codice Mezzo / Denominazione", disabled=True, width="medium"),
-                "tipo_mezzo": st.column_config.SelectboxColumn("Tipologia", options=["BILICO", "MOTRICE", "EUROCARGO", "FURGONE", "ALTRO"], required=True, width="small"),
-                "descrizione": st.column_config.TextColumn("Descrizione / Allestimento", width="large"),
-                "capienza_pedane": st.column_config.NumberColumn("Capienza Pedane (PLT)", min_value=1, max_value=150, format="%d", required=True, width="small"),
-                "attivo": st.column_config.SelectboxColumn("Stato", options=["SI", "NO"], required=True, width="small"),
-                "note": st.column_config.TextColumn("Note Operative", width="medium"),
-            },
-            use_container_width=True,
-            height=340,
-            key="vehicles_editor_main",
-        )
-
-        col_save_v_bot, _ = st.columns([2.5, 3.5])
-        with col_save_v_bot:
-            save_v_bot = st.button("💾 SALVA MODIFICHE PARCO MEZZI (IN BASSO)", type="primary", use_container_width=True, key="btn_save_veh_bot")
-
-        if save_v_top or save_v_bot:
-            bulk_update_vehicles(edited_mezzi_df)
-            st.success("✅ Parco Mezzi aggiornato con successo nel Database!")
-            st.rerun()
-
+        col_vm_l, col_vm_r = st.columns([2.5, 2.5])
+        with col_vm_l:
+            st.markdown('<div class="modern-section-title">🚛 Parco Mezzi & Capienze Operative</div>', unsafe_allow_html=True)
+        with col_vm_r:
+            mezzi_view_mode = st.radio(
+                "Modalità Mezzi",
+                ["🎨 Tabella Grafica con Modifica Completa", "✏️ Griglia Modifica Dinamica (Excel)"],
+                horizontal=True,
+                key="mezzi_view_mode_toggle"
+            )
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # --- 3. GESTIONE DIRETTA: AGGIUNGI & ELIMINA MEZZI (CHIARO E IMMEDIATO) ---
+        if mezzi_view_mode == "🎨 Tabella Grafica con Modifica Completa":
+            # 1. TABELLA GRAFICA MODERNA PARCO MEZZI
+            render_parco_mezzi_modern(df_vehicles)
+
+            # 2. SCHEDA MODIFICA MEZZO CON RINOMINA CODICE
+            st.markdown('<div class="modern-card">', unsafe_allow_html=True)
+            st.markdown('<div class="modern-section-title">✏️ Modifica / Rinomina Veicolo del Parco</div>', unsafe_allow_html=True)
+            st.caption("Seleziona qualsiasi veicolo: puoi modificarne la denominazione/codice, la capienza pedane, la tipologia e lo stato. Se ridenomini il mezzo, l'anagrafica negozi aggiorna automaticamente i collegamenti:")
+
+            veh_opts = df_vehicles["cod_mezzo"].tolist() if not df_vehicles.empty else []
+            sel_veh_card = st.selectbox("Seleziona Veicolo da Modificare", veh_opts, key="sel_veh_card_edit")
+
+            if sel_veh_card:
+                v_match = df_vehicles[df_vehicles["cod_mezzo"] == sel_veh_card]
+                if not v_match.empty:
+                    v_row = v_match.iloc[0]
+                    vm_c1, vm_c2, vm_c3 = st.columns(3)
+                    with vm_c1:
+                        e_v_cod = st.text_input("Codice Mezzo / Denominazione (Modificabile)", value=str(v_row.get("cod_mezzo", "")), key=f"v_c_cod_{sel_veh_card}").strip().upper()
+                        t_opts = ["BILICO", "MOTRICE", "EUROCARGO", "FURGONE", "ALTRO"]
+                        curr_t = str(v_row.get("tipo_mezzo", "MOTRICE") or "MOTRICE").strip().upper()
+                        idx_t = t_opts.index(curr_t) if curr_t in t_opts else 1
+                        e_v_tipo = st.selectbox("Tipologia Mezzo", t_opts, index=idx_t, key=f"v_c_tipo_{sel_veh_card}")
+
+                    with vm_c2:
+                        curr_cap_v = int(v_row.get("capienza_pedane", 18) or 18)
+                        e_v_cap = st.number_input("Capienza Pedane (PLT)", min_value=1, max_value=150, value=curr_cap_v, step=1, key=f"v_c_cap_{sel_veh_card}")
+                        att_v_opts = ["SI (Attivo)", "NO (Non Attivo)"]
+                        curr_v_att = "SI (Attivo)" if str(v_row.get("attivo", "SI")).strip().upper() == "SI" else "NO (Non Attivo)"
+                        e_v_att_sel = st.selectbox("Stato Operativo Veicolo", att_v_opts, index=att_v_opts.index(curr_v_att), key=f"v_c_att_{sel_veh_card}")
+                        e_v_att = "SI" if "SI" in e_v_att_sel else "NO"
+
+                    with vm_c3:
+                        e_v_desc = st.text_input("Descrizione / Allestimento", value=str(v_row.get("descrizione", "") or ""), key=f"v_c_desc_{sel_veh_card}")
+                        e_v_note = st.text_input("Note Operative", value=str(v_row.get("note", "") or ""), key=f"v_c_note_{sel_veh_card}")
+
+                    if st.button(f"💾 SALVA MODIFICHE VEICOLO '{sel_veh_card}'", type="primary", use_container_width=True, key=f"btn_save_veh_card_{sel_veh_card}"):
+                        if not e_v_cod:
+                            st.error("Il codice del mezzo non può essere vuoto.")
+                        else:
+                            update_vehicle_record(sel_veh_card, {
+                                "cod_mezzo": e_v_cod,
+                                "tipo_mezzo": e_v_tipo,
+                                "descrizione": e_v_desc,
+                                "capienza_pedane": int(e_v_cap),
+                                "attivo": e_v_att,
+                                "note": e_v_note,
+                            })
+                            st.success(f"🎉 Veicolo **{e_v_cod}** salvato con successo nel Parco Mezzi!")
+                            st.rerun()
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        else:
+            # INTERACTIVE GRID FOR VEHICLES
+            st.markdown('<div class="modern-card">', unsafe_allow_html=True)
+            col_save_v_top, col_cnt_v = st.columns([2.5, 3.5])
+            with col_save_v_top:
+                save_v_top = st.button("💾 SALVA MODIFICHE PARCO MEZZI", type="primary", use_container_width=True, key="btn_save_veh_top")
+            with col_cnt_v:
+                st.markdown(f"<div style='margin-top:8px; font-size:13px; color:#64748B;'>Veicoli registrati: <strong>{len(df_vehicles)}</strong> ({att_m} operativi)</div>", unsafe_allow_html=True)
+
+            edited_mezzi_df = st.data_editor(
+                df_vehicles,
+                column_config={
+                    "cod_mezzo": st.column_config.TextColumn("Codice Mezzo / Denominazione", disabled=True, width="medium"),
+                    "tipo_mezzo": st.column_config.SelectboxColumn("Tipologia", options=["BILICO", "MOTRICE", "EUROCARGO", "FURGONE", "ALTRO"], required=True, width="small"),
+                    "descrizione": st.column_config.TextColumn("Descrizione / Allestimento", width="large"),
+                    "capienza_pedane": st.column_config.NumberColumn("Capienza Pedane (PLT)", min_value=1, max_value=150, format="%d", required=True, width="small"),
+                    "attivo": st.column_config.SelectboxColumn("Stato", options=["SI", "NO"], required=True, width="small"),
+                    "note": st.column_config.TextColumn("Note Operative", width="medium"),
+                },
+                use_container_width=True,
+                height=340,
+                key="vehicles_editor_main",
+            )
+
+            col_save_v_bot, _ = st.columns([2.5, 3.5])
+            with col_save_v_bot:
+                save_v_bot = st.button("💾 SALVA MODIFICHE PARCO MEZZI (IN BASSO)", type="primary", use_container_width=True, key="btn_save_veh_bot")
+
+            if save_v_top or save_v_bot:
+                bulk_update_vehicles(edited_mezzi_df)
+                st.success("✅ Parco Mezzi aggiornato con successo nel Database!")
+                st.rerun()
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # --- 3. GESTIONE DIRETTA: AGGIUNGI & ELIMINA MEZZI (SEMPRE VISIBILE E IMMEDIATA) ---
         st.markdown('<div class="modern-card">', unsafe_allow_html=True)
         st.markdown('<div class="modern-section-title">⚡ Operazioni Rapide Parco Mezzi</div>', unsafe_allow_html=True)
         col_m_op1, col_m_op2 = st.columns([1.5, 1.5])

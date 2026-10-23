@@ -599,7 +599,7 @@ def update_vehicle_record(old_cod_mezzo: str, updates: Dict[str, Any], db_path=D
         cursor.execute("""
         UPDATE vehicles
         SET cod_mezzo = ?, tipo_mezzo = ?, descrizione = ?, capienza_pedane = ?, attivo = ?, note = ?
-        WHERE cod_mezzo = ?
+        WHERE UPPER(TRIM(cod_mezzo)) = ?
         """, (new_cod, tipo_m, desc, cap, att, note, old_cod))
 
         # If vehicle code changed, sync to stores that referenced old vehicle code
