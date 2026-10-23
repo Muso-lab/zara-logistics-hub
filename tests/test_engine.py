@@ -416,6 +416,45 @@ def test_suggest_support_vehicle():
     assert "FURGONE 8" in s_un["badge"]
 
 
+def test_vehicle_update_and_persistence():
+    from src.db import add_vehicle_record, update_vehicle_record, delete_vehicle_record, get_vehicles_df
+
+    # 1. Add vehicle
+    add_vehicle_record({
+        "cod_mezzo": "TEST_VAN_10",
+        "tipo_mezzo": "FURGONE",
+        "descrizione": "Test Van 10 PLT",
+        "capienza_pedane": 10,
+        "attivo": "SI",
+        "note": "Per test unitario"
+    })
+    df_v = get_vehicles_df()
+    assert "TEST_VAN_10" in df_v["cod_mezzo"].values
+    assert int(df_v[df_v["cod_mezzo"] == "TEST_VAN_10"].iloc[0]["capienza_pedane"]) == 10
+
+    # 2. Update predefined or existing vehicle (change capacity and rename)
+    update_vehicle_record("TEST_VAN_10", {
+        "cod_mezzo": "TEST_VAN_12",
+        "tipo_mezzo": "FURGONE",
+        "descrizione": "Test Van Upgraded to 12 PLT",
+        "capienza_pedane": 12,
+        "attivo": "NO",
+        "note": "Aggiornato"
+    })
+    df_v2 = get_vehicles_df()
+    assert "TEST_VAN_10" not in df_v2["cod_mezzo"].values
+    assert "TEST_VAN_12" in df_v2["cod_mezzo"].values
+    row_v = df_v2[df_v2["cod_mezzo"] == "TEST_VAN_12"].iloc[0]
+    assert int(row_v["capienza_pedane"]) == 12
+    assert row_v["attivo"] == "NO"
+
+    # 3. Clean up
+    delete_vehicle_record("TEST_VAN_12")
+    df_v3 = get_vehicles_df()
+    assert "TEST_VAN_12" not in df_v3["cod_mezzo"].values
+
+
+
 
 
 

@@ -605,6 +605,34 @@ def add_vehicle_record(data: Dict[str, Any], db_path=DB_PATH):
     auto_sync_tables(["vehicles"])
 
 
+def update_vehicle_record(old_cod_mezzo: str, updates: Dict[str, Any], db_path=DB_PATH):
+    """Updates a vehicle record, allowing code rename, capacity change, description, active status, etc."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        old_cod = str(old_cod_mezzo).strip().upper()
+        new_cod = str(updates.get("cod_mezzo", old_cod)).strip().upper()
+        tipo_m = str(updates.get("tipo_mezzo", "MOTRICE")).strip().upper()
+        desc = str(updates.get("descrizione", "")).strip()
+        cap = int(float(updates.get("capienza_pedane", 18) or 18))
+        att = str(updates.get("attivo", "SI")).strip().upper()
+        note = str(updates.get("note", "")).strip()
+
+        cursor.execute("""
+        UPDATE vehicles
+        SET cod_mezzo = ?, tipo_mezzo = ?, descrizione = ?, capienza_pedane = ?, attivo = ?, note = ?
+        WHERE cod_mezzo = ?
+        """, (new_cod, tipo_m, desc, cap, att, note, old_cod))
+
+        # If vehicle code changed, sync to stores that referenced old vehicle code
+        if new_cod != old_cod:
+            cursor.execute("UPDATE stores SET tipo_mezzo = ? WHERE tipo_mezzo = ?", (new_cod, old_cod))
+            cursor.execute("UPDATE stores SET tipo_mezzo_doppia = ? WHERE tipo_mezzo_doppia = ?", (new_cod, old_cod))
+
+        conn.commit()
+    from src.cloud_sync import auto_sync_tables
+    auto_sync_tables(["vehicles", "stores"])
+
+
 def delete_vehicle_record(cod_mezzo: str, db_path=DB_PATH):
     """Deletes a vehicle from the registry."""
     with get_connection(db_path) as conn:

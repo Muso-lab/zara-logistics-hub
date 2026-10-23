@@ -1139,3 +1139,259 @@ def render_lavorazioni_piattaforma(sb: Optional[Dict[str, Any]], key_prefix: str
         """
         st.markdown(html_sv, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+
+def render_anagrafica_negozi_modern(df_stores: pd.DataFrame):
+    """
+    Renders the Anagrafica Punti Vendita table with the exact modern aesthetic of Spunta Arrivi & Giri:
+    - Consistent typography, headers, hover effects, and cards
+    - Colored badges for Status, Brand, Giro, Lavorazione, Scorporo Profumi, and Sdoppiamento
+    - Non-active / Standby stores placed at the bottom with a distinct section divider
+    """
+    _inject_modern_css()
+
+    if df_stores is None or df_stores.empty:
+        st.info("ℹ️ Nessun punto vendita presente in anagrafica.")
+        return
+
+    df = df_stores.copy()
+
+    # Split active vs standby
+    df["_attivo_upper"] = df["attivo"].fillna("SI").astype(str).str.strip().str.upper()
+    df_active = df[df["_attivo_upper"] != "NO"].copy()
+    df_standby = df[df["_attivo_upper"] == "NO"].copy()
+
+    # Sort active by giro and store_id
+    if not df_active.empty:
+        df_active["_giro_sort"] = df_active["giro"].apply(_giro_sort_key)
+        df_active["_store_sort"] = df_active["store_id"].apply(_store_sort_key)
+        df_active = df_active.sort_values(by=["_giro_sort", "_store_sort"]).drop(columns=["_giro_sort", "_store_sort"])
+
+    if not df_standby.empty:
+        df_standby["_store_sort"] = df_standby["store_id"].apply(_store_sort_key)
+        df_standby = df_standby.sort_values(by=["_store_sort"]).drop(columns=["_store_sort"])
+
+    def _render_store_row(r, is_standby: bool = False) -> str:
+        sid = html.escape(str(r.get("store_id", "")))
+        sname = html.escape(str(r.get("store_name", "")))
+        brand = html.escape(str(r.get("brand", "") or r.get("punto_vendita", "")))
+        giro = html.escape(str(r.get("giro", "") or "—"))
+        mezzo = html.escape(str(r.get("tipo_mezzo", "") or "—"))
+        aut = html.escape(str(r.get("autista", "") or "—"))
+        cell = str(r.get("cell_autista", "") or "").strip()
+        lav = str(r.get("lavorazione", "NO") or "NO").strip().upper()
+        scorp = str(r.get("scorporo_profumi", "NO") or "NO").strip().upper()
+        sdop = str(r.get("sdoppiamento_b9", "NO") or "NO").strip().upper()
+        mezzo_d = html.escape(str(r.get("tipo_mezzo_doppia", "") or "—"))
+        form = html.escape(str(r.get("formula", "") or "MC/1,9"))
+        ind = html.escape(str(r.get("indirizzo", "") or ""))
+        cc = html.escape(str(r.get("cc", "") or ""))
+
+        aut_cell = f"{aut}<br><span style='font-size:11px; opacity:0.75;'>📞 {html.escape(cell)}</span>" if cell and aut != "—" else aut
+
+        brand_badge = f'<span class="badge-pill-blue" style="font-size:11px; padding:2px 7px;">{brand}</span>' if brand else ""
+        giro_badge = f'<span class="badge-giro">{giro}</span>' if giro != "—" else '<span class="text-muted-custom">—</span>'
+        mezzo_badge = f'<span class="text-strong" style="font-size:12.5px;">{mezzo}</span>' if mezzo != "—" else '<span class="text-muted-custom">—</span>'
+
+        if is_standby:
+            status_badge = '<span class="badge-standby">STANDBY</span>'
+            row_cls = "row-standby"
+        else:
+            status_badge = '<span class="badge-green">OPERATIVO</span>'
+            row_cls = ""
+
+        # Lavorazione badge
+        if lav == "SI TESSILE":
+            lav_badge = '<span class="badge-yellow" style="font-size:11px;">👗 SI TESSILE</span>'
+        elif lav == "SI HOME":
+            lav_badge = '<span class="badge-yellow" style="font-size:11px;">🏠 SI HOME</span>'
+        else:
+            lav_badge = '<span class="badge-pill-gray" style="font-size:11px;">NO</span>'
+
+        # Scorporo Profumi badge
+        if scorp == "SI":
+            scorp_badge = '<span class="badge-beta" style="font-size:11px; padding:2px 7px;">🧴 SI</span>'
+        else:
+            scorp_badge = '<span class="badge-pill-gray" style="font-size:11px;">NO</span>'
+
+        # Sdoppiamento Barra 9 badge
+        if sdop == "SI":
+            sdop_badge = f'<span class="badge-yellow" style="font-size:11px;">⚡ SI</span><br><span style="font-size:10.5px; opacity:0.8;">{mezzo_d}</span>'
+        else:
+            sdop_badge = '<span class="badge-pill-gray" style="font-size:11px;">NO</span>'
+
+        loc_str = []
+        if ind:
+            loc_str.append(ind)
+        if cc and cc != "FUORI POLO / DA ASSEGNARE":
+            loc_str.append(f"<em>({cc})</em>")
+        loc_html = "<br>".join(loc_str) if loc_str else "<span class='text-muted-custom'>—</span>"
+
+        return f'''
+        <tr class="{row_cls}">
+            <td style="text-align: left;">
+                <span class="text-strong" style="font-size: 14.5px;">{sid}</span>
+                <span style="font-size: 13px; font-weight: 600; margin-left: 6px;">{sname}</span>
+                <div style="margin-top: 3px;">{brand_badge}</div>
+            </td>
+            <td>{giro_badge}</td>
+            <td>{status_badge}</td>
+            <td style="text-align: left;">{mezzo_badge}</td>
+            <td style="text-align: left; font-size: 12.5px;">{aut_cell}</td>
+            <td>{lav_badge}</td>
+            <td>{scorp_badge}</td>
+            <td>{sdop_badge}</td>
+            <td style="font-family: monospace; font-size: 12px; font-weight: 600; color: #0284C7;">{form}</td>
+            <td style="text-align: left; font-size: 11.5px; max-width: 200px; color: #64748B;">{loc_html}</td>
+        </tr>
+        '''
+
+    rows_html = []
+    # 1. Active stores
+    for _, r in df_active.iterrows():
+        rows_html.append(_render_store_row(r, is_standby=False))
+
+    # 2. Standby stores (bottom section)
+    if not df_standby.empty:
+        rows_html.append(f'''
+        <tr class="section-divider-standby">
+            <td colspan="10">
+                ⏸️ PUNTI VENDITA NON ATTIVI (STANDBY / RISTRUTTURAZIONE) — {len(df_standby)} Negozi (Esclusi dal carico e dai volumi trasportati)
+            </td>
+        </tr>
+        ''')
+        for _, r in df_standby.iterrows():
+            rows_html.append(_render_store_row(r, is_standby=True))
+
+    tot_active = len(df_active)
+    tot_standby = len(df_standby)
+    tot_all = tot_active + tot_standby
+
+    table_html = f'''
+    <div class="modern-card">
+        <div class="modern-section-title">
+            <span>🏢 Elenco Ufficiale Punti Vendita & Configurazione Operativa</span>
+            <span style="font-size: 12px; font-weight: 500; opacity: 0.7; margin-left: auto;">
+                Totale: <strong>{tot_all}</strong> negozi ({tot_active} attivi, {tot_standby} standby)
+            </span>
+        </div>
+        <div style="overflow-x: auto; width: 100%;">
+            <table class="modern-tbl">
+                <thead>
+                    <tr>
+                        <th style="text-align: left; min-width: 210px;">Negozio & Insegna</th>
+                        <th style="min-width: 80px;">Giro</th>
+                        <th style="min-width: 95px;">Stato</th>
+                        <th style="text-align: left; min-width: 130px;">Mezzo STD</th>
+                        <th style="text-align: left; min-width: 140px;">Autista & Cellulare</th>
+                        <th style="min-width: 110px;">Lavorazione</th>
+                        <th style="min-width: 90px;">Profumi</th>
+                        <th style="min-width: 90px;">Sdopp. /9</th>
+                        <th style="min-width: 90px;">Formula</th>
+                        <th style="text-align: left; min-width: 180px;">Indirizzo & CC</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {''.join(rows_html)}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    '''
+    st.markdown(table_html, unsafe_allow_html=True)
+
+
+def render_parco_mezzi_modern(df_vehicles: pd.DataFrame):
+    """
+    Renders the Fleet Registry (Parco Mezzi) table with the exact modern aesthetic of Spunta Arrivi & Giri:
+    - Consistent typography, badges for vehicle classes, capacity, and status
+    """
+    _inject_modern_css()
+
+    if df_vehicles is None or df_vehicles.empty:
+        st.info("ℹ️ Nessun veicolo presente nel Parco Mezzi.")
+        return
+
+    df = df_vehicles.copy()
+    if "capienza_pedane" in df.columns:
+        df["capienza_pedane"] = pd.to_numeric(df["capienza_pedane"], errors="coerce").fillna(0).astype(int)
+        df = df.sort_values(by=["capienza_pedane", "cod_mezzo"], ascending=[True, True])
+
+    rows_html = []
+    tot_active = 0
+    tot_cap = 0
+
+    for _, r in df.iterrows():
+        cod = html.escape(str(r.get("cod_mezzo", "")))
+        tipo = html.escape(str(r.get("tipo_mezzo", "MOTRICE")).upper())
+        desc = html.escape(str(r.get("descrizione", "") or "—"))
+        cap = int(r.get("capienza_pedane", 0))
+        att = str(r.get("attivo", "SI")).strip().upper()
+        note = html.escape(str(r.get("note", "") or "—"))
+
+        is_att = (att == "SI")
+        if is_att:
+            tot_active += 1
+            tot_cap += cap
+            status_badge = '<span class="badge-green">ATTIVO</span>'
+            row_cls = ""
+        else:
+            status_badge = '<span class="badge-standby">NON ATTIVO</span>'
+            row_cls = "row-standby"
+
+        # Capienza badge styling
+        if cap >= 33:
+            cap_badge = f'<span class="badge-green" style="font-size: 14px; font-weight: 800; padding: 4px 12px;">{cap} PLT</span>'
+        elif cap >= 18:
+            cap_badge = f'<span class="badge-pill-blue" style="font-size: 14px; font-weight: 800; padding: 4px 12px;">{cap} PLT</span>'
+        elif cap >= 14:
+            cap_badge = f'<span class="badge-giro" style="font-size: 14px; font-weight: 800; padding: 4px 12px;">{cap} PLT</span>'
+        else:
+            cap_badge = f'<span class="badge-pill-gray" style="font-size: 14px; font-weight: 800; padding: 4px 12px;">{cap} PLT</span>'
+
+        tipo_badge = f'<span class="badge-pill-blue" style="font-size: 11px; padding: 2px 8px;">{tipo}</span>'
+
+        rows_html.append(f'''
+        <tr class="{row_cls}">
+            <td style="text-align: left;">
+                <span class="text-strong" style="font-size: 14px;">🚛 {cod}</span>
+            </td>
+            <td>{tipo_badge}</td>
+            <td style="text-align: left; font-size: 13px;">{desc}</td>
+            <td>{cap_badge}</td>
+            <td>{status_badge}</td>
+            <td style="text-align: left; font-size: 12px; color: #64748B;">{note}</td>
+        </tr>
+        ''')
+
+    table_html = f'''
+    <div class="modern-card">
+        <div class="modern-section-title">
+            <span>🚛 Anagrafica Ufficiale Parco Mezzi & Capienze Operative</span>
+            <span style="font-size: 12px; font-weight: 500; opacity: 0.7; margin-left: auto;">
+                Veicoli Attivi: <strong>{tot_active}</strong> / {len(df)} • Flotta Totale: <strong>{tot_cap} PLT</strong>
+            </span>
+        </div>
+        <div style="overflow-x: auto; width: 100%;">
+            <table class="modern-tbl">
+                <thead>
+                    <tr>
+                        <th style="text-align: left; min-width: 170px;">Codice Mezzo / Denominazione</th>
+                        <th style="min-width: 100px;">Tipologia</th>
+                        <th style="text-align: left; min-width: 220px;">Descrizione / Allestimento</th>
+                        <th style="min-width: 120px;">Capienza (PLT)</th>
+                        <th style="min-width: 100px;">Stato</th>
+                        <th style="text-align: left; min-width: 180px;">Note Operative</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {''.join(rows_html)}
+                </tbody>
+            </table>
+        </div>
+        <div class="callout-box" style="margin-top: 14px;">
+            💡 <strong>Algoritmo Proposta Mezzi di Supporto:</strong> I veicoli attivi sopra elencati alimentano automaticamente l\'assegnazione nei giri standard (/0) e sdoppiati (/9), e definiscono la proposta automatica del veicolo di rinforzo idoneo in caso di sovraccarico del giro.
+        </div>
+    </div>
+    '''
+    st.markdown(table_html, unsafe_allow_html=True)
