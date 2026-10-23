@@ -406,6 +406,42 @@ def parse_vehicle_capacity(tipo_mezzo: str) -> int:
     return 0
 
 
+def suggest_support_vehicle(pedane_tot: int, capienza: int) -> Dict[str, str]:
+    """
+    Determines if a support vehicle (or primary vehicle) is needed for the giro
+    and proposes the ideal vehicle type to cover the service.
+    """
+    if capienza == 0:
+        if pedane_tot <= 0:
+            return {"status": "none", "badge": "—", "note": ""}
+        elif pedane_tot <= 8:
+            return {"status": "unassigned", "badge": "FURGONE 8", "note": f"Consigliato per {pedane_tot} PLT"}
+        elif pedane_tot <= 14:
+            return {"status": "unassigned", "badge": "EUROCARGO 75", "note": f"Consigliato per {pedane_tot} PLT"}
+        elif pedane_tot <= 18:
+            return {"status": "unassigned", "badge": "MOTRICE 18", "note": f"Consigliato per {pedane_tot} PLT"}
+        elif pedane_tot <= 33:
+            return {"status": "unassigned", "badge": "BILICO 33", "note": f"Consigliato per {pedane_tot} PLT"}
+        elif pedane_tot <= 42:
+            return {"status": "unassigned", "badge": "MOTRICE 14x3", "note": f"Consigliato per {pedane_tot} PLT"}
+        else:
+            return {"status": "unassigned", "badge": "BILICO x 2 (66 PLT)", "note": f"Consigliato per {pedane_tot} PLT"}
+
+    delta = pedane_tot - capienza
+    if delta <= 0:
+        return {"status": "ok", "badge": "Mezzo Idoneo", "note": "Copertura 100%"}
+    elif delta <= 8:
+        return {"status": "overload", "badge": "FURGONE 8", "note": f"Copre esubero +{delta} PLT"}
+    elif delta <= 14:
+        return {"status": "overload", "badge": "EUROCARGO 75", "note": f"Copre esubero +{delta} PLT"}
+    elif delta <= 18:
+        return {"status": "overload", "badge": "MOTRICE 18", "note": f"Copre esubero +{delta} PLT"}
+    elif delta <= 33:
+        return {"status": "overload", "badge": "BILICO 33", "note": f"Copre esubero +{delta} PLT"}
+    else:
+        return {"status": "overload", "badge": f"BILICO 33 (+{delta} PLT)", "note": f"Copre esubero +{delta} PLT"}
+
+
 def render_riepilogo_giri_modern(
     df_spunta: pd.DataFrame,
     df_stores: Optional[pd.DataFrame] = None,
@@ -612,6 +648,18 @@ def render_riepilogo_giri_modern(
             cap_html = '<span class="text-muted-custom">—</span>'
             sat_html = '<span class="text-muted-custom">—</span>'
 
+        # Proposta mezzo di supporto
+        supp = suggest_support_vehicle(g["pedane_totale_giro"], cap_val)
+        st_supp = supp["status"]
+        if st_supp == "ok":
+            supp_html = '<span class="badge-green" style="font-size: 11.5px;">✔ Mezzo Idoneo</span>'
+        elif st_supp == "overload":
+            supp_html = f'<span class="badge-yellow" style="font-size: 11.5px; font-weight: 700;">➕ {html.escape(supp["badge"])}</span><div style="font-size: 10.5px; color: #D97706; margin-top: 2px;">{html.escape(supp["note"])}</div>'
+        elif st_supp == "unassigned":
+            supp_html = f'<span class="badge-pill-blue" style="font-size: 11.5px; font-weight: 700;">🚚 {html.escape(supp["badge"])}</span><div style="font-size: 10.5px; color: #0284C7; margin-top: 2px;">{html.escape(supp["note"])}</div>'
+        else:
+            supp_html = '<span class="text-muted-custom">—</span>'
+
         return (
             f"<tr{tr_cls}>"
             f"<td>{g_badge}</td>"
@@ -624,6 +672,7 @@ def render_riepilogo_giri_modern(
             f"<td>{pedane_cell}</td>"
             f"<td>{cap_html}</td>"
             f"<td>{sat_html}</td>"
+            f"<td>{supp_html}</td>"
             f"</tr>"
         )
 
@@ -631,7 +680,7 @@ def render_riepilogo_giri_modern(
     if b9_giri_rows:
         rows_html.append(
             '<tr class="section-divider">'
-            '<td colspan="10">🚚 GIRI SDOPPIAMENTO BARRA 9 ("B" — Seconde Uscite / Furgoni & Bilici Dedicati)</td>'
+            '<td colspan="11">🚚 GIRI SDOPPIAMENTO BARRA 9 ("B" — Seconde Uscite / Furgoni & Bilici Dedicati)</td>'
             "</tr>"
         )
         rows_html.extend(_render_giro_tr(g) for g in b9_giri_rows)
@@ -646,16 +695,17 @@ def render_riepilogo_giri_modern(
         f'<td><strong style="color: #E11D48; font-size: 14.5px;">{format_number_it(tot_ped_all, 0)} PLT</strong></td>'
         f"<td><strong>{tot_cap_all} PLT</strong></td>"
         f"<td>{sat_tot_badge}</td>"
+        f"<td>—</td>"
         "</tr>"
     )
 
     st.markdown('<div class="modern-card">', unsafe_allow_html=True)
     st.markdown(
-        '<div class="modern-section-title">🚛 Vista per Giro — Vettori, Mezzi, Impronta a Terra & Saturazione Carico</div>',
+        '<div class="modern-section-title">🚛 Vista per Giro — Vettori, Mezzi, Impronta a Terra & Supporto Consigliato</div>',
         unsafe_allow_html=True,
     )
     st.caption(
-        "Confronto tra l'impronta a terra complessiva per giro (calcolata considerando per i negozi lavorati a banchina lo sviluppo reale: stander 'a madonna' + bancali) e la capienza teorica del mezzo assegnato in anagrafica."
+        "Confronto tra l'impronta a terra complessiva per giro (incluso sviluppo lavorazione banchina: stander 'a madonna' + bancali) e la capienza teorica del mezzo assegnato in anagrafica, con proposta automatica del mezzo di supporto idoneo a coprire eventuali esuberi."
     )
 
     table_html = (
@@ -672,6 +722,7 @@ def render_riepilogo_giri_modern(
         "<th>Impronta a Terra (PLT)</th>"
         "<th>Capienza Mezzo</th>"
         "<th>Saturazione Carico</th>"
+        "<th>Supporto Consigliato</th>"
         "</tr></thead>"
         f"<tbody>{''.join(rows_html)}</tbody>"
         "</table></div>"

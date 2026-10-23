@@ -99,20 +99,25 @@ def test_intershops_formatting():
 
 
 def test_store_delivery_profiles():
-    prof = {
-        "id_store": "8888",
-        "tipo_cons": "STD",
-        "punto_vendita": "ZARA",
-        "store_name": "NEGOZIO PROVA",
-        "provincia": "RM",
-        "tipo_mezzo": "FURGONE",
-        "autista": "GIUSEPPE VERDI",
-        "indirizzo": "CORSO ITALIA 1"
-    }
-    save_store_delivery_profile(prof)
-    fetched = get_store_delivery_profile("8888", "STD")
-    assert fetched["autista"] == "GIUSEPPE VERDI"
-    assert fetched["indirizzo"] == "CORSO ITALIA 1"
+    from src.db import delete_store_record
+    delete_store_record("8888")
+    try:
+        prof = {
+            "id_store": "8888",
+            "tipo_cons": "STD",
+            "punto_vendita": "ZARA",
+            "store_name": "NEGOZIO PROVA",
+            "provincia": "RM",
+            "tipo_mezzo": "FURGONE",
+            "autista": "GIUSEPPE VERDI",
+            "indirizzo": "CORSO ITALIA 1"
+        }
+        save_store_delivery_profile(prof)
+        fetched = get_store_delivery_profile("8888", "STD")
+        assert fetched["autista"] == "GIUSEPPE VERDI"
+        assert fetched["indirizzo"] == "CORSO ITALIA 1"
+    finally:
+        delete_store_record("8888")
 
 
 def test_giro_and_store_registry_management():
@@ -223,4 +228,7 @@ def test_generate_bolle_and_consuntivo_planner():
     assert not df_planner_res.empty
     assert "total_planned_crts" in df_planner_res.columns
     assert "total_received_crts" in df_planner_res.columns
+
+    # Clean up test bolle
+    delete_bolle_by_date(test_delivery_date)
     assert df_planner_res["total_planned_crts"].sum() > 0

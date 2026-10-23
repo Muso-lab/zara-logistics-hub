@@ -7,6 +7,7 @@ import io
 import sqlite3
 import json
 import threading
+import html
 
 from src.cloud_sync import (
     get_cloud_url,
@@ -337,18 +338,56 @@ if menu == "📥 1. Previsione & Arrivi":
                 # Salva i valori aggiornati dei profumi direttamente in Anagrafica Negozi
                 for p_sid, p_val in perfume_corrections.items():
                     update_store_record(p_sid, {"pezzi_profumi": int(p_val)})
-                st.toast("✅ Hai aggiornato correttamente i profumi in anagrafica!", icon="🧴")
+
+                status_banner = st.empty()
+                prog_bar = st.progress(5)
+                status_banner.markdown("""
+                <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+                            border: 2px solid #38BDF8; border-radius: 12px;
+                            padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="font-size: 28px;">⚙️</div>
+                            <div>
+                                <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
+                                    🚀 ESTRAZIONE ED ELABORAZIONE AVVIATA — ATTENDERE PREGO
+                                </div>
+                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                    Connessione a Inditex Extranet in corso e download automatico file...
+                                </div>
+                            </div>
+                        </div>
+                        <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">5%</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                 temp_extract_dir = DATA_DIR / "downloads" / f"extranet_{ts}"
                 temp_extract_dir.mkdir(parents=True, exist_ok=True)
 
-                prog_bar = st.progress(0)
-                status_text = st.empty()
-
                 def update_progress(msg: str, pct: int):
                     prog_bar.progress(pct)
-                    status_text.write(f"🔄 **{pct}%** - {msg}")
+                    status_banner.markdown(f"""
+                    <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+                                border: 2px solid #38BDF8; border-radius: 12px;
+                                padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 14px;">
+                                <div style="font-size: 28px;">🔄</div>
+                                <div>
+                                    <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
+                                        ESTRAZIONE ED ELABORAZIONE IN CORSO...
+                                    </div>
+                                    <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                        {html.escape(msg)}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">{pct}%</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
                 try:
                     scraper = InditexExtranetScraper(
@@ -377,11 +416,27 @@ if menu == "📥 1. Previsione & Arrivi":
                         save_to_network=False,
                     )
                     prog_bar.progress(100)
-                    status_text.write("✅ **100%** - Estrazione ed elaborazione completate!")
+                    status_banner.markdown("""
+                    <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
+                                border: 2px solid #10B981; border-radius: 12px;
+                                padding: 18px 24px; margin: 12px 0 16px 0;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="font-size: 28px;">✅</div>
+                            <div>
+                                <div style="font-size: 16px; font-weight: 800; color: #34D399;">
+                                    ELABORAZIONE COMPLETATA CON SUCCESSO!
+                                </div>
+                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                    File TOTAL, SHOES, TEXILE, ECOM e OTHER estratti e calcolati con successo. Dati archiviati nel DB.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
                     st.session_state["last_run"] = res
-                    st.success("🧴 Hai aggiornato correttamente i profumi!")
-                    st.success("🎉 Elaborazione completata con successo!")
+                    st.toast("✅ Hai aggiornato correttamente i profumi in anagrafica!", icon="🧴")
                 except Exception as e:
+                    status_banner.empty()
                     st.error(f"Errore durante l'estrazione da Extranet: {e}")
 
     with tab_src_upload:
@@ -424,26 +479,67 @@ if menu == "📥 1. Previsione & Arrivi":
                 st.session_state.pop("confirm_perfume_mode", None)
                 for p_sid, p_val in perfume_corrections.items():
                     update_store_record(p_sid, {"pezzi_profumi": int(p_val)})
-                st.success("🧴 Hai aggiornato correttamente i profumi!")
-                with st.spinner("Calcolo Spunta Arrivi, suddivisione Sdoppiamenti /0-/9 e salvataggio storico..."):
-                    try:
-                        res = run_pipeline(
-                            total_source=classified["total"],
-                            shoes_source=classified["shoes"],
-                            texile_source=classified["texile"],
-                            ecom_source=classified["ecom"],
-                            other_source=classified["other"],
-                            esportazione_source=None,
-                            run_date=str(run_date),
-                            cycle_type=cycle_type,
-                            notes=notes,
-                            perfume_corrections=perfume_corrections,
-                            save_to_network=False,
-                        )
-                        st.session_state["last_run"] = res
-                        st.success("✅ Elaborazione completata con successo!")
-                    except Exception as e:
-                        st.error(f"Errore durante l'elaborazione: {e}")
+
+                status_banner_up = st.empty()
+                prog_bar_up = st.progress(25)
+                status_banner_up.markdown("""
+                <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+                            border: 2px solid #38BDF8; border-radius: 12px;
+                            padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="font-size: 28px;">⚙️</div>
+                            <div>
+                                <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
+                                    🚀 ELABORAZIONE FILE AVVIATA — ATTENDERE PREGO
+                                </div>
+                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                    Calcolo Spunta Arrivi, suddivisione Sdoppiamenti /0-/9 e salvataggio storico...
+                                </div>
+                            </div>
+                        </div>
+                        <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">25%</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                try:
+                    res = run_pipeline(
+                        total_source=classified["total"],
+                        shoes_source=classified["shoes"],
+                        texile_source=classified["texile"],
+                        ecom_source=classified["ecom"],
+                        other_source=classified["other"],
+                        esportazione_source=None,
+                        run_date=str(run_date),
+                        cycle_type=cycle_type,
+                        notes=notes,
+                        perfume_corrections=perfume_corrections,
+                        save_to_network=False,
+                    )
+                    prog_bar_up.progress(100)
+                    status_banner_up.markdown("""
+                    <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
+                                border: 2px solid #10B981; border-radius: 12px;
+                                padding: 18px 24px; margin: 12px 0 16px 0;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="font-size: 28px;">✅</div>
+                            <div>
+                                <div style="font-size: 16px; font-weight: 800; color: #34D399;">
+                                    ELABORAZIONE COMPLETATA CON SUCCESSO!
+                                </div>
+                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                    Spunta Arrivi, Flussi SGA e Riepilogo Giri calcolati con successo.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.session_state["last_run"] = res
+                    st.toast("✅ Hai aggiornato correttamente i profumi in anagrafica!", icon="🧴")
+                except Exception as e:
+                    status_banner_up.empty()
+                    st.error(f"Errore durante l'elaborazione: {e}")
 
     # 3. Visualizzazione Risultati (mostra la run appena eseguita oppure l'ultima disponibile nel DB)
     active_run_data = st.session_state.get("last_run")

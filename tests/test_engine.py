@@ -382,6 +382,31 @@ def test_platform_footprint_calculation_9226():
     assert s9226["sintesi"] == "15 bancali + 12 stander"
 
 
+def test_suggest_support_vehicle():
+    from src.components import suggest_support_vehicle
+
+    # Optimal / covered
+    s_ok = suggest_support_vehicle(33, 33)
+    assert s_ok["status"] == "ok"
+    assert s_ok["badge"] == "Mezzo Idoneo"
+
+    # Overload by 5 PLT -> FURGONE 8
+    s_ov8 = suggest_support_vehicle(13, 8)
+    assert s_ov8["status"] == "overload"
+    assert "FURGONE 8" in s_ov8["badge"]
+
+    # Overload by 12 PLT -> EUROCARGO 75
+    s_ov14 = suggest_support_vehicle(45, 33)
+    assert s_ov14["status"] == "overload"
+    assert "EUROCARGO 75" in s_ov14["badge"]
+
+    # Unassigned route (e.g. 4 PLT) -> FURGONE 8
+    s_un = suggest_support_vehicle(4, 0)
+    assert s_un["status"] == "unassigned"
+    assert "FURGONE 8" in s_un["badge"]
+
+
+
 
 
 
