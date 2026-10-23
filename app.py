@@ -585,31 +585,34 @@ if menu == "📥 1. Previsione & Arrivi":
     # 3. Visualizzazione Risultati (mostra la run appena eseguita oppure l'ultima disponibile nel DB)
     active_run_data = st.session_state.get("last_run")
     if not active_run_data and not runs_side.empty:
-        latest_id = int(runs_side.iloc[0]["id"])
-        det = get_run_details(latest_id)
-        if det and det.get("run"):
-            r_info = det["run"]
-            active_run_data = {
-                "run_id": latest_id,
-                "run_date": r_info.get("run_date", ""),
-                "cycle_type": r_info.get("cycle_type", ""),
-                "totals": {
-                    "total_bultos": r_info.get("total_bultos", 0),
-                    "total_volume": r_info.get("total_volume", 0),
-                    "total_weight": r_info.get("total_weight", 0),
-                    "total_pedane": r_info.get("total_pedane", 0),
-                },
-                "df_analisi": det.get("planning", pd.DataFrame()),
-                "df_spunta": det.get("spunta", pd.DataFrame()),
-                "special_breakdowns": det.get("special_breakdowns", {}),
-                "exported_files": {
-                    "zara": OUTPUT_DIR / "ZARA.xlsx",
-                    "sga0": OUTPUT_DIR / "barrazero_Sga.xlsx",
-                    "sga9": OUTPUT_DIR / "barranove_Sga.xlsx",
-                    "planner": OUTPUT_DIR / "Planning ITX_RM.xlsx",
-                },
-                "new_stores_alert": [],
-            }
+        try:
+            latest_id = int(runs_side.iloc[0]["id"])
+            det = get_run_details(latest_id)
+            if det and det.get("run"):
+                r_info = det["run"]
+                active_run_data = {
+                    "run_id": latest_id,
+                    "run_date": r_info.get("run_date", ""),
+                    "cycle_type": r_info.get("cycle_type", ""),
+                    "totals": {
+                        "total_bultos": r_info.get("total_bultos", 0),
+                        "total_volume": r_info.get("total_volume", 0),
+                        "total_weight": r_info.get("total_weight", 0),
+                        "total_pedane": r_info.get("total_pedane", 0),
+                    },
+                    "df_analisi": det.get("planning", pd.DataFrame()),
+                    "df_spunta": det.get("spunta", pd.DataFrame()),
+                    "special_breakdowns": det.get("special_breakdowns", {}),
+                    "exported_files": {
+                        "zara": OUTPUT_DIR / "ZARA.xlsx",
+                        "sga0": OUTPUT_DIR / "barrazero_Sga.xlsx",
+                        "sga9": OUTPUT_DIR / "barranove_Sga.xlsx",
+                        "planner": OUTPUT_DIR / "Planning ITX_RM.xlsx",
+                    },
+                    "new_stores_alert": [],
+                }
+        except Exception as e:
+            st.warning(f"⚠️ Impossibile caricare l'ultima elaborazione salvata: {e}")
 
     if active_run_data:
         curr_rid = active_run_data["run_id"]

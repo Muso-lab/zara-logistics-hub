@@ -6,8 +6,7 @@ from src.config import DB_PATH, ANAGRAFICA_FILE
 
 
 def get_connection(db_path=DB_PATH):
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA journal_mode = WAL;")
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
@@ -577,35 +576,43 @@ def get_all_runs(db_path=DB_PATH) -> pd.DataFrame:
 
 def get_run_details(run_id: int, db_path=DB_PATH) -> Dict[str, Any]:
     with get_connection(db_path) as conn:
-        run_df = pd.read_sql_query("SELECT * FROM runs WHERE id = ?", conn, params=(run_id,))
+        def _safe_query(sql: str, params=None) -> pd.DataFrame:
+            try:
+                if params is not None:
+                    return pd.read_sql_query(sql, conn, params=params)
+                return pd.read_sql_query(sql, conn)
+            except Exception:
+                return pd.DataFrame()
+
+        run_df = _safe_query("SELECT * FROM runs WHERE id = ?", params=(int(run_id),))
         run_dict = run_df.iloc[0].to_dict() if not run_df.empty else None
-        planning = pd.read_sql_query("SELECT * FROM planning_results WHERE run_id = ?", conn, params=(run_id,))
-        spunta = pd.read_sql_query("SELECT * FROM spunta_arrivi WHERE run_id = ? ORDER BY row_idx", conn, params=(run_id,))
+        planning = _safe_query("SELECT * FROM planning_results WHERE run_id = ?", params=(int(run_id),))
+        spunta = _safe_query("SELECT * FROM spunta_arrivi WHERE run_id = ? ORDER BY row_idx", params=(int(run_id),))
         if not spunta.empty and "is_store" not in spunta.columns:
             spunta["is_store"] = ~spunta["store_code"].astype(str).str.strip().str.upper().isin(["", "NEGOZIO", "STORE ID", "EXTRA", "NONE"])
-        sga0 = pd.read_sql_query("SELECT * FROM sga_flows WHERE run_id = ? AND barra = 0 ORDER BY id", conn, params=(run_id,))
-        sga9 = pd.read_sql_query("SELECT * FROM sga_flows WHERE run_id = ? AND barra = 9 ORDER BY id", conn, params=(run_id,))
-        sga_all = pd.read_sql_query("SELECT * FROM sga_flows WHERE run_id = ? ORDER BY id", conn, params=(run_id,))
-        actuals = pd.read_sql_query("SELECT * FROM actual_deliveries WHERE run_id = ?", conn, params=(run_id,))
+        sga0 = _safe_query("SELECT * FROM sga_flows WHERE run_id = ? AND barra = 0 ORDER BY id", params=(int(run_id),))
+        sga9 = _safe_query("SELECT * FROM sga_flows WHERE run_id = ? AND barra = 9 ORDER BY id", params=(int(run_id),))
+        sga_all = _safe_query("SELECT * FROM sga_flows WHERE run_id = ? ORDER BY id", params=(int(run_id),))
+        actuals = _safe_query("SELECT * FROM actual_deliveries WHERE run_id = ?", params=(int(run_id),))
 
         # Reconstruct special_breakdowns from forecast_raw
-        df_tot = pd.read_sql_query(
+        df_tot = _safe_query(
             "SELECT store_code AS store_id, p_colgada, paqueteria, peso, volumen, bultos FROM forecast_raw WHERE run_id = ? AND file_category = 'TOTAL'",
-            conn, params=(run_id,)
+            params=(int(run_id),)
         )
-        df_sho = pd.read_sql_query(
+        df_sho = _safe_query(
             "SELECT store_code AS store_id, p_colgada, paqueteria, peso, volumen, bultos FROM forecast_raw WHERE run_id = ? AND file_category = 'SHOES'",
-            conn, params=(run_id,)
+            params=(int(run_id),)
         )
-        df_tex = pd.read_sql_query(
+        df_tex = _safe_query(
             "SELECT store_code AS store_id, p_colgada, paqueteria, peso, volumen, bultos FROM forecast_raw WHERE run_id = ? AND file_category = 'TEXILE'",
-            conn, params=(run_id,)
+            params=(int(run_id),)
         )
-        df_eco = pd.read_sql_query(
+        df_eco = _safe_query(
             "SELECT store_code AS store_id, p_colgada, paqueteria, peso, volumen, bultos FROM forecast_raw WHERE run_id = ? AND file_category = 'ECOM'",
-            conn, params=(run_id,)
+            params=(int(run_id),)
         )
-        df_stores = pd.read_sql_query("SELECT * FROM stores ORDER BY giro ASC, store_id ASC", conn)
+        df_stores = _safe_query("SELECT * FROM stores ORDER BY giro ASC, store_id ASC")
 
         from src.engine import compute_special_breakdowns
         special_breakdowns = compute_special_breakdowns(spunta, df_tot, df_sho, df_texile=df_tex, df_ecom=df_eco, df_stores=df_stores)
