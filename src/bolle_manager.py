@@ -90,6 +90,7 @@ def get_bolle_dates(limit: int = 100, db_path: Path = DB_PATH) -> List[str]:
         SELECT DISTINCT COALESCE(NULLIF(data_consegna, ''), data) as dt 
         FROM bolle 
         WHERE dt IS NOT NULL AND dt != ''
+          AND dt NOT LIKE '%2098%' AND dt NOT LIKE '%2099%'
         ORDER BY dt DESC 
         LIMIT ?
     """, (limit,))
@@ -100,7 +101,7 @@ def get_bolle_dates(limit: int = 100, db_path: Path = DB_PATH) -> List[str]:
         val = str(r[0]).strip() if r[0] else ""
         if len(val) >= 10 and val[4] == '-' and val[7] == '-':
             cleaned.append(val[:10])
-        elif val:
+        elif val and "2098" not in val and "2099" not in val:
             cleaned.append(val)
     return list(dict.fromkeys(cleaned))
 
@@ -280,6 +281,10 @@ def get_bolle(
     conn = get_db_connection(db_path)
     query = ["SELECT * FROM bolle WHERE 1=1"]
     params = []
+
+    if not (data and ("2098" in str(data) or "2099" in str(data))):
+        query.append("AND data NOT LIKE '%2098%' AND data NOT LIKE '%2099%'")
+        query.append("AND (data_consegna IS NULL OR (data_consegna NOT LIKE '%2098%' AND data_consegna NOT LIKE '%2099%'))")
 
     if data:
         query.append("AND (data = ? OR data_consegna = ?)")

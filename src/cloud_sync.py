@@ -182,7 +182,13 @@ def push_tables_to_cloud(table_names=None, timeout: int = 25) -> dict:
             if t not in existing_tables:
                 continue
             if t == "bolle":
-                df = pd.read_sql_query("SELECT * FROM bolle ORDER BY id DESC LIMIT 800", conn)
+                df = pd.read_sql_query("""
+                    SELECT * FROM bolle 
+                    WHERE data NOT LIKE '%2098%' AND data NOT LIKE '%2099%'
+                      AND (data_consegna IS NULL OR (data_consegna NOT LIKE '%2098%' AND data_consegna NOT LIKE '%2099%'))
+                      AND id_store != '9999'
+                    ORDER BY id DESC LIMIT 800
+                """, conn)
             else:
                 df = pd.read_sql_query(f"SELECT * FROM {t}", conn)
             # SAFETY GUARD: Never overwrite cloud data with an empty table if local table has 0 rows!
@@ -273,7 +279,15 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
                         .str.strip()
                     )
 
-            if t_name != "bolle":
+            if t_name == "bolle":
+                # Strip out any dummy/test dates that leaked into Google Sheets
+                if "data" in df_clean.columns:
+                    df_clean = df_clean[~df_clean["data"].astype(str).str.contains("2098|2099", na=False)]
+                if "data_consegna" in df_clean.columns:
+                    df_clean = df_clean[~df_clean["data_consegna"].astype(str).str.contains("2098|2099", na=False)]
+                if "id_store" in df_clean.columns:
+                    df_clean = df_clean[df_clean["id_store"].astype(str).str.strip() != "9999"]
+            elif t_name != "bolle":
                 cur.execute(f"DELETE FROM {t_name}")
 
             col_names_sql = ", ".join(common_cols)
@@ -299,6 +313,7 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
         try:
             cur.execute("DELETE FROM stores WHERE store_id IN (SELECT store_id FROM deleted_stores)")
             cur.execute("DELETE FROM store_delivery_profiles WHERE id_store IN (SELECT store_id FROM deleted_stores)")
+            cur.execute("DELETE FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR id_store = '9999'")
         except Exception:
             pass
 

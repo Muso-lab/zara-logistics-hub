@@ -1041,6 +1041,14 @@ elif menu == "🚚 2. Bolle di Consegna":
     if "flash_bolle_msg" in st.session_state:
         st.success(st.session_state.pop("flash_bolle_msg"))
 
+    # Cleanup any ghost/test bolle with dummy future dates
+    try:
+        with sqlite3.connect(DB_PATH) as _c_purge:
+            _c_purge.execute("DELETE FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR id_store = '9999'")
+            _c_purge.commit()
+    except Exception:
+        pass
+
     # Barra Superiore Rapida: Selezione Data + Generazione 1-Clic da Previsione
     all_dates = get_bolle_dates(120)
     today_str = datetime.now().strftime("%Y-%m-%d")
