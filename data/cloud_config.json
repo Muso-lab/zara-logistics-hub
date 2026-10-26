@@ -1,3 +1,15 @@
 {
-  "google_script_url": "https://script.google.com/macros/s/AKfycbyPQbjCSCFU76LwNESVB5FT6z4J0mQpqoPvP7Lo8rsn7Vj8rhhtz6p5Es5H3zU0ccsoYQ/exec"
+  "google_script_url": "https://script.google.com/macros/s/AKfycbyPQbjCSCFU76LwNESVB5FT6z4J0mQpqoPvP7Lo8rsn7Vj8rhhtz6p5Es5H3zU0ccsoYQ/exec",
+  "email_config": {
+    "smtp_host": "smtp.custom.test",
+    "smtp_port": 465,
+    "smtp_user": "test@custom.test",
+    "smtp_password": "",
+    "smtp_security": "STARTTLS",
+    "sender_name": "Logistica Zara Hub",
+    "default_to": "dest1@test.com, dest2@test.com",
+    "default_cc": "",
+    "subject_template": "[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {date}",
+    "body_template": "Gentili Colleghi,\n\nin allegato trasmettiamo i file operativi relativi alla spedizione del {date}:\n\n- Sintesi Operativa Giri & Lavorazioni (Sintesi_Operativa.xlsx)\n- Flusso Viaggi TMS Barra 0 (barrazero_Sga.xlsx / .csv)\n- Flusso Viaggi TMS Barra 9 Sdoppiati (barranove_Sga.xlsx / .csv)\n\nRiepilogo Totali Spedizione:\n- Totale Colli: {total_bultos}\n- Volume Complessivo: {total_volume} m\u00b3\n- Peso Complessivo: {total_weight} kg\n- Pedane Stimate: {total_pedane} PLT\n\nRestiamo a disposizione per qualsiasi chiarimento operativo.\n\nCordiali saluti,\nUfficio Logistica & Traffico Zara Hub"
+  }
 }

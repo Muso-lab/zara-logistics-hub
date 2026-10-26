@@ -280,6 +280,15 @@ def init_db(db_path=DB_PATH):
         );
         """)
 
+        # Application Key-Value Settings (Email, System configs)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS app_settings (
+            setting_key TEXT PRIMARY KEY,
+            setting_value TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
         cursor.execute("SELECT COUNT(*) FROM vehicles")
         if cursor.fetchone()[0] == 0:
             default_vehicles = [
@@ -851,3 +860,129 @@ def get_store_latest_planned_data(store_id: str, db_path=DB_PATH) -> Dict[str, A
         "volume": tot_vol,
         "pedane": tot_ped
     }
+
+
+
+# ==============================================================================
+# SETTINGS & EMAIL CONFIGURATION
+# ==============================================================================
+
+def get_app_setting(key: str, default: str = "", db_path=None) -> str:
+    """Reads a setting value from app_settings table."""
+    try:
+        with get_connection(db_path) as conn:
+            c = conn.cursor()
+            c.execute("SELECT setting_value FROM app_settings WHERE setting_key = ?", (key,))
+            row = c.fetchone()
+            if row and row[0] is not None:
+                return str(row[0])
+    except Exception:
+        pass
+    return default
+
+
+def set_app_setting(key: str, value: str, db_path=None):
+    """Writes a setting value to app_settings table (UPSERT)."""
+    with get_connection(db_path) as conn:
+        c = conn.cursor()
+        c.execute("""
+        INSERT INTO app_settings (setting_key, setting_value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(setting_key) DO UPDATE SET
+            setting_value = excluded.setting_value,
+            updated_at = CURRENT_TIMESTAMP
+        """, (key, str(value)))
+        conn.commit()
+
+
+def get_email_config(db_path=None) -> Dict[str, Any]:
+    """
+    Retrieves full email and SMTP configuration, merging DB app_settings,
+    local cloud_config.json, and OS environment variables.
+    """
+    import json
+    import os
+    from src.config import DATA_DIR
+
+    cfg = {
+        "smtp_host": "",
+        "smtp_port": 587,
+        "smtp_user": "",
+        "smtp_password": "",
+        "smtp_security": "STARTTLS",
+        "sender_name": "Logistica Zara Hub",
+        "default_to": "operativa@trasporti.it, traffico@trasporti.it",
+        "default_cc": "",
+        "subject_template": "[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {date}",
+        "body_template": (
+            "Gentili Colleghi,\n\n"
+            "in allegato trasmettiamo i file operativi relativi alla spedizione del {date}:\n\n"
+            "- Sintesi Operativa Giri & Lavorazioni (Sintesi_Operativa.xlsx)\n"
+            "- Flusso Viaggi TMS Barra 0 (barrazero_Sga.xlsx / .csv)\n"
+            "- Flusso Viaggi TMS Barra 9 Sdoppiati (barranove_Sga.xlsx / .csv)\n\n"
+            "Riepilogo Totali Spedizione:\n"
+            "- Totale Colli: {total_bultos}\n"
+            "- Volume Complessivo: {total_volume} m³\n"
+            "- Peso Complessivo: {total_weight} kg\n"
+            "- Pedane Stimate: {total_pedane} PLT\n\n"
+            "Restiamo a disposizione per qualsiasi chiarimento operativo.\n\n"
+            "Cordiali saluti,\n"
+            "Ufficio Logistica & Traffico Zara Hub"
+        )
+    }
+
+    raw_db = get_app_setting("email_config_json", "", db_path=db_path)
+    if raw_db:
+        try:
+            loaded = json.loads(raw_db)
+            cfg.update(loaded)
+        except Exception:
+            pass
+
+    c_file = DATA_DIR / "cloud_config.json"
+    if c_file.exists() and not cfg.get("smtp_host"):
+        try:
+            fdata = json.loads(c_file.read_text(encoding="utf-8"))
+            if "email_config" in fdata:
+                cfg.update(fdata["email_config"])
+        except Exception:
+            pass
+
+    if not cfg["smtp_host"] and os.getenv("SMTP_HOST"):
+        cfg["smtp_host"] = os.getenv("SMTP_HOST", "")
+    if os.getenv("SMTP_PORT"):
+        try:
+            cfg["smtp_port"] = int(os.getenv("SMTP_PORT", "587"))
+        except ValueError:
+            pass
+    if not cfg["smtp_user"] and os.getenv("SMTP_USER"):
+        cfg["smtp_user"] = os.getenv("SMTP_USER", "")
+    if not cfg["smtp_password"] and os.getenv("SMTP_PASSWORD"):
+        cfg["smtp_password"] = os.getenv("SMTP_PASSWORD", "")
+
+    return cfg
+
+
+def save_email_config(cfg: Dict[str, Any], db_path=None):
+    """
+    Saves email and SMTP configuration into DB app_settings and mirrors to cloud_config.json.
+    """
+    import json
+    from src.config import DATA_DIR
+
+    raw_json = json.dumps(cfg, ensure_ascii=False, indent=2)
+    set_app_setting("email_config_json", raw_json, db_path=db_path)
+
+    try:
+        c_file = DATA_DIR / "cloud_config.json"
+        c_file.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+        if c_file.exists():
+            try:
+                data = json.loads(c_file.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        data["email_config"] = cfg
+        c_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception:
+        pass

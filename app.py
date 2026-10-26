@@ -50,6 +50,8 @@ from src.db import (
     update_vehicle_record,
     delete_vehicle_record,
     bulk_update_vehicles,
+    get_email_config,
+    save_email_config,
 )
 from src.parsers import classify_uploaded_files
 from src.engine import evaluate_pedane, compute_planning_roma
@@ -71,7 +73,7 @@ from src.bolle_manager import (
     format_intershops_string,
 )
 from src.exporters import export_planner_roma, export_sintesi_operativa, export_sga_file
-from src.mailer import send_operativa_email, build_operativa_zip
+from src.mailer import send_operativa_email, send_test_email, build_operativa_zip
 from src.scraper import InditexExtranetScraper
 from src.utils import get_cycle_date_range, format_number_it, format_date_it
 from src.components import (
@@ -240,7 +242,7 @@ if IS_ADMIN:
         "🚚 2. Bolle di Consegna",
         "📊 3. Consuntivo & Planner Inditex",
         "🏢 4. Anagrafica Negozi & Giri",
-        "🗄️ 5. Storico & Backup Cloud",
+        "⚙️ 5. Impostazioni, Email & Backup",
     ]
 else:
     MENU_OPTIONS = [
@@ -248,6 +250,9 @@ else:
         "🚚 2. Bolle di Consegna",
         "📊 3. Consuntivo & Planner Inditex",
     ]
+
+if st.session_state.get("nav_menu") in ["🗄️ 5. Storico & Backup Cloud", "💾 5. Storico & Backup Cloud"]:
+    st.session_state["nav_menu"] = "⚙️ 5. Impostazioni, Email & Backup"
 
 if "nav_menu" not in st.session_state or st.session_state["nav_menu"] not in MENU_OPTIONS:
     st.session_state["nav_menu"] = MENU_OPTIONS[0]
@@ -744,19 +749,42 @@ if menu == "📥 1. Previsione & Arrivi":
                             key=f"dl_box_zip_{curr_rid}"
                         )
 
+            email_cfg = get_email_config()
+            def_to = email_cfg.get("default_to", "operativa@trasporti.it, traffico@trasporti.it")
+            def_cc = email_cfg.get("default_cc", "")
+            has_smtp = bool(email_cfg.get("smtp_host") and email_cfg.get("smtp_user"))
+
             st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
-            st.markdown("#### ✉️ Invio Email File Operativa")
-            st.caption("Invia direttamente la sintesi e i file SGA ai responsabili del traffico e della logistica:")
+            col_em_head1, col_em_head2 = st.columns([3, 1.2])
+            with col_em_head1:
+                st.markdown("#### ✉️ Invio Email File Operativa")
+                if has_smtp:
+                    st.markdown(f"<div style='font-size:12.5px; margin-top:-6px; color:#10B981; font-weight:600;'>🟢 Connessione SMTP Attiva: <code>{email_cfg.get('smtp_host')}:{email_cfg.get('smtp_port')}</code> (Mittente: {email_cfg.get('smtp_user')})</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div style='font-size:12.5px; margin-top:-6px; color:#F59E0B; font-weight:600;'>🟡 Modalità Simulazione / SMTP non configurato. Configura i parametri nella scheda ⚙️ Impostazioni.</div>", unsafe_allow_html=True)
+            with col_em_head2:
+                with st.popover("⚙️ Destinatari Standard", use_container_width=True):
+                    st.markdown("##### ✉️ Indirizzi Standard")
+                    p_to = st.text_input("Destinatari Standard (TO)", value=def_to, key=f"pop_to_{curr_rid}")
+                    p_cc = st.text_input("Destinatari in Copia (CC)", value=def_cc, key=f"pop_cc_{curr_rid}")
+                    if st.button("💾 Salva come Predefiniti", key=f"btn_save_pop_email_{curr_rid}", use_container_width=True):
+                        email_cfg["default_to"] = p_to
+                        email_cfg["default_cc"] = p_cc
+                        save_email_config(email_cfg)
+                        st.success("Indirizzi standard aggiornati!")
+                        st.rerun()
 
             em_col1, em_col2 = st.columns([1.5, 1.5])
             with em_col1:
-                em_to = st.text_input("Destinatari (separati da virgola)", value="operativa@trasporti.it, traffico@trasporti.it", key=f"em_to_in_{curr_rid}")
+                em_to = st.text_input("Destinatari (separati da virgola)", value=def_to, key=f"em_to_in_{curr_rid}")
             with em_col2:
-                em_cc = st.text_input("In Copia (CC - opzionale)", value="", key=f"em_cc_in_{curr_rid}")
+                em_cc = st.text_input("In Copia (CC - opzionale)", value=def_cc, key=f"em_cc_in_{curr_rid}")
 
+            tmpl_subj = email_cfg.get("subject_template") or "[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {date}"
+            default_subj = tmpl_subj.replace("{date}", str(r_date))
             em_subj = st.text_input(
                 "Oggetto Email",
-                value=f"[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {r_date}",
+                value=default_subj,
                 key=f"em_subj_in_{curr_rid}"
             )
 
@@ -787,7 +815,8 @@ if menu == "📥 1. Previsione & Arrivi":
                     subject=em_subj,
                     body_text=em_body,
                     attachment_paths=att_files,
-                    cc_recipients=cc_list
+                    cc_recipients=cc_list,
+                    smtp_config=email_cfg
                 )
                 if success:
                     st.success(f"🎉 **{msg}**")
@@ -1958,15 +1987,170 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
 
 # PAGE 5: STORICO, CANCELLAZIONE MASSIVA & BACKUP CLOUD
 # ==============================================================================
-elif menu == "🗄️ 5. Storico & Backup Cloud":
-    st.markdown('<div class="main-header">🗄️ Storico Elaborazioni, Cancellazione Massiva & Backup</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Gestione archivio elaborazioni, pulizia massiva e portabilità completa del database SQLite su qualsiasi PC o server.</div>', unsafe_allow_html=True)
+elif menu.startswith("🗄️ 5.") or menu.startswith("⚙️ 5."):
+    st.markdown('<div class="main-header">⚙️ Impostazioni, Invio Email, Cloud & Backup</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Configurazione server SMTP per invio email operative, sincronizzazione Google Sheets, archivio storico e backup database.</div>', unsafe_allow_html=True)
 
-    tab_cloud_gs, tab_hist, tab_backup = st.tabs([
+    tab_email, tab_cloud_gs, tab_hist, tab_backup = st.tabs([
+        "✉️ Posta & Parametri Invio Email",
         "🟢 Cloud Google Sheets (Apps Script)",
-        "📊 Archivio & Cancellazione Massiva Storico",
+        "📊 Archivio & Storico Elaborazioni",
         "💾 Backup File Database (.db)",
     ])
+
+    with tab_email:
+        st.markdown("#### ✉️ Configurazione Invio Email & Parametri SMTP")
+        st.markdown(
+            "Configura i parametri del server di posta in uscita (SMTP) e gli indirizzi standard dei destinatari "
+            "per l'inoltro automatico dei file dell'operativa (Sintesi e Flussi SGA)."
+        )
+
+        cfg_now = get_email_config()
+
+        # Preset rapidi
+        st.markdown("##### 🚀 Preimpostazioni Rapide Provider")
+        pr1, pr2, pr3, pr4, pr5 = st.columns(5)
+        with pr1:
+            if st.button("🔴 Gmail (Google)", use_container_width=True, key="preset_gmail"):
+                cfg_now["smtp_host"] = "smtp.gmail.com"
+                cfg_now["smtp_port"] = 587
+                cfg_now["smtp_security"] = "STARTTLS"
+                save_email_config(cfg_now)
+                st.rerun()
+        with pr2:
+            if st.button("🔵 Microsoft 365 / Outlook", use_container_width=True, key="preset_m365"):
+                cfg_now["smtp_host"] = "smtp.office365.com"
+                cfg_now["smtp_port"] = 587
+                cfg_now["smtp_security"] = "STARTTLS"
+                save_email_config(cfg_now)
+                st.rerun()
+        with pr3:
+            if st.button("🟡 Aruba Webmail", use_container_width=True, key="preset_aruba"):
+                cfg_now["smtp_host"] = "smtps.aruba.it"
+                cfg_now["smtp_port"] = 465
+                cfg_now["smtp_security"] = "SSL"
+                save_email_config(cfg_now)
+                st.rerun()
+        with pr4:
+            if st.button("🏢 Server Lacchi / Custom", use_container_width=True, key="preset_lacchi"):
+                cfg_now["smtp_host"] = "mail.lacchi.it"
+                cfg_now["smtp_port"] = 587
+                cfg_now["smtp_security"] = "STARTTLS"
+                save_email_config(cfg_now)
+                st.rerun()
+        with pr5:
+            if st.button("🔄 Reimposta Default", use_container_width=True, key="preset_reset"):
+                cfg_now["smtp_host"] = ""
+                cfg_now["smtp_port"] = 587
+                cfg_now["smtp_security"] = "STARTTLS"
+                save_email_config(cfg_now)
+                st.rerun()
+
+        st.markdown("<hr style='margin: 12px 0; border: none; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
+
+        col_s1, col_s2, col_s3 = st.columns([2, 1, 1.2])
+        with col_s1:
+            cfg_host = st.text_input("Server SMTP (Host)", value=cfg_now.get("smtp_host", ""), placeholder="es. smtp.gmail.com o smtp.office365.com", key="cfg_in_smtp_host")
+        with col_s2:
+            cfg_port = st.number_input("Porta SMTP", min_value=1, max_value=65535, value=int(cfg_now.get("smtp_port", 587)), step=1, key="cfg_in_smtp_port")
+        with col_s3:
+            sec_opts = ["STARTTLS", "SSL", "NESSUNA"]
+            curr_sec = cfg_now.get("smtp_security", "STARTTLS").upper()
+            curr_sec_idx = sec_opts.index(curr_sec) if curr_sec in sec_opts else 0
+            cfg_sec = st.selectbox("Protocollo Sicurezza", sec_opts, index=curr_sec_idx, key="cfg_in_smtp_sec")
+
+        col_u1, col_u2, col_u3 = st.columns([1.5, 1.5, 1.5])
+        with col_u1:
+            cfg_name = st.text_input("Nome Visualizzato Mittente", value=cfg_now.get("sender_name", "Logistica Zara Hub"), key="cfg_in_sender_name")
+        with col_u2:
+            cfg_user = st.text_input("Indirizzo Email / Utente Login", value=cfg_now.get("smtp_user", ""), placeholder="es. operativa@lacchi.it", key="cfg_in_smtp_user")
+        with col_u3:
+            cfg_pass = st.text_input("Password SMTP / Password per le App", value=cfg_now.get("smtp_password", ""), type="password", key="cfg_in_smtp_pass")
+
+        with st.expander("ℹ️ Istruzioni e Guida per le Password App (Gmail / Outlook / Aruba)", expanded=False):
+            st.markdown("""
+            - **Google Gmail**: Se sul tuo account Google è attiva l'autenticazione a 2 fattori, Google non consente di usare la password principale. Vai su *Gestisci il tuo Account Google > Sicurezza > Password per le app*, genera una nuova password denominata "Logistica Zara" (stringa di 16 lettere) e incollala qui. Host: `smtp.gmail.com`, Porta: `587`, Sicurezza: `STARTTLS`.
+            - **Microsoft 365 / Outlook**: Richiede analogamente una *Password per le app* o abilitazione SMTP AUTH nel tenant aziendale. Host: `smtp.office365.com`, Porta: `587`, Sicurezza: `STARTTLS`.
+            - **Aruba**: Host: `smtps.aruba.it`, Porta: `465`, Sicurezza: `SSL` (oppure Porta: `587`, Sicurezza: `STARTTLS`).
+            """)
+
+        st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
+        st.markdown("##### 👥 Indirizzi di Invio Standard & Modello Predefinito")
+        st.caption("Questi indirizzi appariranno precompilati in automatico ogni volta che generi i file dell'operativa in 'Previsione Arrivi':")
+
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            cfg_to = st.text_input(
+                "Destinatari Principali (A / TO - separati da virgola)",
+                value=cfg_now.get("default_to", "operativa@trasporti.it, traffico@trasporti.it"),
+                placeholder="es. operativa@lacchi.it, traffico@lacchi.it",
+                key="cfg_in_def_to"
+            )
+        with col_d2:
+            cfg_cc = st.text_input(
+                "Destinatari in Copia (CC - separati da virgola, opzionale)",
+                value=cfg_now.get("default_cc", ""),
+                placeholder="es. direzione@lacchi.it, logistica@lacchi.it",
+                key="cfg_in_def_cc"
+            )
+
+        cfg_subj = st.text_input(
+            "Modello Oggetto Email (supporta placeholder {date})",
+            value=cfg_now.get("subject_template", "[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {date}"),
+            key="cfg_in_subj_tmpl"
+        )
+
+        st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
+
+        # Test Connessione & Salvataggio
+        col_act1, col_act2 = st.columns([1.5, 2])
+        with col_act1:
+            st.markdown("##### 💾 Salvataggio Configurazione")
+            if st.button("💾 SALVA CONFIGURAZIONE EMAIL", type="primary", use_container_width=True, key="btn_save_email_cfg"):
+                updated_cfg = {
+                    "smtp_host": cfg_host.strip(),
+                    "smtp_port": int(cfg_port),
+                    "smtp_security": cfg_sec,
+                    "sender_name": cfg_name.strip(),
+                    "smtp_user": cfg_user.strip(),
+                    "smtp_password": cfg_pass.strip(),
+                    "default_to": cfg_to.strip(),
+                    "default_cc": cfg_cc.strip(),
+                    "subject_template": cfg_subj.strip(),
+                    "body_template": cfg_now.get("body_template", "")
+                }
+                save_email_config(updated_cfg)
+                st.success("✅ Configurazione email e destinatari standard salvati con successo!")
+                st.rerun()
+
+        with col_act2:
+            st.markdown("##### 🧪 Test Connessione & Invio Prova")
+            col_t_in, col_t_btn = st.columns([2, 1.2])
+            with col_t_in:
+                test_addr = st.text_input("Invia email di prova a:", value=cfg_user if cfg_user else "", placeholder="indirizzo@dominio.it", key="cfg_test_email_addr")
+            with col_t_btn:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                test_clicked = st.button("🧪 Invia Test Ora", use_container_width=True, key="btn_exec_test_email")
+
+            if test_clicked:
+                if not test_addr:
+                    st.warning("Inserisci un indirizzo email a cui inviare la prova.")
+                else:
+                    curr_test_cfg = {
+                        "smtp_host": cfg_host.strip(),
+                        "smtp_port": int(cfg_port),
+                        "smtp_security": cfg_sec,
+                        "sender_name": cfg_name.strip(),
+                        "smtp_user": cfg_user.strip(),
+                        "smtp_password": cfg_pass.strip(),
+                    }
+                    with st.spinner(f"Tentativo di connessione a {cfg_host.strip()}:{cfg_port}..."):
+                        ok_test, msg_test = send_test_email(test_addr, smtp_config=curr_test_cfg)
+                        if ok_test:
+                            st.success(f"🎉 **{msg_test}**")
+                        else:
+                            st.error(f"❌ **{msg_test}**")
+
 
     with tab_cloud_gs:
         st.markdown("#### 🟢 Collegamento Permanente a Google Sheets (tramite Apps Script)")
