@@ -594,7 +594,7 @@ if menu == "📥 1. Previsione & Arrivi":
             if "active_view_run_id" not in st.session_state or st.session_state["active_view_run_id"] not in valid_ids:
                 st.session_state["active_view_run_id"] = latest_run_id
 
-            col_r_sel, col_r_btn = st.columns([3.2, 1.2])
+            col_r_sel, col_r_btn, col_r_del = st.columns([2.6, 1.1, 1.1])
             with col_r_sel:
                 run_opts_map = {
                     int(r["id"]): f"Run #{int(r['id'])} ({format_date_it(r['run_date'])}, {r['cycle_type']}) — {format_number_it(r['total_bultos'], 0)} colli ({format_number_it(r['total_pedane'], 0)} PLT)"
@@ -618,6 +618,17 @@ if menu == "📥 1. Previsione & Arrivi":
                 if st.button("🔄 Riapri Ultima Run", use_container_width=True, key="btn_reopen_latest"):
                     st.session_state["active_view_run_id"] = latest_run_id
                     st.rerun()
+
+            with col_r_del:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                with st.popover("🗑️ Elimina Run", use_container_width=True):
+                    st.warning(f"Vuoi eliminare la **Run #{chosen_id}** e tutti i suoi dati associati?")
+                    if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key=f"btn_confirm_del_run_{chosen_id}"):
+                        delete_run(chosen_id)
+                        st.session_state.pop("active_view_run_id", None)
+                        st.session_state.pop("last_run", None)
+                        st.success(f"Run #{chosen_id} eliminata con successo.")
+                        st.rerun()
 
             # Caricamento effettivo della run
             if "last_run" in st.session_state and st.session_state["last_run"] and st.session_state["last_run"].get("run_id") == st.session_state["active_view_run_id"]:
@@ -1536,6 +1547,28 @@ elif menu == "🚚 2. Bolle di Consegna":
                     "E-Com": st.column_config.NumberColumn(format="%d"),
                 }
             )
+
+            # Tool di eliminazione rapida singola bolla
+            with st.expander("🗑️ Elimina Singola Bolla da questa Data"):
+                ed_c1, ed_c2 = st.columns([3, 1])
+                with ed_c1:
+                    bolla_choices = {
+                        int(r["id"]): f"ID #{int(r['id'])} — Negozio {r.get('id_store', '')} ({r.get('punto_vendita', '')} - {r.get('tipo_cons', 'STD')}) — Tot: {int(round(r.get('TOT_COLLI', 0)))} colli"
+                        for _, r in df_b_disp.iterrows() if "id" in r and pd.notna(r["id"])
+                    }
+                    selected_bolla_to_del = st.selectbox(
+                        "Seleziona Bolla da Eliminare:",
+                        options=list(bolla_choices.keys()),
+                        format_func=lambda bid: bolla_choices.get(bid, str(bid)),
+                        key="sb_del_single_bolla"
+                    )
+                with ed_c2:
+                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                    if st.button("🗑️ Elimina Questa Bolla", type="primary", use_container_width=True, key="btn_del_single_bolla"):
+                        if selected_bolla_to_del:
+                            delete_bolla(selected_bolla_to_del)
+                            st.success(f"Bolla #{selected_bolla_to_del} eliminata con successo.")
+                            st.rerun()
 
 
 # ==============================================================================

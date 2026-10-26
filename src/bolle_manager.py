@@ -493,28 +493,77 @@ def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
 
 
 def delete_bolla(bolla_id: int, db_path: Path = DB_PATH) -> bool:
-    """Deletes a single bolla by id."""
+    """Deletes a single bolla by id and blacklists it so cloud pull never revives it."""
+    bid = int(bolla_id)
     conn = get_db_connection(db_path)
     cur = conn.cursor()
-    cur.execute("DELETE FROM bolle WHERE id = ?", (bolla_id,))
+    cur.execute("CREATE TABLE IF NOT EXISTS deleted_bolle (bolla_id INTEGER PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+    cur.execute("INSERT OR REPLACE INTO deleted_bolle (bolla_id) VALUES (?)", (bid,))
+    cur.execute("DELETE FROM bolle WHERE id = ?", (bid,))
     rows_affected = cur.rowcount
     conn.commit()
     conn.close()
     from src.cloud_sync import auto_sync_tables
-    auto_sync_tables(["bolle"])
+    auto_sync_tables(["bolle", "deleted_bolle"])
     return rows_affected > 0
 
 
 def delete_bolle_by_date(date_str: str, db_path: Path = DB_PATH) -> int:
-    """Deletes all bolle for a specific delivery date."""
+    """
+    Deletes all bolle for a specific delivery date.
+    Robustly matches across all formats (YYYY-MM-DD, DD/MM/YYYY, ISO timestamps).
+    Blacklists deleted IDs so cloud sync never restores them.
+    """
+    from src.utils import parse_date_obj
     conn = get_db_connection(db_path)
     cur = conn.cursor()
-    cur.execute("DELETE FROM bolle WHERE data_consegna = ? OR data = ?", (date_str, date_str))
-    n = cur.rowcount
+    cur.execute("CREATE TABLE IF NOT EXISTS deleted_bolle (bolla_id INTEGER PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+
+    d_obj = None
+    try:
+        d_obj = parse_date_obj(date_str)
+    except Exception:
+        pass
+
+    patterns = [str(date_str).strip()]
+    if d_obj:
+        patterns.append(d_obj.strftime("%Y-%m-%d"))
+        patterns.append(d_obj.strftime("%d/%m/%Y"))
+
+    cur.execute("SELECT id, data, data_consegna FROM bolle")
+    all_b = cur.fetchall()
+    to_delete = []
+    for b_id, b_data, b_data_cons in all_b:
+        matched = False
+        for p in patterns:
+            if (b_data and p in str(b_data)) or (b_data_cons and p in str(b_data_cons)):
+                matched = True
+                break
+        if not matched and d_obj:
+            for cand in [b_data_cons, b_data]:
+                if cand:
+                    try:
+                        if parse_date_obj(cand) == d_obj:
+                            matched = True
+                            break
+                    except Exception:
+                        pass
+        if matched:
+            to_delete.append(b_id)
+
+    if to_delete:
+        placeholders = ",".join("?" for _ in to_delete)
+        for bid in to_delete:
+            cur.execute("INSERT OR REPLACE INTO deleted_bolle (bolla_id) VALUES (?)", (bid,))
+        cur.execute(f"DELETE FROM bolle WHERE id IN ({placeholders})", to_delete)
+        n = len(to_delete)
+    else:
+        n = 0
+
     conn.commit()
     conn.close()
     from src.cloud_sync import auto_sync_tables
-    auto_sync_tables(["bolle"])
+    auto_sync_tables(["bolle", "deleted_bolle"])
     return n
 
 

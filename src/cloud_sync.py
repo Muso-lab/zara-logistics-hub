@@ -4,6 +4,7 @@ import os
 import sqlite3
 import urllib.request
 import urllib.error
+from typing import Any, Optional
 import pandas as pd
 from pathlib import Path
 from src.config import DATA_DIR, DB_PATH
@@ -98,12 +99,25 @@ ALL_SYNC_TABLES = [
     "store_delivery_profiles",
     "deleted_stores",
     "bolle",
+    "deleted_bolle",
     "runs",
+    "deleted_runs",
     "planning_results",
     "spunta_arrivi",
     "forecast_raw",
     "app_settings",
 ]
+
+
+def _normalize_date_str(val: Any) -> Optional[str]:
+    """Converts timestamps, ISO formats and date objects to standard YYYY-MM-DD."""
+    if pd.isna(val) or val is None or str(val).strip() == "":
+        return None
+    from src.utils import parse_date_obj
+    try:
+        return parse_date_obj(val).strftime("%Y-%m-%d")
+    except Exception:
+        return str(val).split("T")[0].split(" ")[0].strip()
 
 
 def get_cloud_url() -> str:
@@ -257,6 +271,32 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
         cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
         existing_tables = {r[0] for r in cur.fetchall()}
 
+        # Load local blacklist sets to ensure deleted records are never revived
+        cur.execute("CREATE TABLE IF NOT EXISTS deleted_stores (store_id TEXT PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        cur.execute("CREATE TABLE IF NOT EXISTS deleted_runs (run_id INTEGER PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        cur.execute("CREATE TABLE IF NOT EXISTS deleted_bolle (bolla_id INTEGER PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+
+        cur.execute("SELECT store_id FROM deleted_stores")
+        del_store_ids = {str(r[0]).strip() for r in cur.fetchall()}
+        cur.execute("SELECT run_id FROM deleted_runs")
+        del_run_ids = {int(r[0]) for r in cur.fetchall() if str(r[0]).isdigit()}
+        cur.execute("SELECT bolla_id FROM deleted_bolle")
+        del_bolla_ids = {int(r[0]) for r in cur.fetchall() if str(r[0]).isdigit()}
+
+        # Also merge any blacklist records returned from cloud
+        if "deleted_stores" in tables_dict:
+            for item in tables_dict["deleted_stores"]:
+                if isinstance(item, dict) and "store_id" in item:
+                    del_store_ids.add(str(item["store_id"]).strip())
+        if "deleted_runs" in tables_dict:
+            for item in tables_dict["deleted_runs"]:
+                if isinstance(item, dict) and "run_id" in item and str(item["run_id"]).isdigit():
+                    del_run_ids.add(int(item["run_id"]))
+        if "deleted_bolle" in tables_dict:
+            for item in tables_dict["deleted_bolle"]:
+                if isinstance(item, dict) and "bolla_id" in item and str(item["bolla_id"]).isdigit():
+                    del_bolla_ids.add(int(item["bolla_id"]))
+
         for t_name, rows in tables_dict.items():
             if t_name not in existing_tables or not rows:
                 continue
@@ -280,6 +320,11 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
                     )
 
             if t_name == "bolle":
+                # Normalize dates to standard YYYY-MM-DD
+                if "data" in df_clean.columns:
+                    df_clean["data"] = df_clean["data"].apply(_normalize_date_str)
+                if "data_consegna" in df_clean.columns:
+                    df_clean["data_consegna"] = df_clean["data_consegna"].apply(_normalize_date_str)
                 # Strip out any dummy/test dates that leaked into Google Sheets
                 if "data" in df_clean.columns:
                     df_clean = df_clean[~df_clean["data"].astype(str).str.contains("2098|2099", na=False)]
@@ -287,7 +332,25 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
                     df_clean = df_clean[~df_clean["data_consegna"].astype(str).str.contains("2098|2099", na=False)]
                 if "id_store" in df_clean.columns:
                     df_clean = df_clean[df_clean["id_store"].astype(str).str.strip() != "9999"]
-            elif t_name != "bolle":
+                # Filter out any blacklisted bolle IDs
+                if "id" in df_clean.columns and del_bolla_ids:
+                    df_clean = df_clean[~df_clean["id"].isin(del_bolla_ids)]
+            elif t_name == "runs":
+                if "run_date" in df_clean.columns:
+                    df_clean["run_date"] = df_clean["run_date"].apply(_normalize_date_str)
+                if "id" in df_clean.columns and del_run_ids:
+                    df_clean = df_clean[~df_clean["id"].isin(del_run_ids)]
+                cur.execute(f"DELETE FROM {t_name}")
+            elif t_name in ["planning_results", "spunta_arrivi", "forecast_raw", "other_items", "sga_flows"]:
+                if "run_id" in df_clean.columns and del_run_ids:
+                    df_clean = df_clean[~df_clean["run_id"].isin(del_run_ids)]
+                cur.execute(f"DELETE FROM {t_name}")
+            elif t_name in ["stores", "store_delivery_profiles"]:
+                target_col = "store_id" if "store_id" in df_clean.columns else "id_store"
+                if target_col in df_clean.columns and del_store_ids:
+                    df_clean = df_clean[~df_clean[target_col].isin(del_store_ids)]
+                cur.execute(f"DELETE FROM {t_name}")
+            elif t_name not in ["bolle", "deleted_bolle", "deleted_runs", "deleted_stores"]:
                 cur.execute(f"DELETE FROM {t_name}")
 
             col_names_sql = ", ".join(common_cols)
@@ -309,11 +372,18 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
             )
             restored_counts[t_name] = len(records)
 
-        # Enforce deleted_stores blacklist so previously deleted stores never revive
+        # Enforce blacklists so deleted items are permanently purged
         try:
             cur.execute("DELETE FROM stores WHERE store_id IN (SELECT store_id FROM deleted_stores)")
             cur.execute("DELETE FROM store_delivery_profiles WHERE id_store IN (SELECT store_id FROM deleted_stores)")
             cur.execute("DELETE FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR id_store = '9999'")
+            cur.execute("DELETE FROM bolle WHERE id IN (SELECT bolla_id FROM deleted_bolle)")
+            cur.execute("DELETE FROM runs WHERE id IN (SELECT run_id FROM deleted_runs)")
+            cur.execute("DELETE FROM planning_results WHERE run_id IN (SELECT run_id FROM deleted_runs)")
+            cur.execute("DELETE FROM spunta_arrivi WHERE run_id IN (SELECT run_id FROM deleted_runs)")
+            cur.execute("DELETE FROM forecast_raw WHERE run_id IN (SELECT run_id FROM deleted_runs)")
+            cur.execute("DELETE FROM other_items WHERE run_id IN (SELECT run_id FROM deleted_runs)")
+            cur.execute("DELETE FROM sga_flows WHERE run_id IN (SELECT run_id FROM deleted_runs)")
         except Exception:
             pass
 

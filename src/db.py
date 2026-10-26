@@ -302,6 +302,20 @@ def init_db(db_path=DB_PATH):
         );
         """)
 
+        # Blacklist of deleted runs & bolle to prevent resurrection from cloud pull
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS deleted_runs (
+            run_id INTEGER PRIMARY KEY,
+            deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS deleted_bolle (
+            bolla_id INTEGER PRIMARY KEY,
+            deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
         cursor.execute("SELECT COUNT(*) FROM vehicles")
         if cursor.fetchone()[0] == 0:
             default_vehicles = [
@@ -1010,24 +1024,29 @@ def delete_run(run_id: int, db_path=DB_PATH):
     """
     Deletes a run and all its associated child records (forecast_raw, other_items,
     actual_deliveries, planning_results, spunta_arrivi, sga_flows) from the database.
+    Blacklists the run_id in deleted_runs so cloud pull never revives it.
     """
+    rid = int(run_id)
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM runs WHERE id = ?", (int(run_id),))
-        cursor.execute("DELETE FROM forecast_raw WHERE run_id = ?", (int(run_id),))
-        cursor.execute("DELETE FROM other_items WHERE run_id = ?", (int(run_id),))
-        cursor.execute("DELETE FROM actual_deliveries WHERE run_id = ?", (int(run_id),))
-        cursor.execute("DELETE FROM planning_results WHERE run_id = ?", (int(run_id),))
-        cursor.execute("DELETE FROM spunta_arrivi WHERE run_id = ?", (int(run_id),))
-        cursor.execute("DELETE FROM sga_flows WHERE run_id = ?", (int(run_id),))
+        cursor.execute("CREATE TABLE IF NOT EXISTS deleted_runs (run_id INTEGER PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("INSERT OR REPLACE INTO deleted_runs (run_id) VALUES (?)", (rid,))
+        cursor.execute("DELETE FROM runs WHERE id = ?", (rid,))
+        cursor.execute("DELETE FROM forecast_raw WHERE run_id = ?", (rid,))
+        cursor.execute("DELETE FROM other_items WHERE run_id = ?", (rid,))
+        cursor.execute("DELETE FROM actual_deliveries WHERE run_id = ?", (rid,))
+        cursor.execute("DELETE FROM planning_results WHERE run_id = ?", (rid,))
+        cursor.execute("DELETE FROM spunta_arrivi WHERE run_id = ?", (rid,))
+        cursor.execute("DELETE FROM sga_flows WHERE run_id = ?", (rid,))
         conn.commit()
     from src.cloud_sync import auto_sync_tables
-    auto_sync_tables(["runs", "planning_results", "spunta_arrivi"])
+    auto_sync_tables(["runs", "planning_results", "spunta_arrivi", "deleted_runs"])
 
 
 def delete_runs(run_ids: List[int], db_path=DB_PATH) -> int:
     """
     Deletes multiple runs and all their associated child records in a single transaction.
+    Blacklists all run_ids in deleted_runs so cloud pull never revives them.
     Returns the number of runs deleted.
     """
     if not run_ids:
@@ -1036,32 +1055,39 @@ def delete_runs(run_ids: List[int], db_path=DB_PATH) -> int:
     placeholders = ",".join("?" for _ in clean_ids)
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS deleted_runs (run_id INTEGER PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        for rid in clean_ids:
+            cursor.execute("INSERT OR REPLACE INTO deleted_runs (run_id) VALUES (?)", (rid,))
         for tbl in ["forecast_raw", "other_items", "actual_deliveries", "planning_results", "spunta_arrivi", "sga_flows"]:
             cursor.execute(f"DELETE FROM {tbl} WHERE run_id IN ({placeholders})", clean_ids)
         cursor.execute(f"DELETE FROM runs WHERE id IN ({placeholders})", clean_ids)
         n_deleted = cursor.rowcount
         conn.commit()
     from src.cloud_sync import auto_sync_tables
-    auto_sync_tables(["runs", "planning_results", "spunta_arrivi"])
+    auto_sync_tables(["runs", "planning_results", "spunta_arrivi", "deleted_runs"])
     return n_deleted
 
 
 def clear_all_runs(db_path=DB_PATH) -> int:
     """
     Clears all execution runs and associated history data from the database.
+    Blacklists all cleared run IDs so cloud pull never revives them.
     Returns the number of runs deleted.
     """
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM runs")
-        n_runs = cursor.fetchone()[0]
+        cursor.execute("CREATE TABLE IF NOT EXISTS deleted_runs (run_id INTEGER PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("SELECT id FROM runs")
+        r_ids = [r[0] for r in cursor.fetchall()]
+        for rid in r_ids:
+            cursor.execute("INSERT OR REPLACE INTO deleted_runs (run_id) VALUES (?)", (int(rid),))
         for tbl in ["forecast_raw", "other_items", "actual_deliveries", "planning_results", "spunta_arrivi", "sga_flows"]:
             cursor.execute(f"DELETE FROM {tbl}")
         cursor.execute("DELETE FROM runs")
         conn.commit()
     from src.cloud_sync import auto_sync_tables
-    auto_sync_tables(["runs", "planning_results", "spunta_arrivi"])
-    return n_runs
+    auto_sync_tables(["runs", "planning_results", "spunta_arrivi", "deleted_runs"])
+    return len(r_ids)
 
 
 def get_store_latest_planned_data(store_id: str, db_path=DB_PATH) -> Dict[str, Any]:
