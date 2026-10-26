@@ -37,15 +37,21 @@ def run_pipeline(
     esportazione_source: Any,
     run_date: Optional[str] = None,
     cycle_type: str = "LUN-MER",
+    notes: str = "",
     save_to_network: bool = False,
     perfume_corrections_override: Optional[Dict[str, float]] = None,
-    db_path: Optional[str] = None
+    perfume_corrections: Optional[Dict[str, float]] = None,
+    db_path: Optional[str] = None,
+    **kwargs
 ) -> Dict[str, Any]:
     """
     Executes the entire logistics forecast and processing pipeline.
     """
     if run_date is None:
         run_date = datetime.now().strftime("%Y-%m-%d")
+
+    if perfume_corrections_override is None and perfume_corrections is not None:
+        perfume_corrections_override = perfume_corrections
 
     # 1. Parse Input Files
     df_tot = parse_grupo_envio(total_source)
@@ -159,9 +165,9 @@ def run_pipeline(
     cursor = conn.cursor()
 
     cursor.execute("""
-    INSERT INTO runs (run_date, cycle_type, total_bultos, total_volume, total_weight, total_pedane)
-    VALUES (?, ?, ?, ?, ?, ?)
-    """, (run_date, cycle_type, tot_bultos, tot_vol, tot_peso, tot_pedane))
+    INSERT INTO runs (run_date, cycle_type, total_bultos, total_volume, total_weight, total_pedane, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (run_date, cycle_type, tot_bultos, tot_vol, tot_peso, tot_pedane, notes))
     run_id = cursor.lastrowid
 
     # Save Planning Results
