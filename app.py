@@ -1048,6 +1048,13 @@ elif menu == "🚚 2. Bolle di Consegna":
     if not all_dates:
         all_dates = [tomorrow_str]
 
+    # Handle pending date override BEFORE selectbox instantiation
+    if "_target_date_override" in st.session_state:
+        override_dt = st.session_state.pop("_target_date_override")
+        if override_dt not in all_dates:
+            all_dates.insert(0, override_dt)
+        st.session_state["bolle_tab1_date_val"] = override_dt
+
     if "bolle_tab1_date_val" not in st.session_state or st.session_state["bolle_tab1_date_val"] not in all_dates:
         st.session_state["bolle_tab1_date_val"] = all_dates[0]
 
@@ -1065,19 +1072,15 @@ elif menu == "🚚 2. Bolle di Consegna":
         qb1, qb2, qb3 = st.columns(3)
         with qb1:
             if st.button("📅 Oggi", use_container_width=True, key="b_q_tod"):
-                if today_str not in all_dates:
-                    all_dates.insert(0, today_str)
-                st.session_state["bolle_tab1_date_val"] = today_str
+                st.session_state["_target_date_override"] = today_str
                 st.rerun()
         with qb2:
             if st.button("📅 Domani", use_container_width=True, key="b_q_tom"):
-                if tomorrow_str not in all_dates:
-                    all_dates.insert(0, tomorrow_str)
-                st.session_state["bolle_tab1_date_val"] = tomorrow_str
+                st.session_state["_target_date_override"] = tomorrow_str
                 st.rerun()
         with qb3:
             if st.button("📅 Ultima", use_container_width=True, key="b_q_lat"):
-                st.session_state["bolle_tab1_date_val"] = all_dates[0]
+                st.session_state["_target_date_override"] = all_dates[0]
                 st.rerun()
 
     with col_top3:
@@ -1283,6 +1286,9 @@ elif menu == "🚚 2. Bolle di Consegna":
         def_sid = str(bolla_to_edit.get("id_store", "3680"))
         def_tipo = str(bolla_to_edit.get("tipo_cons", "STD"))
 
+        if "_next_store_override" in st.session_state:
+            st.session_state["form_store_sel"] = st.session_state.pop("_next_store_override")
+
         col_t1, col_t2, col_t3 = st.columns([2, 1.3, 1.3])
         with col_t1:
             default_store_idx = 0
@@ -1462,7 +1468,7 @@ elif menu == "🚚 2. Bolle di Consegna":
                 try:
                     curr_idx = store_choices.index(sel_store_str)
                     if curr_idx + 1 < len(store_choices):
-                        st.session_state["form_store_sel"] = store_choices[curr_idx + 1]
+                        st.session_state["_next_store_override"] = store_choices[curr_idx + 1]
                 except Exception:
                     pass
             st.success(f"🎉 Bolla #{new_id} per Store **{current_sid}** salvata!")
