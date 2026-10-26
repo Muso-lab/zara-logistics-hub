@@ -71,7 +71,9 @@ def compute_analisi(
         if df is None or df.empty:
             return {}
         col = default_col if default_col in df.columns else ("store_id" if "store_id" in df.columns else ("store_code" if "store_code" in df.columns else None))
-        return df.set_index(col).to_dict(orient="index") if col else {}
+        if not col:
+            return {}
+        return {str(k).strip(): v for k, v in df.set_index(col).to_dict(orient="index").items()}
 
     map_total = _to_map(df_total, "store_id")
     map_shoes = _to_map(df_shoes, "store_id")

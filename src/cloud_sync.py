@@ -14,6 +14,15 @@ _DEFAULT_EXT_U = "plt_it_transmec_ro"
 _DEFAULT_EXT_P = base64.b64decode("aVNtUEV2dnVrVjkt").decode("utf-8")
 
 
+def is_test_environment() -> bool:
+    """Rileva se il codice e' eseguito all'interno di una suite di test (es. pytest) per bloccare ogni chiamata verso Google Sheets di produzione."""
+    return (
+        "PYTEST_CURRENT_TEST" in os.environ
+        or os.environ.get("ENV") == "test"
+        or os.environ.get("DISABLE_CLOUD_SYNC") == "1"
+    )
+
+
 def get_extranet_credentials() -> tuple[str, str]:
     """
     Restituisce (username, password) salvati per Extranet Inditex
@@ -152,6 +161,9 @@ def push_tables_to_cloud(table_names=None, timeout: int = 25) -> dict:
     Per la tabella 'bolle' (che contiene 30.000+ bolle storiche ex-Access già nel file .db),
     sincronizza su Google Sheets le ultime 800 bolle operative per garantire velocità istantanea.
     """
+    if is_test_environment():
+        return {"status": "skipped", "message": "Test environment - cloud push disabilitato per proteggere i dati di produzione."}
+
     url = get_cloud_url()
     if not url:
         return {"status": "skipped", "message": "Nessun URL Google Apps Script configurato."}
@@ -205,6 +217,9 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
     Scarica le tabelle dal Foglio Google (tramite Google Apps Script)
     e aggiorna il database SQLite locale.
     """
+    if is_test_environment():
+        return {"status": "skipped", "message": "Test environment - cloud pull disabilitato per proteggere i dati di produzione."}
+
     url = get_cloud_url()
     if not url:
         return {"status": "skipped", "message": "Nessun URL Google Apps Script configurato."}
@@ -294,6 +309,8 @@ def auto_sync_tables(table_names: list[str]):
     Sincronizza automaticamente in background (thread asincrono non bloccante)
     le tabelle modificate verso Google Sheets se l'URL Cloud e' configurato.
     """
+    if is_test_environment():
+        return
     url = get_cloud_url()
     if not url:
         return

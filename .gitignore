@@ -19,6 +19,12 @@ data/downloads/
 .DS_Store
 Thumbs.db
 
+# SQLite database files (never commit local SQLite database to prevent resetting production data)
+*.db
+*.sqlite
+*.sqlite3
+data/zara_history.db
+
 # Streamlit secrets (never commit credentials)
 .streamlit/secrets.toml
 
