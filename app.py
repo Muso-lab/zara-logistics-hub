@@ -1767,7 +1767,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
         with cf4:
             f_lav = st.selectbox("Lavorazione", ["TUTTI", "SI TESSILE", "SI HOME", "NO"], key="anag_f_lav")
         with cf5:
-            f_sdop = st.selectbox("Giri Doppi (/9)", ["TUTTI", "SOLO SDOPPIATI (/9)", "SOLO STANDARD (/0)"], key="anag_f_sdop")
+            f_sdop = st.selectbox("Giri Doppi (/9)", ["TUTTI", "SOLO GIRI DOPPI (B /9)", "SOLO STANDARD (/0)"], key="anag_f_sdop")
         with cf6:
             f_att = st.selectbox("Stato Negozio", ["TUTTI", "SI (Operativo)", "NO (Standby)"], key="anag_f_att")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1788,10 +1788,10 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                 df_filtered = df_filtered[df_filtered["brand"] == f_brand]
             if f_lav != "TUTTI":
                 df_filtered = df_filtered[df_filtered["lavorazione"].fillna("NO").str.upper() == f_lav]
-            if f_sdop == "SOLO SDOPPIATI (/9)":
-                df_filtered = df_filtered[df_filtered["sdoppiamento_b9"].fillna("NO").str.upper() == "SI"]
+            if f_sdop == "SOLO GIRI DOPPI (B /9)":
+                df_filtered = df_filtered[df_filtered["store_id"].astype(str).str.endswith("B")]
             elif f_sdop == "SOLO STANDARD (/0)":
-                df_filtered = df_filtered[df_filtered["sdoppiamento_b9"].fillna("NO").str.upper() != "SI"]
+                df_filtered = df_filtered[~df_filtered["store_id"].astype(str).str.endswith("B")]
             if f_att == "SI (Operativo)":
                 df_filtered = df_filtered[df_filtered["attivo"].fillna("SI").str.upper() == "SI"]
             elif f_att == "NO (Standby)":

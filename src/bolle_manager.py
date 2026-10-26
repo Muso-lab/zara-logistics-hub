@@ -141,13 +141,25 @@ def get_store_delivery_profile(store_id: str, tipo_cons: str = "STD", db_path: P
     """Returns delivery profile for a store directly from the unified master stores table."""
     conn = get_db_connection(db_path)
     cur = conn.cursor()
-    cur.execute("SELECT * FROM stores WHERE store_id = ?", (str(store_id).strip(),))
-    s_row = cur.fetchone()
+    sid = str(store_id).strip()
+
+    is_explicit_b = sid.endswith("B")
+    effective_tipo = "DOPPIA" if is_explicit_b else str(tipo_cons).strip().upper()
+
+    s_row = None
+    if effective_tipo == "DOPPIA" and not is_explicit_b:
+        cur.execute("SELECT * FROM stores WHERE store_id = ?", (f"{sid}B",))
+        s_row = cur.fetchone()
+
+    if not s_row:
+        cur.execute("SELECT * FROM stores WHERE store_id = ?", (sid,))
+        s_row = cur.fetchone()
+
     conn.close()
 
     res = {
-        "id_store": str(store_id).strip(),
-        "tipo_cons": str(tipo_cons).strip().upper(),
+        "id_store": sid,
+        "tipo_cons": effective_tipo,
         "punto_vendita": "",
         "store_name": "",
         "provincia": "",
@@ -169,7 +181,7 @@ def get_store_delivery_profile(store_id: str, tipo_cons: str = "STD", db_path: P
 
         if res["tipo_cons"] == "DOPPIA":
             res["autista"] = s_dict.get("autista_doppia") or s_dict.get("autista", "")
-            res["tipo_mezzo"] = s_dict.get("tipo_mezzo_doppia") or s_dict.get("tipo_mezzo", "FURGONE")
+            res["tipo_mezzo"] = s_dict.get("tipo_mezzo") or s_dict.get("tipo_mezzo_doppia") or "FURGONE 8"
         else:
             res["autista"] = s_dict.get("autista", "")
             res["tipo_mezzo"] = s_dict.get("tipo_mezzo", "MOTRICE 18 PLT")

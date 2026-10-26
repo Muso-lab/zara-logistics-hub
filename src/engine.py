@@ -190,6 +190,9 @@ def compute_spunta_arrivi(
     map_formula = {}
     map_sdoppia = {}
     map_attivo = {}
+    map_giro = {}
+    map_vett = {}
+    map_mezzo = {}
     known_store_ids = set()
     if df_stores is not None and not df_stores.empty:
         sid_col = "store_id" if "store_id" in df_stores.columns else ("store_code" if "store_code" in df_stores.columns else None)
@@ -201,6 +204,12 @@ def compute_spunta_arrivi(
                 map_sdoppia = df_stores.set_index(sid_col)["sdoppiamento_b9"].fillna("NO").astype(str).str.upper().to_dict()
             if "attivo" in df_stores.columns:
                 map_attivo = df_stores.set_index(sid_col)["attivo"].fillna("SI").astype(str).str.upper().to_dict()
+            if "giro" in df_stores.columns:
+                map_giro = df_stores.set_index(sid_col)["giro"].dropna().to_dict()
+            if "vettore" in df_stores.columns:
+                map_vett = df_stores.set_index(sid_col)["vettore"].dropna().to_dict()
+            if "tipo_mezzo" in df_stores.columns:
+                map_mezzo = df_stores.set_index(sid_col)["tipo_mezzo"].dropna().to_dict()
     else:
         try:
             from src.db import get_stores_df
@@ -209,6 +218,9 @@ def compute_spunta_arrivi(
                 known_store_ids = {str(x).strip() for x in sdf["store_id"].dropna()}
                 map_sdoppia = sdf.set_index("store_id")["sdoppiamento_b9"].fillna("NO").astype(str).str.upper().to_dict()
                 map_attivo = sdf.set_index("store_id")["attivo"].fillna("SI").astype(str).str.upper().to_dict()
+                map_giro = sdf.set_index("store_id")["giro"].dropna().to_dict()
+                map_vett = sdf.set_index("store_id")["vettore"].dropna().to_dict()
+                map_mezzo = sdf.set_index("store_id")["tipo_mezzo"].dropna().to_dict()
         except:
             pass
 
@@ -329,12 +341,12 @@ def compute_spunta_arrivi(
             "pedane": pedane,
             "pedane_teoriche": calc_pedane,
             "totale_pedane": 0,  # Will compute below per group
-            "vettore_autista": row["vettore_autista"],
-            "tipo_mezzo": row["tipo_mezzo"],
+            "vettore_autista": map_vett.get(sid, row["vettore_autista"]),
+            "tipo_mezzo": map_mezzo.get(sid, row["tipo_mezzo"]),
             "targa": row["targa"],
             "cod_mezzo": row["cod_mezzo"],
             "supporto": row["supporto"],
-            "giro": row["giro"],
+            "giro": map_giro.get(sid, row["giro"]),
             "is_barra9": is_b9,
             "attivo": st_attivo,
             "is_active": is_active,
@@ -999,8 +1011,14 @@ def compute_special_breakdowns(
     home_ids = []
     if df_stores is not None and not df_stores.empty:
         if "lavorazione" in df_stores.columns:
-            tessile_ids = df_stores[df_stores["lavorazione"] == "SI TESSILE"]["store_id"].dropna().astype(str).tolist()
-            home_ids = df_stores[df_stores["lavorazione"] == "SI HOME"]["store_id"].dropna().astype(str).tolist()
+            tessile_ids = [
+                str(s).strip() for s in df_stores[df_stores["lavorazione"] == "SI TESSILE"]["store_id"].dropna()
+                if not str(s).strip().endswith("B")
+            ]
+            home_ids = [
+                str(s).strip() for s in df_stores[df_stores["lavorazione"] == "SI HOME"]["store_id"].dropna()
+                if not str(s).strip().endswith("B")
+            ]
         if "scorporo_profumi" in df_stores.columns:
             for _, s_row in df_stores.iterrows():
                 sid_s = str(s_row["store_id"]).strip()
@@ -1024,6 +1042,10 @@ def compute_special_breakdowns(
         tessile_ids = ["3680", "9226", "3591"]
     if not home_ids:
         home_ids = ["1984", "1971"]
+
+    if map_tot:
+        tessile_ids = [s for s in tessile_ids if not str(s).endswith("B") and s in map_tot]
+        home_ids = [s for s in home_ids if not str(s).endswith("B") and s in map_tot]
 
     special_stores = {}
     stander_rows = []

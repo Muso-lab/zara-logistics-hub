@@ -1190,8 +1190,10 @@ def render_anagrafica_negozi_modern(df_stores: pd.DataFrame):
             scorp_badge = '<span class="badge-pill-gray" style="font-size:11px;">NO</span>'
 
         # Sdoppiamento Barra 9 badge
-        if sdop == "SI":
-            sdop_badge = f'<span class="badge-yellow" style="font-size:11px;">⚡ SI</span><br><span style="font-size:10.5px; opacity:0.8;">{mezzo_d}</span>'
+        if sid.endswith("B"):
+            sdop_badge = '<span class="badge-yellow" style="font-size:10.5px; font-weight:700;">⚡ /9 (GIORNO B)</span>'
+        elif sdop == "SI":
+            sdop_badge = '<span class="badge-pill-blue" style="font-size:10.5px;">/0 (GIORNO A)</span>'
         else:
             sdop_badge = '<span class="badge-pill-gray" style="font-size:11px;">NO</span>'
 

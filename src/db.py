@@ -365,9 +365,82 @@ def seed_anagrafica_if_empty(db_path=DB_PATH, anagrafica_file=ANAGRAFICA_FILE):
                     sdop
                 ))
             conn.commit()
+        sync_double_service_stores(db_path)
+
+
+B9_STORES_DEFAULTS = {
+    "3503B": {"base": "3503", "giro": "ZA17", "tipo_mezzo": "MOTRICE 14", "vettore": "CONSORZIO ORIENTA"},
+    "3680B": {"base": "3680", "giro": "ZA15", "tipo_mezzo": "BILICO 33", "vettore": "LA CELESSICA"},
+    "5349B": {"base": "5349", "giro": "ZA16", "tipo_mezzo": "FURGONE 8", "vettore": "LACCHI SPA"},
+    "5367B": {"base": "5367", "giro": "ZA15", "tipo_mezzo": "BILICO 33", "vettore": "LA CELESSICA"},
+    "6525B": {"base": "6525", "giro": "ZA18", "tipo_mezzo": "EUROCARGO 75", "vettore": "LACCHI SPA"},
+    "8428B": {"base": "8428", "giro": "ZA16", "tipo_mezzo": "FURGONE 8", "vettore": "LACCHI SPA"},
+    "14010B": {"base": "14010", "giro": "ZA19", "tipo_mezzo": "FURGONE 8", "vettore": "CONSORZIO ORIENTA"},
+    "14825B": {"base": "14825", "giro": "ZA15", "tipo_mezzo": "BILICO 33", "vettore": "LA CELESSICA"},
+    "16723B": {"base": "16723", "giro": "ZA18", "tipo_mezzo": "EUROCARGO 75", "vettore": "LACCHI SPA"},
+    "1984B": {"base": "1984", "giro": "ZA19", "tipo_mezzo": "FURGONE 8", "vettore": "CONSORZIO ORIENTA"},
+}
+
+
+def sync_double_service_stores(db_path=DB_PATH):
+    """
+    Ensures that for every store with sdoppiamento_b9 == 'SI',
+    a corresponding distinct 'B' record (e.g. 3503B) exists in the stores table
+    with its own independent Giro, Vettore, and Tipo Mezzo for the Day B (/9) delivery.
+    """
+    try:
+        with get_connection(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM stores WHERE sdoppiamento_b9 = 'SI' AND NOT store_id LIKE '%B'")
+            cols = [col[0] for col in cursor.description]
+            base_stores = [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+            for base in base_stores:
+                base_id = str(base["store_id"]).strip()
+                b_id = f"{base_id}B"
+                defaults = B9_STORES_DEFAULTS.get(b_id, {})
+
+                cursor.execute("SELECT COUNT(*) FROM stores WHERE store_id = ?", (b_id,))
+                exists = cursor.fetchone()[0] > 0
+
+                if not exists:
+                    b_name = f"{base.get('store_name', '')} (DOPPIA /9)"
+                    b_giro = defaults.get("giro") or f"{base.get('giro', 'ZA1')}B"
+                    b_vett = defaults.get("vettore") or base.get("vettore") or "LACCHI SPA"
+                    b_mezzo = defaults.get("tipo_mezzo") or base.get("tipo_mezzo_doppia") or "FURGONE 8"
+
+                    cursor.execute("""
+                    INSERT INTO stores (
+                        store_id, store_name, punto_vendita, brand, giro, cod_sga, cc,
+                        attivo, barra, stender, formula, lavorazione, sdoppiamento_b9,
+                        tipo_mezzo, vettore, indirizzo, provincia
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        b_id,
+                        b_name,
+                        base.get("punto_vendita", ""),
+                        base.get("brand", ""),
+                        b_giro,
+                        base.get("cod_sga"),
+                        base.get("cc", ""),
+                        base.get("attivo", "SI"),
+                        "BARRA 9",
+                        "NO",  # stender lavorazione is handled on Day A (/0)
+                        base.get("formula", "MC/1,9"),
+                        "NO",  # lavorazione is handled on Day A (/0)
+                        "SI",
+                        b_mezzo,
+                        b_vett,
+                        base.get("indirizzo", ""),
+                        base.get("provincia", "")
+                    ))
+            conn.commit()
+    except Exception:
+        pass
 
 
 def get_stores_df(db_path=DB_PATH) -> pd.DataFrame:
+    sync_double_service_stores(db_path)
     try:
         with get_connection(db_path) as conn:
             return pd.read_sql_query("SELECT * FROM stores ORDER BY giro ASC, store_id ASC", conn)
@@ -573,16 +646,19 @@ def add_store_record(store_data: Dict[str, Any], db_path=DB_PATH):
 
 
 def delete_store_record(store_id: str, blacklist: bool = False, db_path=DB_PATH):
-    """Deletes a store from anagrafica. If blacklist=True, adds to deleted_stores to prevent re-onboarding."""
+    """Deletes a store from anagrafica. Also deletes its B clone if present. If blacklist=True, adds to deleted_stores to prevent re-onboarding."""
     sid = str(store_id).strip()
+    sid_b = f"{sid}B" if not sid.endswith("B") else sid
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM stores WHERE store_id = ?", (sid,))
-        cursor.execute("DELETE FROM store_delivery_profiles WHERE id_store = ?", (sid,))
+        cursor.execute("DELETE FROM stores WHERE store_id IN (?, ?)", (sid, sid_b))
+        cursor.execute("DELETE FROM store_delivery_profiles WHERE id_store IN (?, ?)", (sid, sid_b))
         if blacklist:
             try:
                 cursor.execute("CREATE TABLE IF NOT EXISTS deleted_stores (store_id TEXT PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
                 cursor.execute("INSERT OR REPLACE INTO deleted_stores (store_id) VALUES (?)", (sid,))
+                if sid != sid_b:
+                    cursor.execute("INSERT OR REPLACE INTO deleted_stores (store_id) VALUES (?)", (sid_b,))
             except Exception:
                 pass
         conn.commit()
