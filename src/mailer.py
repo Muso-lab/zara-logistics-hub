@@ -67,6 +67,10 @@ def send_operativa_email(
         smtp_port = 587
     smtp_user = str(cfg.get("smtp_user") or cfg.get("user") or os.getenv("SMTP_USER", "")).strip()
     smtp_pass = str(cfg.get("smtp_password") or cfg.get("password") or os.getenv("SMTP_PASSWORD", "")).strip()
+    if "gmail" in smtp_host.lower():
+        clean_p = smtp_pass.replace(" ", "").replace("\xa0", "").strip()
+        if len(clean_p) == 16:
+            smtp_pass = clean_p
     sender_name = str(cfg.get("sender_name") or "Logistica Zara Hub").strip()
     security = str(cfg.get("smtp_security") or ("SSL" if smtp_port == 465 else "STARTTLS")).upper()
 
@@ -151,6 +155,10 @@ def send_test_email(
         smtp_port = 587
     smtp_user = str(cfg.get("smtp_user") or cfg.get("user") or os.getenv("SMTP_USER", "")).strip()
     smtp_pass = str(cfg.get("smtp_password") or cfg.get("password") or os.getenv("SMTP_PASSWORD", "")).strip()
+    if "gmail" in smtp_host.lower():
+        clean_p = smtp_pass.replace(" ", "").replace("\xa0", "").strip()
+        if len(clean_p) == 16:
+            smtp_pass = clean_p
     sender_name = str(cfg.get("sender_name") or "Logistica Zara Hub").strip()
     security = str(cfg.get("smtp_security") or ("SSL" if smtp_port == 465 else "STARTTLS")).upper()
 
