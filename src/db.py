@@ -1019,7 +1019,7 @@ def set_app_setting(key: str, value: str, db_path=None):
 def get_email_config(db_path=None) -> Dict[str, Any]:
     """
     Retrieves full email and SMTP configuration, merging DB app_settings,
-    local cloud_config.json, and OS environment variables.
+    email_config.json, cloud_config.json, Streamlit Secrets, and OS environment variables.
     """
     import json
     import os
@@ -1052,24 +1052,57 @@ def get_email_config(db_path=None) -> Dict[str, Any]:
         )
     }
 
+    # 1. Check local email_config.json (persistent across git pulls if untracked)
+    em_file = DATA_DIR / "email_config.json"
+    if em_file.exists():
+        try:
+            em_data = json.loads(em_file.read_text(encoding="utf-8"))
+            if isinstance(em_data, dict):
+                cfg.update(em_data)
+        except Exception:
+            pass
+
+    # 2. Check DB app_settings table
     raw_db = get_app_setting("email_config_json", "", db_path=db_path)
     if raw_db:
         try:
             loaded = json.loads(raw_db)
-            cfg.update(loaded)
+            if isinstance(loaded, dict):
+                cfg.update(loaded)
         except Exception:
             pass
 
+    # 3. Check cloud_config.json
     if db_path is None:
         c_file = DATA_DIR / "cloud_config.json"
-        if c_file.exists() and not cfg.get("smtp_host"):
+        if c_file.exists():
             try:
                 fdata = json.loads(c_file.read_text(encoding="utf-8"))
-                if "email_config" in fdata:
-                    cfg.update(fdata["email_config"])
+                if "email_config" in fdata and isinstance(fdata["email_config"], dict):
+                    for k, v in fdata["email_config"].items():
+                        if v and not cfg.get(k):
+                            cfg[k] = v
             except Exception:
                 pass
 
+    # 4. Check Streamlit Secrets (permanent on Streamlit Cloud)
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            if "smtp" in st.secrets:
+                for k, v in st.secrets["smtp"].items():
+                    if v:
+                        cfg[k] = v
+            for k in ["smtp_host", "smtp_user", "smtp_password", "smtp_port", "smtp_security", "default_to", "default_cc"]:
+                if k in st.secrets and st.secrets[k]:
+                    cfg[k] = st.secrets[k]
+                upper_k = k.upper()
+                if upper_k in st.secrets and st.secrets[upper_k]:
+                    cfg[k] = st.secrets[upper_k]
+    except Exception:
+        pass
+
+    # 5. OS Environment variables
     if not cfg["smtp_host"] and os.getenv("SMTP_HOST"):
         cfg["smtp_host"] = os.getenv("SMTP_HOST", "")
     if os.getenv("SMTP_PORT"):
@@ -1087,7 +1120,8 @@ def get_email_config(db_path=None) -> Dict[str, Any]:
 
 def save_email_config(cfg: Dict[str, Any], db_path=None):
     """
-    Saves email and SMTP configuration into DB app_settings and mirrors to cloud_config.json.
+    Saves email and SMTP configuration into DB app_settings, mirrors to
+    data/email_config.json and data/cloud_config.json, and pushes to Google Sheets.
     """
     import json
     from src.config import DATA_DIR
@@ -1095,6 +1129,15 @@ def save_email_config(cfg: Dict[str, Any], db_path=None):
     raw_json = json.dumps(cfg, ensure_ascii=False, indent=2)
     set_app_setting("email_config_json", raw_json, db_path=db_path)
 
+    # Save to local email_config.json
+    try:
+        em_file = DATA_DIR / "email_config.json"
+        em_file.parent.mkdir(parents=True, exist_ok=True)
+        em_file.write_text(raw_json, encoding="utf-8")
+    except Exception:
+        pass
+
+    # Mirror to cloud_config.json
     if db_path is None:
         try:
             c_file = DATA_DIR / "cloud_config.json"
@@ -1107,5 +1150,12 @@ def save_email_config(cfg: Dict[str, Any], db_path=None):
                     data = {}
             data["email_config"] = cfg
             c_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+        # Push to Google Sheets in background so it's backed up to Cloud
+        try:
+            from src.cloud_sync import auto_sync_tables
+            auto_sync_tables(["app_settings"])
         except Exception:
             pass

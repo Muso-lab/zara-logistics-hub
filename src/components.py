@@ -954,32 +954,28 @@ def render_lavorazioni_piattaforma(sb: Optional[Dict[str, Any]], key_prefix: str
     mc_status_class = "badge-green" if abs(diff_mc) < 0.1 else "badge-yellow"
     mc_badge = f'<span class="{mc_status_class}">{diff_mc:+,.2f} m³ (Arrotondamenti)</span>'
 
-    html_checks = f"""
-    <table class="modern-tbl">
-        <thead>
-            <tr>
-                <th style="text-align: left; width: 34%;">Grandezza</th>
-                <th style="width: 22%;">File Generale TOTAL</th>
-                <th style="width: 22%;">Somma Voci / Spunta</th>
-                <th style="width: 22%;">Stato Quadratura</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td style="text-align: left; font-weight: 600;">📦 TOTALE COLLI</td>
-                <td class="text-strong">{format_number_it(tot_colli_teo, 0)}</td>
-                <td class="text-strong">{format_number_it(chk_colli, 0)}</td>
-                <td>{colli_badge}</td>
-            </tr>
-            <tr>
-                <td style="text-align: left; font-weight: 600;">📐 TOTALI VOLUME (MC)</td>
-                <td class="text-strong">{format_number_it(tot_mc_teo, 2)} m³</td>
-                <td class="text-strong">{format_number_it(chk_mc, 2)} m³</td>
-                <td>{mc_badge}</td>
-            </tr>
-        </tbody>
-    </table>
-    """
+    html_checks = (
+        '<table class="modern-tbl">'
+        '<thead><tr>'
+        '<th style="text-align: left; width: 34%;">Grandezza</th>'
+        '<th style="width: 22%;">File Generale TOTAL</th>'
+        '<th style="width: 22%;">Somma Voci / Spunta</th>'
+        '<th style="width: 22%;">Stato Quadratura</th>'
+        '</tr></thead>'
+        '<tbody>'
+        '<tr>'
+        '<td style="text-align: left; font-weight: 600;">📦 TOTALE COLLI</td>'
+        f'<td class="text-strong">{format_number_it(tot_colli_teo, 0)}</td>'
+        f'<td class="text-strong">{format_number_it(chk_colli, 0)}</td>'
+        f'<td>{colli_badge}</td>'
+        '</tr><tr>'
+        '<td style="text-align: left; font-weight: 600;">📐 TOTALI VOLUME (MC)</td>'
+        f'<td class="text-strong">{format_number_it(tot_mc_teo, 2)} m³</td>'
+        f'<td class="text-strong">{format_number_it(chk_mc, 2)} m³</td>'
+        f'<td>{mc_badge}</td>'
+        '</tr></tbody>'
+        '</table>'
+    )
     st.markdown(html_checks, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -999,34 +995,30 @@ def render_lavorazioni_piattaforma(sb: Optional[Dict[str, Any]], key_prefix: str
             app = sdata.get("appesi", 0)
             ste = sdata.get("stesi", 0)
             corr_p = sdata.get("correzione_profumi", 0)
-            pezzi_rows_html.append(f"""
-                <tr>
-                    <td style="text-align: left; font-weight: 600;">{html.escape(str(lbl))} - {html.escape(sname)}</td>
-                    <td class="text-strong">{format_number_it(tot_p, 0)}</td>
-                    <td><span class="badge-pill-blue">{format_number_it(app, 0)}</span></td>
-                    <td style="font-weight: 600;">{format_number_it(ste, 0)}</td>
-                    <td class="text-muted-custom">{format_number_it(corr_p, 0)}</td>
-                </tr>
-            """)
+            pezzi_rows_html.append(
+                f'<tr>'
+                f'<td style="text-align: left; font-weight: 600;">{html.escape(str(lbl))} - {html.escape(sname)}</td>'
+                f'<td class="text-strong">{format_number_it(tot_p, 0)}</td>'
+                f'<td><span class="badge-pill-blue">{format_number_it(app, 0)}</span></td>'
+                f'<td style="font-weight: 600;">{format_number_it(ste, 0)}</td>'
+                f'<td class="text-muted-custom">{format_number_it(corr_p, 0)}</td>'
+                f'</tr>'
+            )
     else:
         pezzi_rows_html.append('<tr><td colspan="5" class="text-muted-custom">Nessun negozio con lavorazione tessile attiva.</td></tr>')
 
-    html_pezzi = f"""
-    <table class="modern-tbl">
-        <thead>
-            <tr>
-                <th style="text-align: left; width: 28%;">Punto Vendita</th>
-                <th style="width: 18%;">Totale Pezzi</th>
-                <th style="width: 18%;">Appesi</th>
-                <th style="width: 18%;">Stesi (Netto)</th>
-                <th style="width: 18%;">Corr. Profumi</th>
-            </tr>
-        </thead>
-        <tbody>
-            {''.join(pezzi_rows_html)}
-        </tbody>
-    </table>
-    """
+    html_pezzi = (
+        '<table class="modern-tbl">'
+        '<thead><tr>'
+        '<th style="text-align: left; width: 28%;">Punto Vendita</th>'
+        '<th style="width: 18%;">Totale Pezzi</th>'
+        '<th style="width: 18%;">Appesi</th>'
+        '<th style="width: 18%;">Stesi (Netto)</th>'
+        '<th style="width: 18%;">Corr. Profumi</th>'
+        '</tr></thead>'
+        f'<tbody>{"".join(pezzi_rows_html)}</tbody>'
+        '</table>'
+    )
     st.markdown(html_pezzi, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1047,38 +1039,33 @@ def render_lavorazioni_piattaforma(sb: Optional[Dict[str, Any]], key_prefix: str
                 tot_paq = zdata.get("totale_paqueteria", 0)
                 q0 = zdata.get("quota_barra0", 0)
                 q8 = zdata.get("quota_barra8", 0)
-                zh_rows_html.append(f"""
-                    <tr>
-                        <td style="text-align: left; font-weight: 600;">{html.escape(str(sid))} - {html.escape(sname)}</td>
-                        <td class="text-strong">{format_number_it(tot_paq, 0)}</td>
-                        <td>{format_number_it(q0, 0)}</td>
-                        <td>{format_number_it(q8, 0)}</td>
-                    </tr>
-                """)
+                zh_rows_html.append(
+                    f'<tr>'
+                    f'<td style="text-align: left; font-weight: 600;">{html.escape(str(sid))} - {html.escape(sname)}</td>'
+                    f'<td class="text-strong">{format_number_it(tot_paq, 0)}</td>'
+                    f'<td>{format_number_it(q0, 0)}</td>'
+                    f'<td>{format_number_it(q8, 0)}</td>'
+                    f'</tr>'
+                )
         else:
             zh_rows_html.append('<tr><td colspan="4" class="text-muted-custom">Nessun negozio Zara Home configurato.</td></tr>')
 
-        html_zh = f"""
-        <table class="modern-tbl">
-            <thead>
-                <tr>
-                    <th style="text-align: left; width: 35%;">Negozio</th>
-                    <th style="width: 25%;">Totale</th>
-                    <th style="width: 20%;">/0</th>
-                    <th style="width: 20%;">/8</th>
-                </tr>
-            </thead>
-            <tbody>
-                {''.join(zh_rows_html)}
-            </tbody>
-        </table>
-        <div style="margin-top: 18px;">
-            <div class="highlight-total-box">
-                <span class="highlight-total-title">TOTALE PEZZI COMPLESSIVI LAVORATI</span>
-                <span class="highlight-total-val">{format_number_it(tot_pezzi, 0)} pezzi</span>
-            </div>
-        </div>
-        """
+        html_zh = (
+            '<table class="modern-tbl">'
+            '<thead><tr>'
+            '<th style="text-align: left; width: 35%;">Negozio</th>'
+            '<th style="width: 25%;">Totale</th>'
+            '<th style="width: 20%;">/0</th>'
+            '<th style="width: 20%;">/8</th>'
+            '</tr></thead>'
+            f'<tbody>{"".join(zh_rows_html)}</tbody>'
+            '</table>'
+            '<div style="margin-top: 18px;">'
+            '<div class="highlight-total-box">'
+            '<span class="highlight-total-title">TOTALE PEZZI COMPLESSIVI LAVORATI</span>'
+            f'<span class="highlight-total-val">{format_number_it(tot_pezzi, 0)} pezzi</span>'
+            '</div></div>'
+        )
         st.markdown(html_zh, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1106,37 +1093,33 @@ def render_lavorazioni_piattaforma(sb: Optional[Dict[str, Any]], key_prefix: str
                 if banc_extra > 0:
                     banc_detail += f" <span style='font-size:11px; color:#64748B;'>({banc_stesi}+{banc_extra})</span>"
 
-                sv_rows_html.append(f"""
-                    <tr>
-                        <td style="text-align: left; font-weight: 600;">{html.escape(str(lbl))}</td>
-                        <td class="text-strong">{stdr} <span style="font-size: 11px; color: #64748B;">({stdr_eq} PLT eq.)</span></td>
-                        <td class="text-strong">{banc_detail}</td>
-                        <td><span class="badge-beta">{html.escape(sint)}</span></td>
-                        <td><strong style="color: #0284C7; font-size: 14.5px;">{impr} PLT</strong> {diff_tag}</td>
-                    </tr>
-                """)
+                sv_rows_html.append(
+                    f'<tr>'
+                    f'<td style="text-align: left; font-weight: 600;">{html.escape(str(lbl))}</td>'
+                    f'<td class="text-strong">{stdr} <span style="font-size: 11px; color: #64748B;">({stdr_eq} PLT eq.)</span></td>'
+                    f'<td class="text-strong">{banc_detail}</td>'
+                    f'<td><span class="badge-beta">{html.escape(sint)}</span></td>'
+                    f'<td><strong style="color: #0284C7; font-size: 14.5px;">{impr} PLT</strong> {diff_tag}</td>'
+                    f'</tr>'
+                )
         else:
             sv_rows_html.append('<tr><td colspan="5" class="text-muted-custom">Nessun negozio con lavorazione tessile attiva.</td></tr>')
 
-        html_sv = f"""
-        <table class="modern-tbl">
-            <thead>
-                <tr>
-                    <th style="text-align: left; width: 22%;">Negozio</th>
-                    <th style="width: 20%;">Stander</th>
-                    <th style="width: 18%;">Bancali</th>
-                    <th style="width: 25%;">Allestimento</th>
-                    <th style="width: 15%;">Impronta</th>
-                </tr>
-            </thead>
-            <tbody>
-                {''.join(sv_rows_html)}
-            </tbody>
-        </table>
-        <div class="callout-box" style="margin-top: 14px;">
-            💡 <strong>Regola di Carico Mezzi Piattaforma:</strong> 2 stander occupano lo spazio di 4 bancali disposti trasversalmente ("a madonna"), ovvero <strong>1 stander = 2 pedane equivalenti a terra</strong>. Nelle viste per giro e saturazione mezzi, l'ingombro reale considera l'impronta a terra complessiva (bancali effettivi + stander convertiti).
-        </div>
-        """
+        html_sv = (
+            '<table class="modern-tbl">'
+            '<thead><tr>'
+            '<th style="text-align: left; width: 22%;">Negozio</th>'
+            '<th style="width: 20%;">Stander</th>'
+            '<th style="width: 18%;">Bancali</th>'
+            '<th style="width: 25%;">Allestimento</th>'
+            '<th style="width: 15%;">Impronta</th>'
+            '</tr></thead>'
+            f'<tbody>{"".join(sv_rows_html)}</tbody>'
+            '</table>'
+            '<div class="callout-box" style="margin-top: 14px;">'
+            "💡 <strong>Regola di Carico Mezzi Piattaforma:</strong> 2 stander occupano lo spazio di 4 bancali disposti trasversalmente ('a madonna'), ovvero <strong>1 stander = 2 pedane equivalenti a terra</strong>. Nelle viste per giro e saturazione mezzi, l'ingombro reale considera l'impronta a terra complessiva (bancali effettivi + stander convertiti)."
+            '</div>'
+        )
         st.markdown(html_sv, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 

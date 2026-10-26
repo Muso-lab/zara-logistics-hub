@@ -21,3 +21,5 @@ Thumbs.db
 
 # Streamlit secrets (never commit credentials)
 .streamlit/secrets.toml
+
+data/email_config.json

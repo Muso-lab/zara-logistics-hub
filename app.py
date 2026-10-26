@@ -311,6 +311,223 @@ else:
     st.sidebar.caption("☁️ Google Sheets Sync: *Non collegato*")
 
 
+def render_operativa_files_and_email_section(
+    run_data: Dict[str, Any],
+    df_stores: pd.DataFrame,
+    key_prefix: str = "op"
+):
+    """
+    Renders the Operative Files download buttons (Sintesi Operativa, SGA 0, SGA 9, ZIP)
+    and the Email sending form directly in the UI.
+    """
+    if not run_data or not isinstance(run_data, dict):
+        return
+
+    rid = run_data.get("run_id") or run_data.get("id") or "curr"
+    r_date = run_data.get("run_date", "")
+    out_dir = OUTPUT_DIR / f"run_{rid}_{r_date}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    p_sintesi = out_dir / "Sintesi_Operativa.xlsx"
+    p_sga0 = out_dir / "barrazero_Sga.xlsx"
+    p_sga9 = out_dir / "barranove_Sga.xlsx"
+    p_sga0_csv = out_dir / "barrazero_Sga.csv"
+    p_sga9_csv = out_dir / "barranove_Sga.csv"
+    p_zip = out_dir / f"File_Operativa_{rid}_{r_date}.zip"
+
+    # Export Sintesi Operativa
+    export_sintesi_operativa(
+        run_data.get("df_spunta", pd.DataFrame()),
+        run_data.get("special_breakdowns", {}),
+        df_stores,
+        p_sintesi,
+        run_date=r_date
+    )
+
+    s0_df = run_data.get("df_sga0")
+    if (s0_df is None or s0_df.empty) and "sga0" in run_data.get("exported_files", {}):
+        det_s = get_run_details(rid)
+        s0_df = det_s.get("sga0", pd.DataFrame())
+    if s0_df is not None and not s0_df.empty:
+        export_sga_file(s0_df, p_sga0)
+
+    s9_df = run_data.get("df_sga9")
+    if (s9_df is None or s9_df.empty) and "sga9" in run_data.get("exported_files", {}):
+        det_s = get_run_details(rid)
+        s9_df = det_s.get("sga9", pd.DataFrame())
+    if s9_df is not None and not s9_df.empty:
+        export_sga_file(s9_df, p_sga9)
+
+    build_operativa_zip({
+        "Sintesi_Operativa.xlsx": p_sintesi,
+        "barrazero_Sga.xlsx": p_sga0,
+        "barranove_Sga.xlsx": p_sga9,
+        "barrazero_Sga.csv": p_sga0_csv,
+        "barranove_Sga.csv": p_sga9_csv,
+    }, p_zip)
+
+    st.markdown('<div class="modern-card" style="border-left: 5px solid #0284C7; margin-bottom: 24px; padding: 20px;">', unsafe_allow_html=True)
+    st.markdown('<div class="modern-section-title">📦 File Operativa Generati & Invio Email</div>', unsafe_allow_html=True)
+    st.caption("I 3 file fondamentali per l'operativa (Sintesi Operativa potenziata, SGA Barra 0 e SGA Barra 9 conformi al tracciato rigido) sono pronti per il download o per la spedizione email:")
+
+    dl_c1, dl_c2, dl_c3, dl_c4 = st.columns(4)
+    if p_sintesi.exists():
+        with dl_c1:
+            with open(p_sintesi, "rb") as f_s:
+                st.download_button(
+                    "📊 Sintesi Operativa (.xlsx)",
+                    data=f_s.read(),
+                    file_name=p_sintesi.name,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key=f"dl_box_sintesi_{key_prefix}_{rid}"
+                )
+    if p_sga0.exists():
+        with dl_c2:
+            with open(p_sga0, "rb") as f_0:
+                st.download_button(
+                    "🚛 SGA Barra 0 (.xlsx)",
+                    data=f_0.read(),
+                    file_name=p_sga0.name,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key=f"dl_box_sga0_{key_prefix}_{rid}"
+                )
+    if p_sga9.exists():
+        with dl_c3:
+            with open(p_sga9, "rb") as f_9:
+                st.download_button(
+                    "🚚 SGA Barra 9 (.xlsx)",
+                    data=f_9.read(),
+                    file_name=p_sga9.name,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key=f"dl_box_sga9_{key_prefix}_{rid}"
+                )
+    if p_zip.exists():
+        with dl_c4:
+            with open(p_zip, "rb") as f_z:
+                st.download_button(
+                    "🗂️ Tutto in ZIP (.zip)",
+                    data=f_z.read(),
+                    file_name=p_zip.name,
+                    mime="application/zip",
+                    use_container_width=True,
+                    key=f"dl_box_zip_{key_prefix}_{rid}"
+                )
+
+    email_cfg = get_email_config()
+    def_to = email_cfg.get("default_to", "operativa@trasporti.it, traffico@trasporti.it")
+    def_cc = email_cfg.get("default_cc", "")
+    has_smtp = bool(email_cfg.get("smtp_host") and email_cfg.get("smtp_user"))
+
+    st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
+    col_em_head1, col_em_head2 = st.columns([3, 1.2])
+    with col_em_head1:
+        st.markdown("#### ✉️ Invio Email File Operativa")
+        if has_smtp:
+            st.markdown(f"<div style='font-size:12.5px; margin-top:-6px; color:#10B981; font-weight:600;'>🟢 Connessione SMTP Attiva: <code>{email_cfg.get('smtp_host')}:{email_cfg.get('smtp_port')}</code> (Mittente: {email_cfg.get('smtp_user')})</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div style='font-size:12.5px; margin-top:-6px; color:#F59E0B; font-weight:600;'>🟡 Modalità Simulazione / SMTP non configurato. Configura i parametri nella scheda ⚙️ Impostazioni.</div>", unsafe_allow_html=True)
+    with col_em_head2:
+        with st.popover("⚙️ Destinatari Standard", use_container_width=True):
+            st.markdown("##### ✉️ Indirizzi Standard")
+            p_to = st.text_input("Destinatari Standard (TO)", value=def_to, key=f"pop_to_{key_prefix}_{rid}")
+            p_cc = st.text_input("Destinatari in Copia (CC)", value=def_cc, key=f"pop_cc_{key_prefix}_{rid}")
+            if st.button("💾 Salva come Predefiniti", key=f"btn_save_pop_email_{key_prefix}_{rid}", use_container_width=True):
+                email_cfg["default_to"] = p_to
+                email_cfg["default_cc"] = p_cc
+                save_email_config(email_cfg)
+                st.success("Indirizzi standard aggiornati!")
+                st.rerun()
+
+    em_col1, em_col2 = st.columns([1.5, 1.5])
+    with em_col1:
+        em_to = st.text_input("Destinatari (separati da virgola)", value=def_to, key=f"em_to_in_{key_prefix}_{rid}")
+    with em_col2:
+        em_cc = st.text_input("In Copia (CC - opzionale)", value=def_cc, key=f"em_cc_in_{key_prefix}_{rid}")
+
+    tmpl_subj = email_cfg.get("subject_template") or "[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {date}"
+    default_subj = tmpl_subj.replace("{date}", str(r_date))
+    em_subj = st.text_input(
+        "Oggetto Email",
+        value=default_subj,
+        key=f"em_subj_in_{key_prefix}_{rid}"
+    )
+
+    totals = run_data.get("totals", {})
+    spec_bd = run_data.get("special_breakdowns", {})
+    lav_lines = []
+    if spec_bd:
+        spec_stores = spec_bd.get("special_stores", {})
+        zh_stores = spec_bd.get("zara_home", {})
+        tot_pezzi_lav = spec_bd.get("totale_pezzi_lavorati", 0)
+
+        lav_lines.append("Sintesi Lavorazioni di Piattaforma del Giorno:")
+        if spec_stores:
+            lav_lines.append("- Lavorazione Speciale Tessile:")
+            for sid, sdata in spec_stores.items():
+                sname = sdata.get("store_name", sid)
+                app = int(sdata.get("appesi", 0))
+                stnd = int(sdata.get("stander", 0))
+                ste = int(sdata.get("stesi", 0))
+                plt = int(sdata.get("bancali", sdata.get("bancali_stesi", 0)))
+                prf = int(sdata.get("correzione_profumi", 0))
+                tot_s = int(sdata.get("totale_pezzi", app + ste))
+                lav_lines.append(f"  • {sid} {sname}: {tot_s:,} capi tot | {app:,} appesi ({stnd} stander) | {ste:,} stesi ({plt} bancali) | profumi: {prf:,}")
+
+        if zh_stores:
+            lav_lines.append("- Lavorazione Zara Home (50% /0 e 50% /8):")
+            for sid, zdata in zh_stores.items():
+                zsname = zdata.get("store_name", sid)
+                paq = int(zdata.get("totale_paqueteria", zdata.get("totale", 0)))
+                q0 = int(zdata.get("quota_barra0", zdata.get("barra0", 0)))
+                q8 = int(zdata.get("quota_barra8", zdata.get("barra8", 0)))
+                lav_lines.append(f"  • {sid} {zsname}: {paq:,} pz totali (50% /0: {q0:,} pz — 50% /8: {q8:,} pz)")
+
+        if tot_pezzi_lav:
+            lav_lines.append(f"- Totale Pezzi Lavorati in Piattaforma: {tot_pezzi_lav:,} pz")
+
+    lav_section = ("\n" + "\n".join(lav_lines) + "\n") if lav_lines else ""
+
+    default_body = (
+        f"Gentili Colleghi,\n\n"
+        f"in allegato trasmettiamo i file operativi relativi alla spedizione del {r_date}:\n\n"
+        f"- Sintesi Operativa Giri & Lavorazioni (Sintesi_Operativa.xlsx)\n"
+        f"- Flusso Viaggi TMS Barra 0 (barrazero_Sga.xlsx / .csv)\n"
+        f"- Flusso Viaggi TMS Barra 9 Sdoppiati (barranove_Sga.xlsx / .csv)\n\n"
+        f"Riepilogo Totali Spedizione:\n"
+        f"- Totale Colli: {format_number_it(totals.get('total_bultos', 0), 0)}\n"
+        f"- Volume Complessivo: {format_number_it(totals.get('total_volume', 0.0), 2)} m³\n"
+        f"- Peso Complessivo: {format_number_it(totals.get('total_weight', 0.0), 0)} kg\n"
+        f"- Pedane Stimate: {format_number_it(totals.get('total_pedane', 0), 0)} PLT\n"
+        f"{lav_section}\n"
+        f"Restiamo a disposizione per qualsiasi chiarimento operativo.\n\n"
+        f"Cordiali saluti,\n"
+        f"Ufficio Logistica & Traffico Zara Hub"
+    )
+
+    em_body = st.text_area("Testo del Messaggio", value=default_body, height=220, key=f"em_body_in_{key_prefix}_{rid}")
+
+    if st.button("🚀 INVIA EMAIL ORA", type="primary", use_container_width=True, key=f"btn_send_now_{key_prefix}_{rid}"):
+        to_list = [x.strip() for x in em_to.split(",") if x.strip()]
+        cc_list = [x.strip() for x in em_cc.split(",") if x.strip()]
+        att_files = [p_sintesi, p_sga0, p_sga9]
+        success, msg = send_operativa_email(
+            recipients=to_list,
+            subject=em_subj,
+            body_text=em_body,
+            attachment_paths=att_files,
+            cc_recipients=cc_list,
+            smtp_config=email_cfg
+        )
+        if success:
+            st.success(f"🎉 **{msg}**")
+        else:
+            st.error(f"❌ {msg}")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
 # ==============================================================================
 # PAGE 1: PREVISIONE & ARRIVI (IMPORT + SPUNTA + SGA + LAVORAZIONI)
 # ==============================================================================
@@ -385,220 +602,13 @@ if menu == "📥 1. Previsione & Arrivi":
             with col_hdr_l:
                 st.markdown("### 📊 Riepilogo Previsione Attiva")
             with col_hdr_r:
-                show_op_box = st.button("📦 PRODUCI FILE OPERATIVA & INVIA EMAIL ✉️", type="primary", use_container_width=True, key=f"btn_prod_op_{curr_rid}")
+                show_op_box = st.button("📦 File Operativa & Invio Email ✉️ (Nascondi / Mostra)", type="secondary", use_container_width=True, key=f"btn_prod_op_{curr_rid}")
                 if show_op_box:
-                    st.session_state[f"show_op_panel_{curr_rid}"] = not st.session_state.get(f"show_op_panel_{curr_rid}", False)
+                    st.session_state[f"show_op_panel_{curr_rid}"] = not st.session_state.get(f"show_op_panel_{curr_rid}", True)
 
-            # Sezione Espandibile: File Operativa & Invio Email
-            if st.session_state.get(f"show_op_panel_{curr_rid}", False):
-                r_date = active_run_data.get("run_date", "")
-                out_dir = OUTPUT_DIR / f"run_{curr_rid}_{r_date}"
-                out_dir.mkdir(parents=True, exist_ok=True)
-                p_sintesi = out_dir / "Sintesi_Operativa.xlsx"
-                p_sga0 = out_dir / "barrazero_Sga.xlsx"
-                p_sga9 = out_dir / "barranove_Sga.xlsx"
-                p_sga0_csv = out_dir / "barrazero_Sga.csv"
-                p_sga9_csv = out_dir / "barranove_Sga.csv"
-                p_zip = out_dir / f"File_Operativa_{curr_rid}_{r_date}.zip"
-
-                export_sintesi_operativa(
-                    active_run_data.get("df_spunta", pd.DataFrame()),
-                    active_run_data.get("special_breakdowns", {}),
-                    df_stores_side,
-                    p_sintesi,
-                    run_date=r_date
-                )
-
-                s0_df = active_run_data.get("df_sga0")
-                if (s0_df is None or s0_df.empty) and "sga0" in active_run_data.get("exported_files", {}):
-                    det_s = get_run_details(curr_rid)
-                    s0_df = det_s.get("sga0", pd.DataFrame())
-                if s0_df is not None and not s0_df.empty and (not p_sga0.exists() or p_sga0.stat().st_size == 0):
-                    export_sga_file(s0_df, p_sga0)
-
-                s9_df = active_run_data.get("df_sga9")
-                if (s9_df is None or s9_df.empty) and "sga9" in active_run_data.get("exported_files", {}):
-                    det_s = get_run_details(curr_rid)
-                    s9_df = det_s.get("sga9", pd.DataFrame())
-                if s9_df is not None and not s9_df.empty and (not p_sga9.exists() or p_sga9.stat().st_size == 0):
-                    export_sga_file(s9_df, p_sga9)
-
-                build_operativa_zip({
-                    "Sintesi_Operativa.xlsx": p_sintesi,
-                    "barrazero_Sga.xlsx": p_sga0,
-                    "barranove_Sga.xlsx": p_sga9,
-                    "barrazero_Sga.csv": p_sga0_csv,
-                    "barranove_Sga.csv": p_sga9_csv,
-                }, p_zip)
-
-                active_run_data.setdefault("exported_files", {})
-                active_run_data["exported_files"]["sintesi"] = p_sintesi
-                active_run_data["exported_files"]["sga0"] = p_sga0
-                active_run_data["exported_files"]["sga9"] = p_sga9
-                active_run_data["exported_files"]["sga0_csv"] = p_sga0_csv
-                active_run_data["exported_files"]["sga9_csv"] = p_sga9_csv
-                active_run_data["exported_files"]["operativa_zip"] = p_zip
-
-                st.markdown('<div class="modern-card" style="border-left: 5px solid #0284C7; margin-bottom: 24px; padding: 20px;">', unsafe_allow_html=True)
-                st.markdown('<div class="modern-section-title">📦 File Operativa Generati & Invio Email</div>', unsafe_allow_html=True)
-                st.caption("I 3 file fondamentali per l'operativa (Sintesi Operativa potenziata, SGA Barra 0 e SGA Barra 9 conformi al tracciato rigido) sono pronti per il download o per la spedizione email:")
-
-                dl_c1, dl_c2, dl_c3, dl_c4 = st.columns(4)
-                if p_sintesi.exists():
-                    with dl_c1:
-                        with open(p_sintesi, "rb") as f_s:
-                            st.download_button(
-                                "📊 Sintesi Operativa (.xlsx)",
-                                data=f_s.read(),
-                                file_name=p_sintesi.name,
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True,
-                                key=f"dl_box_sintesi_{curr_rid}"
-                            )
-                if p_sga0.exists():
-                    with dl_c2:
-                        with open(p_sga0, "rb") as f_0:
-                            st.download_button(
-                                "🚛 SGA Barra 0 (.xlsx)",
-                                data=f_0.read(),
-                                file_name=p_sga0.name,
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True,
-                                key=f"dl_box_sga0_{curr_rid}"
-                            )
-                if p_sga9.exists():
-                    with dl_c3:
-                        with open(p_sga9, "rb") as f_9:
-                            st.download_button(
-                                "🚚 SGA Barra 9 (.xlsx)",
-                                data=f_9.read(),
-                                file_name=p_sga9.name,
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True,
-                                key=f"dl_box_sga9_{curr_rid}"
-                            )
-                if p_zip.exists():
-                    with dl_c4:
-                        with open(p_zip, "rb") as f_z:
-                            st.download_button(
-                                "🗂️ Tutto in ZIP (.zip)",
-                                data=f_z.read(),
-                                file_name=p_zip.name,
-                                mime="application/zip",
-                                use_container_width=True,
-                                key=f"dl_box_zip_{curr_rid}"
-                            )
-
-                email_cfg = get_email_config()
-                def_to = email_cfg.get("default_to", "operativa@trasporti.it, traffico@trasporti.it")
-                def_cc = email_cfg.get("default_cc", "")
-                has_smtp = bool(email_cfg.get("smtp_host") and email_cfg.get("smtp_user"))
-
-                st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
-                col_em_head1, col_em_head2 = st.columns([3, 1.2])
-                with col_em_head1:
-                    st.markdown("#### ✉️ Invio Email File Operativa")
-                    if has_smtp:
-                        st.markdown(f"<div style='font-size:12.5px; margin-top:-6px; color:#10B981; font-weight:600;'>🟢 Connessione SMTP Attiva: <code>{email_cfg.get('smtp_host')}:{email_cfg.get('smtp_port')}</code> (Mittente: {email_cfg.get('smtp_user')})</div>", unsafe_allow_html=True)
-                    else:
-                        st.markdown("<div style='font-size:12.5px; margin-top:-6px; color:#F59E0B; font-weight:600;'>🟡 Modalità Simulazione / SMTP non configurato. Configura i parametri nella scheda ⚙️ Impostazioni.</div>", unsafe_allow_html=True)
-                with col_em_head2:
-                    with st.popover("⚙️ Destinatari Standard", use_container_width=True):
-                        st.markdown("##### ✉️ Indirizzi Standard")
-                        p_to = st.text_input("Destinatari Standard (TO)", value=def_to, key=f"pop_to_{curr_rid}")
-                        p_cc = st.text_input("Destinatari in Copia (CC)", value=def_cc, key=f"pop_cc_{curr_rid}")
-                        if st.button("💾 Salva come Predefiniti", key=f"btn_save_pop_email_{curr_rid}", use_container_width=True):
-                            email_cfg["default_to"] = p_to
-                            email_cfg["default_cc"] = p_cc
-                            save_email_config(email_cfg)
-                            st.success("Indirizzi standard aggiornati!")
-                            st.rerun()
-
-                em_col1, em_col2 = st.columns([1.5, 1.5])
-                with em_col1:
-                    em_to = st.text_input("Destinatari (separati da virgola)", value=def_to, key=f"em_to_in_{curr_rid}")
-                with em_col2:
-                    em_cc = st.text_input("In Copia (CC - opzionale)", value=def_cc, key=f"em_cc_in_{curr_rid}")
-
-                tmpl_subj = email_cfg.get("subject_template") or "[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {date}"
-                default_subj = tmpl_subj.replace("{date}", str(r_date))
-                em_subj = st.text_input(
-                    "Oggetto Email",
-                    value=default_subj,
-                    key=f"em_subj_in_{curr_rid}"
-                )
-
-                spec_bd = active_run_data.get("special_breakdowns", {})
-                lav_lines = []
-                if spec_bd:
-                    spec_stores = spec_bd.get("special_stores", {})
-                    zh_stores = spec_bd.get("zara_home", {})
-                    tot_pezzi_lav = spec_bd.get("totale_pezzi_lavorati", 0)
-
-                    lav_lines.append("Sintesi Lavorazioni di Piattaforma del Giorno:")
-                    if spec_stores:
-                        lav_lines.append("- Lavorazione Speciale Tessile:")
-                        for sid, sdata in spec_stores.items():
-                            sname = sdata.get("store_name", sid)
-                            app = int(sdata.get("appesi", 0))
-                            stnd = int(sdata.get("stander", 0))
-                            ste = int(sdata.get("stesi", 0))
-                            plt = int(sdata.get("bancali", sdata.get("bancali_stesi", 0)))
-                            prf = int(sdata.get("correzione_profumi", 0))
-                            tot_s = int(sdata.get("totale_pezzi", app + ste))
-                            lav_lines.append(f"  • {sid} {sname}: {tot_s:,} capi tot | {app:,} appesi ({stnd} stander) | {ste:,} stesi ({plt} bancali) | profumi: {prf:,}")
-
-                    if zh_stores:
-                        lav_lines.append("- Lavorazione Zara Home (50% /0 e 50% /8):")
-                        for sid, zdata in zh_stores.items():
-                            zsname = zdata.get("store_name", sid)
-                            paq = int(zdata.get("totale_paqueteria", zdata.get("totale", 0)))
-                            q0 = int(zdata.get("quota_barra0", zdata.get("barra0", 0)))
-                            q8 = int(zdata.get("quota_barra8", zdata.get("barra8", 0)))
-                            lav_lines.append(f"  • {sid} {zsname}: {paq:,} pz totali (50% /0: {q0:,} pz — 50% /8: {q8:,} pz)")
-
-                    if tot_pezzi_lav:
-                        lav_lines.append(f"- Totale Pezzi Lavorati in Piattaforma: {tot_pezzi_lav:,} pz")
-
-                lav_section = ("\n" + "\n".join(lav_lines) + "\n") if lav_lines else ""
-
-                default_body = (
-                    f"Gentili Colleghi,\n\n"
-                    f"in allegato trasmettiamo i file operativi relativi alla spedizione del {r_date}:\n\n"
-                    f"- Sintesi Operativa Giri & Lavorazioni (Sintesi_Operativa.xlsx)\n"
-                    f"- Flusso Viaggi TMS Barra 0 (barrazero_Sga.xlsx / .csv)\n"
-                    f"- Flusso Viaggi TMS Barra 9 Sdoppiati (barranove_Sga.xlsx / .csv)\n\n"
-                    f"Riepilogo Totali Spedizione:\n"
-                    f"- Totale Colli: {format_number_it(totals['total_bultos'], 0)}\n"
-                    f"- Volume Complessivo: {format_number_it(totals['total_volume'], 2)} m³\n"
-                    f"- Peso Complessivo: {format_number_it(totals['total_weight'], 0)} kg\n"
-                    f"- Pedane Stimate: {format_number_it(totals['total_pedane'], 0)} PLT\n"
-                    f"{lav_section}\n"
-                    f"Restiamo a disposizione per qualsiasi chiarimento operativo.\n\n"
-                    f"Cordiali saluti,\n"
-                    f"Ufficio Logistica & Traffico Zara Hub"
-                )
-
-                em_body = st.text_area("Testo del Messaggio", value=default_body, height=220, key=f"em_body_in_{curr_rid}")
-
-                if st.button("🚀 INVIA EMAIL ORA", type="primary", use_container_width=True, key=f"btn_send_now_{curr_rid}"):
-                    to_list = [x.strip() for x in em_to.split(",") if x.strip()]
-                    cc_list = [x.strip() for x in em_cc.split(",") if x.strip()]
-                    att_files = [p_sintesi, p_sga0, p_sga9]
-                    success, msg = send_operativa_email(
-                        recipients=to_list,
-                        subject=em_subj,
-                        body_text=em_body,
-                        attachment_paths=att_files,
-                        cc_recipients=cc_list,
-                        smtp_config=email_cfg
-                    )
-                    if success:
-                        st.success(f"🎉 **{msg}**")
-                    else:
-                        st.error(f"❌ {msg}")
-
-                st.markdown('</div>', unsafe_allow_html=True)
+            # File Operativa & Invio Email (Aperto di default!)
+            if st.session_state.get(f"show_op_panel_{curr_rid}", True):
+                render_operativa_files_and_email_section(active_run_data, df_stores_side, key_prefix=f"vis_{curr_rid}")
 
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             kpi1.metric("Totale Colli", format_number_it(totals["total_bultos"], 0))
@@ -842,6 +852,15 @@ if menu == "📥 1. Previsione & Arrivi":
                         """, unsafe_allow_html=True)
                         st.session_state["last_run"] = res
                         st.session_state["active_view_run_id"] = res["run_id"]
+                        st.session_state[f"show_op_panel_{res['run_id']}"] = True
+
+                        # Mostra subito i file operativi generati e l'invio email
+                        render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"extranet_{res['run_id']}")
+
+                        if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_extranet"):
+                            st.session_state["active_view_run_id"] = res["run_id"]
+                            st.session_state["last_run"] = res
+                            st.rerun()
 
                     except Exception as e:
                         status_banner.empty()
@@ -942,6 +961,15 @@ if menu == "📥 1. Previsione & Arrivi":
                         """, unsafe_allow_html=True)
                         st.session_state["last_run"] = res
                         st.session_state["active_view_run_id"] = res["run_id"]
+                        st.session_state[f"show_op_panel_{res['run_id']}"] = True
+
+                        # Mostra subito i file operativi generati e l'invio email
+                        render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"upload_{res['run_id']}")
+
+                        if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_upload"):
+                            st.session_state["active_view_run_id"] = res["run_id"]
+                            st.session_state["last_run"] = res
+                            st.rerun()
 
                     except Exception as e:
                         status_banner_up.empty()
@@ -2182,6 +2210,29 @@ elif menu.startswith("🗄️ 5.") or menu.startswith("⚙️ 5."):
             key="cfg_in_subj_tmpl"
         )
 
+        with st.expander("🛡️ Come rendere le credenziali email permanenti al 100% su Streamlit Cloud (Secrets)", expanded=False):
+            st.markdown(
+                "I parametri salvati vengono memorizzati nel database, nel file locale protetto e sincronizzati sul tuo Google Sheets.<br>"
+                "Tuttavia, poiché Streamlit Cloud ricrea i container Linux ad ogni nuovo aggiornamento del codice su GitHub, "
+                "il metodo raccomandato e **definitivo** per non doverli mai più reinserire è salvarli nei **Secrets di Streamlit**:<br><br>"
+                "1. In basso a destra dell'app, clicca su <strong>'Manage app'</strong>.<br>"
+                "2. Clicca su <strong>'Settings'</strong> (o icona ⚙️ / ⋮) e seleziona la scheda <strong>'Secrets'</strong>.<br>"
+                "3. Incolla questo blocco e premi <strong>Save</strong>:<br>",
+                unsafe_allow_html=True
+            )
+            secrets_example = (
+                "[smtp]\n"
+                f'smtp_host = "{cfg_host or "smtp.gmail.com"}"\n'
+                f'smtp_port = {int(cfg_port) if cfg_port else 587}\n'
+                f'smtp_user = "{cfg_user or "tua_email@gmail.com"}"\n'
+                f'smtp_password = "{cfg_pass or "tua_password_app_16_caratteri"}"\n'
+                f'smtp_security = "{cfg_sec or "STARTTLS"}"\n'
+                f'sender_name = "{cfg_name or "Logistica Zara Hub"}"\n'
+                f'default_to = "{cfg_to or "operativa@trasporti.it, traffico@trasporti.it"}"\n'
+                f'default_cc = "{cfg_cc or ""}"\n'
+            )
+            st.code(secrets_example, language="toml")
+
         st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
 
         # Test Connessione & Salvataggio
@@ -2202,7 +2253,7 @@ elif menu.startswith("🗄️ 5.") or menu.startswith("⚙️ 5."):
                     "body_template": cfg_now.get("body_template", "")
                 }
                 save_email_config(updated_cfg)
-                st.success("✅ Configurazione email e destinatari standard salvati con successo!")
+                st.success("✅ Configurazione email salvata nel database, nel file locale e sincronizzata su Google Sheets!")
                 st.rerun()
 
         with col_act2:

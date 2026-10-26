@@ -66,6 +66,7 @@ ALL_SYNC_TABLES = [
     "planning_results",
     "spunta_arrivi",
     "forecast_raw",
+    "app_settings",
 ]
 
 
