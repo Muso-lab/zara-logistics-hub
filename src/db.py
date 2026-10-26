@@ -294,6 +294,14 @@ def init_db(db_path=DB_PATH):
         );
         """)
 
+        # Blacklist of deleted stores to prevent automatic recreation on new commitments
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS deleted_stores (
+            store_id TEXT PRIMARY KEY,
+            deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
         cursor.execute("SELECT COUNT(*) FROM vehicles")
         if cursor.fetchone()[0] == 0:
             default_vehicles = [
@@ -554,20 +562,46 @@ def add_store_record(store_data: Dict[str, Any], db_path=DB_PATH):
             str(store_data.get("scorporo_profumi", "NO")).strip().upper(),
             int(float(store_data.get("pezzi_profumi", 0) or 0)),
         ))
+        # Remove from deleted_stores if explicitly re-added
+        try:
+            cursor.execute("DELETE FROM deleted_stores WHERE store_id = ?", (str(store_data.get("store_id", "")).strip(),))
+        except Exception:
+            pass
         conn.commit()
     from src.cloud_sync import auto_sync_tables
     auto_sync_tables(["stores", "store_delivery_profiles"])
 
 
-def delete_store_record(store_id: str, db_path=DB_PATH):
-    """Deletes a store from anagrafica."""
+def delete_store_record(store_id: str, blacklist: bool = False, db_path=DB_PATH):
+    """Deletes a store from anagrafica. If blacklist=True, adds to deleted_stores to prevent re-onboarding."""
+    sid = str(store_id).strip()
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM stores WHERE store_id = ?", (str(store_id).strip(),))
-        cursor.execute("DELETE FROM store_delivery_profiles WHERE id_store = ?", (str(store_id).strip(),))
+        cursor.execute("DELETE FROM stores WHERE store_id = ?", (sid,))
+        cursor.execute("DELETE FROM store_delivery_profiles WHERE id_store = ?", (sid,))
+        if blacklist:
+            try:
+                cursor.execute("CREATE TABLE IF NOT EXISTS deleted_stores (store_id TEXT PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+                cursor.execute("INSERT OR REPLACE INTO deleted_stores (store_id) VALUES (?)", (sid,))
+            except Exception:
+                pass
         conn.commit()
     from src.cloud_sync import auto_sync_tables
-    auto_sync_tables(["stores", "store_delivery_profiles"])
+    tables = ["stores", "store_delivery_profiles"]
+    if blacklist:
+        tables.append("deleted_stores")
+    auto_sync_tables(tables)
+
+
+def get_deleted_store_ids(db_path=DB_PATH) -> set:
+    """Returns set of store IDs explicitly deleted by user to prevent automatic re-creation from Inditex files."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT store_id FROM deleted_stores")
+            return {str(r[0]).strip() for r in cursor.fetchall() if r[0]}
+        except Exception:
+            return set()
 
 
 def bulk_update_stores(df_updated: pd.DataFrame, db_path=DB_PATH):

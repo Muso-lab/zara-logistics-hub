@@ -88,7 +88,12 @@ def run_pipeline(
         found_store_ids.update(df_oth["store_id"].dropna().astype(str).str.strip())
 
     new_stores_alert = []
-    unregistered = [s for s in sorted(found_store_ids) if s and s not in known_store_ids and not s.endswith("B")]
+    from src.db import get_deleted_store_ids
+    deleted_store_ids = get_deleted_store_ids(db_path=db_path)
+    unregistered = [
+        s for s in sorted(found_store_ids)
+        if s and s not in known_store_ids and s not in deleted_store_ids and not s.endswith("B")
+    ]
     if unregistered:
         from src.db import add_store_record
         for sid in unregistered:

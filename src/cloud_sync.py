@@ -96,6 +96,7 @@ ALL_SYNC_TABLES = [
     "stores",
     "vehicles",
     "store_delivery_profiles",
+    "deleted_stores",
     "bolle",
     "runs",
     "planning_results",
@@ -293,6 +294,13 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
                 records,
             )
             restored_counts[t_name] = len(records)
+
+        # Enforce deleted_stores blacklist so previously deleted stores never revive
+        try:
+            cur.execute("DELETE FROM stores WHERE store_id IN (SELECT store_id FROM deleted_stores)")
+            cur.execute("DELETE FROM store_delivery_profiles WHERE id_store IN (SELECT store_id FROM deleted_stores)")
+        except Exception:
+            pass
 
         conn.commit()
     except Exception as e:

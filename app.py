@@ -1716,6 +1716,14 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                 st.success(f"✅ Aggiornati tutti i **{n_up}** negozi del giro **{sel_g}** (Standard: {g_mez}, Doppia: {g_mez_d})!")
                 st.rerun()
 
+        with st.expander("📋 Riepilogo Giri Mappati (Standard /0 e Giri Doppi /9)", expanded=False):
+            if not df_giro_sum.empty:
+                df_g_disp = df_giro_sum[["giro", "n_stores", "vettore", "tipo_mezzo", "tipo_mezzo_doppia", "elenco_negozi"]].copy()
+                df_g_disp.columns = ["Giro", "N. Negozi", "Vettore Assegnato", "Mezzo Standard (/0)", "Mezzo Giri Doppi (/9)", "Negozi Mappati"]
+                st.dataframe(df_g_disp, use_container_width=True, hide_index=True)
+            else:
+                st.info("Nessun giro presente in anagrafica.")
+
         st.markdown('</div>', unsafe_allow_html=True)
 
         FORMULA_OPTIONS = [
@@ -1740,7 +1748,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                 key="anag_view_mode_toggle"
             )
 
-        cf1, cf2, cf3, cf4, cf5 = st.columns([1.5, 1.2, 1.2, 1.2, 1.2])
+        cf1, cf2, cf3, cf4, cf5, cf6 = st.columns([1.5, 1.1, 1.1, 1.1, 1.1, 1.1])
         with cf1:
             f_search = st.text_input("🔍 Cerca Negozio (ID, Nome o Indirizzo)", "", key="anag_search", placeholder="Scrivi per filtrare...")
         with cf2:
@@ -1751,6 +1759,8 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
         with cf4:
             f_lav = st.selectbox("Lavorazione", ["TUTTI", "SI TESSILE", "SI HOME", "NO"], key="anag_f_lav")
         with cf5:
+            f_sdop = st.selectbox("Giri Doppi (/9)", ["TUTTI", "SOLO SDOPPIATI (/9)", "SOLO STANDARD (/0)"], key="anag_f_sdop")
+        with cf6:
             f_att = st.selectbox("Stato Negozio", ["TUTTI", "SI (Operativo)", "NO (Standby)"], key="anag_f_att")
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1770,6 +1780,10 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                 df_filtered = df_filtered[df_filtered["brand"] == f_brand]
             if f_lav != "TUTTI":
                 df_filtered = df_filtered[df_filtered["lavorazione"].fillna("NO").str.upper() == f_lav]
+            if f_sdop == "SOLO SDOPPIATI (/9)":
+                df_filtered = df_filtered[df_filtered["sdoppiamento_b9"].fillna("NO").str.upper() == "SI"]
+            elif f_sdop == "SOLO STANDARD (/0)":
+                df_filtered = df_filtered[df_filtered["sdoppiamento_b9"].fillna("NO").str.upper() != "SI"]
             if f_att == "SI (Operativo)":
                 df_filtered = df_filtered[df_filtered["attivo"].fillna("SI").str.upper() == "SI"]
             elif f_att == "NO (Standby)":
@@ -1917,11 +1931,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                 key="anagrafica_editor_main",
             )
 
-            col_save_s_bot, _ = st.columns([2.5, 3.5])
-            with col_save_s_bot:
-                save_s_bot = st.button("💾 SALVA MODIFICHE PUNTI VENDITA (IN BASSO)", type="primary", use_container_width=True, key="btn_save_stores_bot")
-
-            if save_s_top or save_s_bot:
+            if save_s_top:
                 n_up = bulk_update_stores(edited_df)
                 st.success(f"✅ Aggiornati con successo **{n_up}** punti vendita nel Database!")
                 st.rerun()
@@ -1979,7 +1989,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
             if sel_st_del:
                 del_id = sel_st_del.split(" - ")[0].strip()
                 if st.button(f"🗑️ ELIMINA DEFINITIVAMENTE STORE {del_id}", type="primary", use_container_width=True, key="btn_confirm_del_st_direct"):
-                    delete_store_record(del_id)
+                    delete_store_record(del_id, blacklist=True)
                     st.success(f"✅ Negozio **{del_id}** rimosso definitivamente dall'archivio!")
                     st.rerun()
 
