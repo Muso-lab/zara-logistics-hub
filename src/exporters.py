@@ -1,4 +1,5 @@
 from src.components import suggest_support_vehicle, parse_vehicle_capacity
+from src.utils import format_number_it, format_date_it
 from pathlib import Path
 from typing import Optional, Union, Dict, Any
 import openpyxl
@@ -144,7 +145,7 @@ def export_zara_spunta(
     headers = [
         "NEGOZIO", "STORE", "PUNTO VENDITA", "MC", "TEXTILE ATTESI", "",
         "OTHER ATTESI", "", "SHOES ATTESI", "", "ECOM ATTESI", "",
-        "PEDANE", "TOTALE PEDANE", "VETTORE AUTISTA", "TIPO MEZZO", "TARGA", "COD.MEZZO", "SUPPORTO"
+        "PEDANE", "TOTALE PEDANE", "VETTORE", "TIPO MEZZO", "TARGA", "COD.MEZZO", "SUPPORTO"
     ]
 
     header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
@@ -282,17 +283,17 @@ def export_zara_spunta(
         ws.cell(row=108 + base_offset, column=1, value="TOTALE PEZZI").font = bold_font
         ws.cell(row=108 + base_offset, column=2, value=int(special_breakdowns.get("totale_pezzi_lavorati", 0))).font = bold_font
 
-        # Row 110: Header Stander / PLT
+        # Row 110: Header Stender / PLT
         ws.cell(row=110 + base_offset, column=1, value="SVILUPPO").font = bold_font
-        ws.cell(row=110 + base_offset, column=2, value="STANDER").font = bold_font
+        ws.cell(row=110 + base_offset, column=2, value="STENDER").font = bold_font
         ws.cell(row=110 + base_offset, column=3, value="PLT").font = bold_font
 
-        # Rows 111-113: Sviluppo Stander
+        # Rows 111-113: Sviluppo Stender
         stnd_row_map = {"3680": 111, "9226": 112, "3591": 113}
         for sid, sdata in spec.items():
             r = stnd_row_map.get(sid, 111) + base_offset
             ws.cell(row=r, column=1, value=f"{sid} /0").font = bold_font
-            ws.cell(row=r, column=2, value=int(sdata.get("stander", 0)))
+            ws.cell(row=r, column=2, value=int(sdata.get("stender", sdata.get("stander", 0))))
             ws.cell(row=r, column=3, value=int(sdata.get("plt", 0)))
             ws.cell(row=r, column=5, value=sdata.get("sviluppo_str", ""))
 
@@ -383,25 +384,25 @@ def export_sintesi_operativa(
     ws_giri.title = "Piano Giri & Mezzi"
     ws_giri.views.sheetView[0].showGridLines = True
 
-    # Title Banner (13 columns: A to M)
-    ws_giri.merge_cells("A1:M1")
+    # Title Banner (12 columns: A to L)
+    ws_giri.merge_cells("A1:L1")
     c_title = ws_giri.cell(row=1, column=1, value="SINTESI OPERATIVA TRASPORTI & GIRI - ZARA LOGISTICS HUB")
     c_title.font = font_title
     c_title.fill = fill_title
     c_title.alignment = align_center
     ws_giri.row_dimensions[1].height = 32
 
-    ws_giri.merge_cells("A2:M2")
+    ws_giri.merge_cells("A2:L2")
     c_sub = ws_giri.cell(
         row=2, column=1,
-        value=f"Data Spedizione: {run_date or 'N/D'}  |  Totale Colli: {tot_colli_all:,}  |  Totale Volume: {tot_vol_all:.2f} m³  |  Totale Pedane: {tot_ped_all:,} PLT"
+        value=f"Data Spedizione: {format_date_it(run_date) if run_date else 'N/D'}  |  Totale Colli: {format_number_it(tot_colli_all, 0)}  |  Totale Volume: {format_number_it(tot_vol_all, 2)} m³  |  Totale Pedane: {format_number_it(tot_ped_all, 0)} PLT"
     )
     c_sub.font = font_subtitle
     c_sub.fill = fill_subbar
     c_sub.alignment = align_center
     ws_giri.row_dimensions[2].height = 24
 
-    # Table Header (Row 4) - 13 columns
+    # Table Header (Row 4) - 12 columns
     tbl_cols = [
         ("Giro", align_center),
         ("Store ID", align_center),
@@ -413,7 +414,6 @@ def export_sintesi_operativa(
         ("Mezzo Assegnato", align_left),
         ("Supporto Mezzo Proposto", align_left),
         ("Vettore", align_left),
-        ("Autista", align_left),
         ("Targa", align_center),
         ("Stato Negozio", align_center)
     ]
@@ -452,12 +452,8 @@ def export_sintesi_operativa(
         base_sid = str(first_st.get("store_code", "")).strip()
         st_meta = map_stores.get(base_sid) or map_stores.get(base_sid[:-1] if base_sid.endswith("B") else base_sid, {})
         vett_str = vett_autista
-        aut_str = ""
-        if st_meta:
-            if st_meta.get("vettore"):
-                vett_str = str(st_meta.get("vettore"))
-            if st_meta.get("autista"):
-                aut_str = str(st_meta.get("autista"))
+        if st_meta and st_meta.get("vettore"):
+            vett_str = str(st_meta.get("vettore"))
 
         # Calcolo Proposta Mezzo di Supporto
         g_ped_active = int(sum(
@@ -489,13 +485,11 @@ def export_sintesi_operativa(
         else:
             supp_display = "—"
 
-        # Giro Banner Row (Cols 1-13)
-        ws_giri.merge_cells(start_row=curr_row, start_column=1, end_row=curr_row, end_column=13)
+        # Giro Banner Row (Cols 1-12)
+        ws_giri.merge_cells(start_row=curr_row, start_column=1, end_row=curr_row, end_column=12)
         banner_text = f"🚛 GIRO: {giro}"
         if vett_str:
             banner_text += f"   |   Vettore: {vett_str}"
-        if aut_str:
-            banner_text += f"   |   Autista: {aut_str}"
         if tipo_m:
             banner_text += f"   |   Mezzo: {tipo_m}"
         if targa_m:
@@ -538,7 +532,6 @@ def export_sintesi_operativa(
             brand_val = str(s_row.get("brand", s_row.get("punto_vendita", "")) or "")
             name_val = str(s_row.get("store_name", "") or "")
             s_vett = str(s_meta.get("vettore", vett_str) or vett_str)
-            s_aut = str(s_meta.get("autista", aut_str) or aut_str)
             s_mez = str(s_row.get("tipo_mezzo", tipo_m) or tipo_m)
             s_tar = str(s_row.get("targa", targa_m) or targa_m)
             s_supp = str(s_row.get("supporto", "") or "").strip()
@@ -556,7 +549,6 @@ def export_sintesi_operativa(
                 (s_mez, align_left, None),
                 (s_supp, align_left, None),
                 (s_vett, align_left, None),
-                (s_aut, align_left, None),
                 (s_tar, align_center, None),
                 ("OPERATIVO" if is_op else "STANDBY", align_center, None)
             ]
@@ -574,7 +566,7 @@ def export_sintesi_operativa(
             ws_giri.row_dimensions[curr_row].height = 19
             curr_row += 1
 
-        # Giro Subtotal Row (Cols 1-13)
+        # Giro Subtotal Row (Cols 1-12)
         subtot_data = [
             (f"SUBTOTALE {giro}", align_left, font_bold),
             ("", align_left, font_bold),
@@ -586,7 +578,6 @@ def export_sintesi_operativa(
             (tipo_m, align_left, font_bold),
             (supp_display, align_left, font_bold),
             (vett_str, align_left, font_bold),
-            (aut_str, align_left, font_bold),
             (targa_m, align_center, font_bold),
             ("", align_center, font_bold)
         ]
@@ -606,7 +597,7 @@ def export_sintesi_operativa(
         ws_giri.row_dimensions[curr_row].height = 21
         curr_row += 2  # leaves an empty spacer row
 
-    # Grand Total Row at bottom (Cols 1-13)
+    # Grand Total Row at bottom (Cols 1-12)
     tot_data = [
         ("TOTALE GENERALE SPEDIZIONI", align_left),
         ("", align_left),
@@ -615,7 +606,6 @@ def export_sintesi_operativa(
         (tot_colli_all, align_right),
         (tot_vol_all, align_right),
         (tot_ped_all, align_right),
-        ("", align_left),
         ("", align_left),
         ("", align_left),
         ("", align_left),
@@ -636,10 +626,10 @@ def export_sintesi_operativa(
     ws_giri.merge_cells(start_row=curr_row, start_column=1, end_row=curr_row, end_column=4)
     ws_giri.row_dimensions[curr_row].height = 26
 
-    # Column widths for Sheet 1
+    # Column widths for Sheet 1 (12 columns)
     col_widths_s1 = {
         1: 10, 2: 12, 3: 15, 4: 30, 5: 14, 6: 14, 7: 14,
-        8: 18, 9: 25, 10: 18, 11: 18, 12: 14, 13: 14
+        8: 18, 9: 25, 10: 18, 11: 14, 12: 14
     }
     for c_idx, w in col_widths_s1.items():
         ws_giri.column_dimensions[get_column_letter(c_idx)].width = w
@@ -676,7 +666,7 @@ def export_sintesi_operativa(
 
     tex_cols = [
         "Store ID", "Punto Vendita / Negozio", "Totale Capi", "Capi Appesi",
-        "Capi Stesi", "Deduzione Profumi", "Stander da Allestire", "Bancali / PLT", "Allestimento Operativo"
+        "Capi Stesi", "Deduzione Profumi", "Stender da Allestire", "Bancali / PLT", "Allestimento Operativo"
     ]
     for c_i, h in enumerate(tex_cols, 1):
         c = ws_lav.cell(row=5, column=c_i, value=h)
@@ -700,9 +690,9 @@ def export_sintesi_operativa(
         c_app = int(sdata.get("appesi", 0) or 0)
         c_ste = int(sdata.get("stesi", 0) or 0)
         c_prf = int(sdata.get("profumi", sdata.get("correzione_profumi", 0)) or 0)
-        stnd = int(sdata.get("stander", 0) or 0)
+        stnd = int(sdata.get("stender", sdata.get("stander", 0)) or 0)
         banc = int(sdata.get("plt", sdata.get("bancali", 0)) or 0)
-        svil = str(sdata.get("sviluppo_str", sdata.get("sintesi", "")) or f"{banc} bancali + {stnd} stander")
+        svil = str(sdata.get("sviluppo_str", sdata.get("sintesi", "")) or f"{banc} bancali + {stnd} stender")
         sname = str(sdata.get("store_name", sid))
 
         sum_capi += c_tot
@@ -744,7 +734,7 @@ def export_sintesi_operativa(
         (sum_prof, align_right),
         (sum_stander, align_right),
         (sum_plt, align_right),
-        (f"{sum_plt} bancali + {sum_stander} stander totali", align_left)
+        (f"{sum_plt} bancali + {sum_stander} stender totali", align_left)
     ]
     for c_i, (v, a_align) in enumerate(subtot_tex, 1):
         cell = ws_lav.cell(row=l_row, column=c_i, value=v)
@@ -836,7 +826,7 @@ def export_sintesi_operativa(
 
     summary_kpis = [
         ("Totale Pezzi / Capi Lavorati in Piattaforma", int(tot_pezzi_lavorati)),
-        ("Totale Stander da Allestire (Tessile)", sum_stander),
+        ("Totale Stender da Allestire (Tessile)", sum_stander),
         ("Totale Bancali da Allestire (Tessile)", sum_plt),
     ]
     for lbl, val in summary_kpis:

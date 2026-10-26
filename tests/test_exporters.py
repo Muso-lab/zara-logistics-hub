@@ -212,9 +212,9 @@ def test_sintesi_operativa_structure():
         assert "Elenco Punti Vendita" not in sheet_names
         assert len(sheet_names) == 2
 
-        # Check Sheet 1 headers (Row 4)
+        # Check Sheet 1 headers (Row 4 - 12 columns, Autista removed)
         ws1 = wb["Piano Giri & Mezzi"]
-        headers = [ws1.cell(row=4, column=c).value for c in range(1, 14)]
+        headers = [ws1.cell(row=4, column=c).value for c in range(1, 13)]
         assert headers == [
             "Giro",
             "Store ID",
@@ -226,10 +226,13 @@ def test_sintesi_operativa_structure():
             "Mezzo Assegnato",
             "Supporto Mezzo Proposto",
             "Vettore",
-            "Autista",
             "Targa",
             "Stato Negozio"
         ]
+
+        # Check Sheet 2 header for Stender
+        ws2 = wb["Lavorazioni Piattaforma"]
+        assert ws2.cell(row=5, column=7).value == "Stender da Allestire"
 
         # Check support vehicle proposal for overloaded Giro ZA1 (18 PLT on Eurocargo 14 PLT)
         # Row 5 is Giro Banner, Row 6 is Store 3503

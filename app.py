@@ -468,12 +468,12 @@ def render_operativa_files_and_email_section(
             for sid, sdata in spec_stores.items():
                 sname = sdata.get("store_name", sid)
                 app = int(sdata.get("appesi", 0))
-                stnd = int(sdata.get("stander", 0))
+                stnd = int(sdata.get("stender", sdata.get("stander", 0)))
                 ste = int(sdata.get("stesi", 0))
                 plt = int(sdata.get("bancali", sdata.get("bancali_stesi", 0)))
                 prf = int(sdata.get("correzione_profumi", 0))
                 tot_s = int(sdata.get("totale_pezzi", app + ste))
-                lav_lines.append(f"  • {sid} {sname}: {tot_s:,} capi tot | {app:,} appesi ({stnd} stander) | {ste:,} stesi ({plt} bancali) | profumi: {prf:,}")
+                lav_lines.append(f"  • {sid} {sname}: {format_number_it(tot_s, 0)} capi tot | {format_number_it(app, 0)} appesi ({format_number_it(stnd, 0)} stender) | {format_number_it(ste, 0)} stesi ({format_number_it(plt, 0)} bancali) | profumi: {format_number_it(prf, 0)}")
 
         if zh_stores:
             lav_lines.append("- Lavorazione Zara Home (50% /0 e 50% /8):")
@@ -482,16 +482,16 @@ def render_operativa_files_and_email_section(
                 paq = int(zdata.get("totale_paqueteria", zdata.get("totale", 0)))
                 q0 = int(zdata.get("quota_barra0", zdata.get("barra0", 0)))
                 q8 = int(zdata.get("quota_barra8", zdata.get("barra8", 0)))
-                lav_lines.append(f"  • {sid} {zsname}: {paq:,} pz totali (50% /0: {q0:,} pz — 50% /8: {q8:,} pz)")
+                lav_lines.append(f"  • {sid} {zsname}: {format_number_it(paq, 0)} pz totali (50% /0: {format_number_it(q0, 0)} pz — 50% /8: {format_number_it(q8, 0)} pz)")
 
         if tot_pezzi_lav:
-            lav_lines.append(f"- Totale Pezzi Lavorati in Piattaforma: {tot_pezzi_lav:,} pz")
+            lav_lines.append(f"- Totale Pezzi Lavorati in Piattaforma: {format_number_it(tot_pezzi_lav, 0)} pz")
 
     lav_section = ("\n" + "\n".join(lav_lines) + "\n") if lav_lines else ""
 
     default_body = (
         f"Gentili Colleghi,\n\n"
-        f"in allegato trasmettiamo i file operativi relativi alla spedizione del {r_date}:\n\n"
+        f"in allegato trasmettiamo i file operativi relativi alla spedizione del {format_date_it(r_date)}:\n\n"
         f"- Sintesi Operativa Giri & Lavorazioni (Sintesi_Operativa.xlsx)\n"
         f"- Flusso Viaggi TMS Barra 0 (barrazero_Sga.xlsx / .csv)\n"
         f"- Flusso Viaggi TMS Barra 9 Sdoppiati (barranove_Sga.xlsx / .csv)\n\n"
@@ -1187,7 +1187,7 @@ elif menu == "🚚 2. Bolle di Consegna":
             cols_show = [
                 "id", "giro", "id_store", "punto_vendita", "store_name", "tipo_cons",
                 "TOT_COLLI", "colli_abbigl", "colli_calzat", "colli_others", "colli_ecom",
-                "autista", "tipo_mezzo", "stringa"
+                "vettore", "tipo_mezzo", "stringa"
             ]
             st.dataframe(df_b_disp[[c for c in cols_show if c in df_b_disp.columns]], use_container_width=True, height=420)
 
@@ -1535,7 +1535,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
         att_st = int((df_stores["attivo"].fillna("SI").str.upper() == "SI").sum()) if not df_stores.empty else 0
         inatt_st = tot_st - att_st
         giri_cnt = int(df_stores["giro"].dropna().nunique()) if not df_stores.empty else 0
-        aut_cnt = len([a for a in df_stores["autista"].dropna().unique() if str(a).strip() != ""]) if not df_stores.empty else 0
+        vett_cnt = int(df_stores["vettore"].dropna().nunique()) if not df_stores.empty else 0
         lav_cnt = int((df_stores["lavorazione"].fillna("NO").astype(str).str.upper() != "NO").sum()) if not df_stores.empty else 0
         scorp_cnt = int((df_stores["scorporo_profumi"].fillna("NO").astype(str).str.upper() == "SI").sum()) if not df_stores.empty else 0
 
@@ -1552,14 +1552,14 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                 <div style="font-size: 12px; color: #64748B; margin-top: 2px;">Mappati per flotta standard e B9</div>
             </div>
             <div class="modern-card" style="padding: 14px 18px; margin-bottom: 0;">
-                <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">👤 Autisti Mappati</div>
-                <div style="font-size: 22px; font-weight: 800; color: #10B981; margin-top: 4px;">{aut_cnt}</div>
+                <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">🚛 Vettori Mappati</div>
+                <div style="font-size: 22px; font-weight: 800; color: #10B981; margin-top: 4px;">{vett_cnt} Vettori</div>
                 <div style="font-size: 12px; color: #64748B; margin-top: 2px;">Assegnati ai singoli giri</div>
             </div>
             <div class="modern-card" style="padding: 14px 18px; margin-bottom: 0;">
                 <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">🏭 Lavorazioni Banchina</div>
                 <div style="font-size: 22px; font-weight: 800; color: #6366F1; margin-top: 4px;">{lav_cnt} Negozi</div>
-                <div style="font-size: 12px; color: #64748B; margin-top: 2px;">Stander 'a madonna' & Zara Home</div>
+                <div style="font-size: 12px; color: #64748B; margin-top: 2px;">Stender 'a madonna' & Zara Home</div>
             </div>
             <div class="modern-card" style="padding: 14px 18px; margin-bottom: 0;">
                 <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">🧴 Scorporo Profumi</div>
@@ -1572,30 +1572,27 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
 
         # --- 2. TOOL AGGIORNAMENTO MASSIVO PER GIRO ---
         st.markdown('<div class="modern-card">', unsafe_allow_html=True)
-        st.markdown('<div class="modern-section-title">⚡ Aggiornamento Massivo per Giro (Autista, Mezzo & Vettore)</div>', unsafe_allow_html=True)
-        st.caption("Assegna o modifica contemporaneamente Autista, Cellulare e Tipo Mezzo per tutti i punti vendita del giro selezionato:")
+        st.markdown('<div class="modern-section-title">⚡ Aggiornamento Massivo per Giro (Vettore & Tipo Mezzo)</div>', unsafe_allow_html=True)
+        st.caption("Assegna o modifica contemporaneamente Vettore e Tipo Mezzo per tutti i punti vendita del giro selezionato:")
 
         df_giro_sum = get_giro_summary()
         giri_avail = sorted([g for g in df_stores["giro"].dropna().unique().tolist() if str(g).strip() != ""], key=_giro_sort_key) if not df_stores.empty else []
 
-        col_bm1, col_bm2, col_bm3, col_bm4, col_bm5 = st.columns([1.2, 1.8, 1.4, 1.8, 1.6])
+        col_bm1, col_bm2, col_bm3, col_bm4 = st.columns([1.3, 2.2, 2.0, 1.8])
         with col_bm1:
             sel_g = st.selectbox("Seleziona Giro", giri_avail, key="mass_sel_giro") if giri_avail else "ZA1"
             g_row = df_giro_sum[df_giro_sum["giro"] == sel_g].iloc[0] if not df_giro_sum.empty and not df_giro_sum[df_giro_sum["giro"] == sel_g].empty else {}
         with col_bm2:
-            curr_g_aut = "" if g_row.get("autista") in ["Non Assegnato", "—", "None", None] else str(g_row.get("autista", ""))
-            g_aut = st.text_input("Autista STD", value=curr_g_aut, placeholder="Nome e Cognome", key=f"mass_aut_{sel_g}")
+            curr_g_vet = "" if str(g_row.get("vettore", "")) in ["Non Assegnato", "—", "None", "nan", None] else str(g_row.get("vettore", "LACCHI SPA"))
+            g_vet = st.text_input("Vettore Assegnato", value=curr_g_vet or "LACCHI SPA", placeholder="Es. LACCHI SPA", key=f"mass_vet_{sel_g}")
         with col_bm3:
-            curr_g_cel = "" if str(g_row.get("cell_autista", "")) in ["None", "nan"] else str(g_row.get("cell_autista", ""))
-            g_cel = st.text_input("Cellulare", value=curr_g_cel, placeholder="Es. 3331234567", key=f"mass_cel_{sel_g}")
-        with col_bm4:
             curr_m = str(g_row.get("tipo_mezzo", "MOTRICE 18 PLT") or "MOTRICE 18 PLT").strip()
             idx_m = mezzi_list_full.index(curr_m) if curr_m in mezzi_list_full else 0
             g_mez = st.selectbox("Tipo Mezzo", options=mezzi_list_full, index=idx_m, key=f"mass_mez_{sel_g}")
-        with col_bm5:
+        with col_bm4:
             st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
             if st.button(f"💾 APPLICA AL GIRO {sel_g}", type="primary", use_container_width=True, key=f"btn_apply_giro_{sel_g}"):
-                n_up = update_giro_driver(sel_g, g_aut, g_cel, g_mez, "LACCHI SPA")
+                n_up = update_giro_driver(sel_g, autista="", cell_autista="", tipo_mezzo=g_mez, vettore=g_vet)
                 st.success(f"✅ Aggiornati con successo tutti i **{n_up}** punti vendita del giro **{sel_g}**!")
                 st.rerun()
 
@@ -1700,15 +1697,12 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                         curr_g = str(s_data.get("giro", "ZA1") or "ZA1").strip()
                         e_g = st.text_input("Giro Assegnato", value=curr_g, key=f"e_g_{target_sid}").strip().upper()
 
+                        curr_vett = str(s_data.get("vettore", "LACCHI SPA") or "LACCHI SPA").strip()
+                        e_vett = st.text_input("Vettore Assegnato", value=curr_vett, key=f"e_vett_{target_sid}")
+
                         curr_m = str(s_data.get("tipo_mezzo", "MOTRICE 18 PLT") or "MOTRICE 18 PLT").strip()
                         idx_m = mezzi_list_full.index(curr_m) if curr_m in mezzi_list_full else 0
                         e_m = st.selectbox("Tipo Mezzo STD", options=mezzi_list_full, index=idx_m, key=f"e_m_{target_sid}")
-
-                        curr_aut = "" if str(s_data.get("autista", "")) in ["None", "nan"] else str(s_data.get("autista", ""))
-                        e_aut = st.text_input("Autista STD", value=curr_aut, key=f"e_aut_{target_sid}")
-
-                        curr_cell = "" if str(s_data.get("cell_autista", "")) in ["None", "nan"] else str(s_data.get("cell_autista", ""))
-                        e_cell = st.text_input("Cellulare Autista", value=curr_cell, key=f"e_cell_{target_sid}")
 
                         lav_opts = ["NO", "SI TESSILE", "SI HOME"]
                         curr_lav = str(s_data.get("lavorazione", "NO") or "NO").strip().upper()
@@ -1730,9 +1724,6 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                         idx_md = mezzi_list_full.index(curr_md) if curr_md in mezzi_list_full else 0
                         e_md = st.selectbox("Mezzo /9", options=mezzi_list_full, index=idx_md, key=f"e_md_{target_sid}")
 
-                        curr_autd = "" if str(s_data.get("autista_doppia", "")) in ["None", "nan"] else str(s_data.get("autista_doppia", ""))
-                        e_autd = st.text_input("Autista /9", value=curr_autd, key=f"e_autd_{target_sid}")
-
                         e_ind = st.text_input("Indirizzo Scarico", value=str(s_data.get("indirizzo", "") or ""), key=f"e_ind_{target_sid}")
                         e_cc = st.text_input("Centro Commerciale", value=str(s_data.get("cc", "") or ""), key=f"e_cc_{target_sid}")
 
@@ -1743,14 +1734,12 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                             "punto_vendita": e_br,
                             "attivo": e_att_val,
                             "giro": e_g or "DA ASSEGNARE",
+                            "vettore": e_vett.strip(),
                             "tipo_mezzo": e_m,
-                            "autista": e_aut.strip(),
-                            "cell_autista": e_cell.strip(),
                             "lavorazione": e_lav,
                             "scorporo_profumi": e_scorp,
                             "sdoppiamento_b9": e_sdop,
                             "tipo_mezzo_doppia": e_md,
-                            "autista_doppia": e_autd.strip(),
                             "formula": e_form.strip(),
                             "indirizzo": e_ind.strip(),
                             "cc": e_cc.strip(),
@@ -1770,9 +1759,9 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                 st.markdown(f"<div style='margin-top:8px; font-size:13px; color:#64748B;'>Negozi visualizzati: <strong>{len(df_filtered)}</strong> / {len(df_stores)}</div>", unsafe_allow_html=True)
 
             cols_order = [
-                "store_id", "store_name", "brand", "giro", "attivo", "lavorazione",
-                "scorporo_profumi", "formula", "tipo_mezzo", "autista", "cell_autista",
-                "sdoppiamento_b9", "tipo_mezzo_doppia", "autista_doppia",
+                "store_id", "store_name", "brand", "giro", "attivo", "vettore", "lavorazione",
+                "scorporo_profumi", "formula", "tipo_mezzo",
+                "sdoppiamento_b9", "tipo_mezzo_doppia",
                 "indirizzo", "provincia", "cod_sga", "cc"
             ]
             df_grid_edit = df_filtered[[c for c in cols_order if c in df_filtered.columns]].copy() if not df_filtered.empty else pd.DataFrame(columns=cols_order)
@@ -1791,15 +1780,13 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                     "brand": st.column_config.SelectboxColumn("Brand", options=["ZARA", "BERSHKA", "PULL&BEAR", "MASSIMO DUTTI", "OYSHO", "STRADIVARIUS", "ZARA HOME", "ALTRO"], required=True, width="small"),
                     "giro": st.column_config.TextColumn("Giro", required=True, width="small"),
                     "attivo": st.column_config.SelectboxColumn("Stato", options=["SI", "NO"], required=True, width="small"),
+                    "vettore": st.column_config.TextColumn("Vettore", width="medium"),
                     "lavorazione": st.column_config.SelectboxColumn("Lavorazione Piattaforma", options=["NO", "SI TESSILE", "SI HOME"], required=True, width="medium"),
                     "scorporo_profumi": st.column_config.SelectboxColumn("Scorporo Profumi", options=["NO", "SI"], required=True, width="small"),
                     "formula": st.column_config.SelectboxColumn("Formula Pedane", options=f_opts_grid, required=True, width="medium"),
                     "tipo_mezzo": st.column_config.SelectboxColumn("Mezzo STD", options=mezzi_list_full, width="medium"),
-                    "autista": st.column_config.TextColumn("Autista STD", width="medium"),
-                    "cell_autista": st.column_config.TextColumn("Cellulare", width="small"),
                     "sdoppiamento_b9": st.column_config.SelectboxColumn("Sdopp. /9", options=["NO", "SI"], required=True, width="small"),
                     "tipo_mezzo_doppia": st.column_config.SelectboxColumn("Mezzo /9", options=mezzi_list_full, width="medium"),
-                    "autista_doppia": st.column_config.TextColumn("Autista /9", width="small"),
                     "indirizzo": st.column_config.TextColumn("Indirizzo Scarico", width="large"),
                     "provincia": st.column_config.TextColumn("Prov.", width="small"),
                     "cod_sga": st.column_config.NumberColumn("Cod. SGA", format="%d", width="small"),
@@ -1836,7 +1823,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                     new_b = st.selectbox("Brand", ["ZARA", "BERSHKA", "PULL&BEAR", "MASSIMO DUTTI", "OYSHO", "STRADIVARIUS", "ZARA HOME", "ALTRO"])
                     new_g = st.text_input("Giro Assegnato", value="ZA1").strip().upper()
                 with ns2:
-                    new_aut = st.text_input("Autista STD").strip()
+                    new_vet = st.text_input("Vettore", value="LACCHI SPA").strip()
                     new_mez = st.selectbox("Mezzo STD", options=mezzi_list_full)
                     new_form = st.selectbox("Formula Pedane", FORMULA_OPTIONS)
                     new_att = st.selectbox("Stato Negozio", ["SI", "NO"])
@@ -1853,7 +1840,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                             "punto_vendita": new_b,
                             "brand": new_b,
                             "giro": new_g or "DA ASSEGNARE",
-                            "autista": new_aut,
+                            "vettore": new_vet,
                             "tipo_mezzo": new_mez,
                             "formula": new_form,
                             "lavorazione": "NO",
@@ -1879,7 +1866,8 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
             st.markdown("---")
             excel_buf = io.BytesIO()
             with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
-                df_stores.to_excel(writer, index=False, sheet_name="Anagrafica Negozi")
+                df_export = df_stores.drop(columns=[c for c in ["autista", "cell_autista", "autista_doppia"] if c in df_stores.columns])
+                df_export.to_excel(writer, index=False, sheet_name="Anagrafica Negozi")
             excel_buf.seek(0)
             st.download_button(
                 "📥 Esporta Anagrafica Completa in Excel",

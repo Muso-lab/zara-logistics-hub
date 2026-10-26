@@ -1069,10 +1069,10 @@ def compute_special_breakdowns(
             bancali_extra = int(round(sho_bultos / 18.0)) if sho_bultos > 0 else 0
 
         bancali_totali = bancali_stesi + bancali_extra
-        # Regola di carico: 2 stander occupano lo spazio di 4 bancali "a madonna" (1 stander = 2 pedane eq.)
+        # Regola di carico: 2 stender occupano lo spazio di 4 bancali "a madonna" (1 stender = 2 pedane eq.)
         stander_pedane_eq = stander * 2
         impronta_a_terra = bancali_totali + stander_pedane_eq
-        sintesi = f"{bancali_totali} bancali + {stander} stander"
+        sintesi = f"{bancali_totali} bancali + {stander} stender"
         s_name = store_names.get(sid, f"Store {sid}")
 
         special_stores[sid] = {
@@ -1082,10 +1082,12 @@ def compute_special_breakdowns(
             "stesi": stesi,
             "totale_pezzi": tot_pezzi,
             "correzione_profumi": corr,
+            "stender": stander,
             "stander": stander,
             "bancali_stesi": bancali_stesi,
             "bancali_extra": bancali_extra,
             "bancali": bancali_totali,
+            "stender_pedane_eq": stander_pedane_eq,
             "stander_pedane_eq": stander_pedane_eq,
             "impronta_a_terra": impronta_a_terra,
             "pedane_senza_lavorazione": pedane_senza_lav,
@@ -1100,7 +1102,9 @@ def compute_special_breakdowns(
             "Appesi": appesi,
             "Stesi (Netto)": stesi,
             "Correzione Profumi": corr,
+            "Stender": stander,
             "Stander": stander,
+            "Stender Eq. (PLT)": stander_pedane_eq,
             "Stander Eq. (PLT)": stander_pedane_eq,
             "Bancali Stesi": bancali_stesi,
             "Bancali Scarpe/Altri": bancali_extra,
@@ -1166,6 +1170,7 @@ def compute_special_breakdowns(
     return {
         "special_stores": special_stores,
         "zara_home": zh_stores,
+        "stender_summary": df_stander,
         "stander_summary": df_stander,
         "zh_summary": df_zh,
         "totale_pezzi_lavorati": tot_pezzi_lavorati,

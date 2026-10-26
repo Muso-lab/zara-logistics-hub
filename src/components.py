@@ -620,7 +620,7 @@ def render_riepilogo_giri_modern(
     """
     Renders the 'Vista per Giro' showing carrier/driver data, vehicle type,
     stores in the route, total MC, total Colli, 'Impronta a Terra (Pedane)'
-    (which considers the dynamic platform processing development: stander + bancali),
+    (which considers the dynamic platform processing development: stender + bancali),
     theoretical vehicle capacity, and load saturation percentage.
     """
     _inject_modern_css()
@@ -670,7 +670,7 @@ def render_riepilogo_giri_modern(
         grp = df[df["giro"].astype(str).str.strip() == g_name]
         is_b9_giro = bool((grp["is_barra9"] == 1).all() or grp["store_code"].astype(str).str.endswith("B").all())
 
-        # Determine Vettore / Autista / Tipo Mezzo / Cod. Mezzo from spunta or stores master
+        # Determine Vettore / Tipo Mezzo / Cod. Mezzo from spunta or stores master
         vett_list = [str(v).strip() for v in grp.get("vettore_autista", []) if str(v).strip() and str(v).strip().upper() != "NONE"]
         mezzo_list = [str(v).strip() for v in grp.get("tipo_mezzo", []) if str(v).strip() and str(v).strip().upper() != "NONE"]
         cod_m_list = [str(v).strip() for v in grp.get("cod_mezzo", []) if str(v).strip() and str(v).strip().upper() != "NONE"]
@@ -679,25 +679,20 @@ def render_riepilogo_giri_modern(
         mezzo_str = mezzo_list[0] if mezzo_list else ""
         cod_mezzo_str = cod_m_list[0] if cod_m_list else ""
 
-        # Check Anagrafica Negozi for updated driver/carrier/vehicle if missing
-        autista_anag = ""
+        # Check Anagrafica Negozi for carrier/vehicle if missing
         for sc in grp["store_code"].astype(str).str.strip():
             base_sc = sc[:-1] if sc.endswith("B") else sc
             m = store_meta.get(sc) or store_meta.get(base_sc) or {}
-            if is_b9_giro and m.get("autista_doppia"):
-                autista_anag = str(m.get("autista_doppia")).strip()
-                if not mezzo_str and m.get("tipo_mezzo_doppia"):
-                    mezzo_str = str(m.get("tipo_mezzo_doppia")).strip()
+            if not vettore_str and m.get("vettore"):
+                vettore_str = str(m.get("vettore")).strip()
+            if is_b9_giro and not mezzo_str and m.get("tipo_mezzo_doppia"):
+                mezzo_str = str(m.get("tipo_mezzo_doppia")).strip()
                 break
-            elif m.get("autista"):
-                autista_anag = str(m.get("autista")).strip()
-                if not mezzo_str and m.get("tipo_mezzo"):
-                    mezzo_str = str(m.get("tipo_mezzo")).strip()
+            elif not is_b9_giro and not mezzo_str and m.get("tipo_mezzo"):
+                mezzo_str = str(m.get("tipo_mezzo")).strip()
                 break
 
-        vettore_display = vettore_str or autista_anag or "Da Assegnare"
-        if autista_anag and vettore_str and autista_anag.upper() not in vettore_str.upper():
-            vettore_display = f"{vettore_str} ({autista_anag})"
+        vettore_display = vettore_str or "Da Assegnare"
 
         # Store list summary & Pedane calculation with platform footprint development
         seen_s = []
@@ -729,15 +724,15 @@ def render_riepilogo_giri_modern(
             # Check if this store has active platform processing
             sp_info = special_stores.get(sc) if not is_b9_giro else None
             if sp_info and isinstance(sp_info, dict):
-                # Platform store footprint: bancali + (stander * 2)
+                # Platform store footprint: bancali + (stender * 2)
                 banc_tot = int(sp_info.get("bancali", 0))
-                stdr = int(sp_info.get("stander", 0))
-                # 2 stander = 4 pedane "a madonna" -> 1 stander = 2 pedane eq.
-                stdr_eq = int(sp_info.get("stander_pedane_eq", stdr * 2))
+                stdr = int(sp_info.get("stender", sp_info.get("stander", 0)))
+                # 2 stender = 4 pedane "a madonna" -> 1 stender = 2 pedane eq.
+                stdr_eq = int(sp_info.get("stender_pedane_eq", sp_info.get("stander_pedane_eq", stdr * 2)))
                 impronta = int(sp_info.get("impronta_a_terra", banc_tot + stdr_eq))
                 g_pedane_tot += impronta
-                platform_notes.append(f"{sc}: {impronta} PLT ({banc_tot} plt + {stdr} stdr)")
-                store_badge = f"<strong>{sc}</strong> <span class='badge-pill-blue' style='font-size:10.5px;'>🏭 {banc_tot} PLT + {stdr} STD</span>"
+                platform_notes.append(f"{sc}: {impronta} PLT ({banc_tot} plt + {stdr} stender)")
+                store_badge = f"<strong>{sc}</strong> <span class='badge-pill-blue' style='font-size:10.5px;'>🏭 {banc_tot} PLT + {stdr} STENDER</span>"
             else:
                 g_pedane_tot += raw_ped
                 store_badge = sc
@@ -796,7 +791,7 @@ def render_riepilogo_giri_modern(
         <div class="modern-card" style="padding: 14px 18px; margin-bottom: 0;">
             <div style="font-size: 11.5px; font-weight: 700; color: #64748B; text-transform: uppercase;">📐 Impronta a Terra</div>
             <div style="font-size: 22px; font-weight: 800; color: #E11D48; margin-top: 4px;">{format_number_it(tot_ped_all, 0)} pedane</div>
-            <div style="font-size: 12px; color: #64748B; margin-top: 2px;">Con sviluppo stander 'a madonna'</div>
+            <div style="font-size: 12px; color: #64748B; margin-top: 2px;">Con sviluppo stender 'a madonna'</div>
         </div>
         <div class="modern-card" style="padding: 14px 18px; margin-bottom: 0;">
             <div style="font-size: 11.5px; font-weight: 700; color: #64748B; text-transform: uppercase;">🚚 Capienza & Saturazione</div>
@@ -892,7 +887,7 @@ def render_riepilogo_giri_modern(
         unsafe_allow_html=True,
     )
     st.caption(
-        "Confronto tra l'impronta a terra complessiva per giro (incluso sviluppo lavorazione banchina: stander 'a madonna' + bancali) e la capienza teorica del mezzo assegnato in anagrafica, con proposta automatica del mezzo di supporto idoneo a coprire eventuali esuberi."
+        "Confronto tra l'impronta a terra complessiva per giro (incluso sviluppo lavorazione banchina: stender 'a madonna' + bancali) e la capienza teorica del mezzo assegnato in anagrafica, con proposta automatica del mezzo di supporto idoneo a coprire eventuali esuberi."
     )
 
     table_html = (
@@ -900,7 +895,7 @@ def render_riepilogo_giri_modern(
         '<table class="modern-tbl">'
         "<thead><tr>"
         "<th>Giro</th>"
-        '<th style="text-align: left;">Vettore / Autista</th>'
+        '<th style="text-align: left;">Vettore</th>'
         "<th>Tipo Mezzo</th>"
         "<th>Cod. Mezzo</th>"
         '<th style="text-align: left;">Punti Vendita nel Giro</th>'
@@ -984,7 +979,7 @@ def render_lavorazioni_piattaforma(sb: Optional[Dict[str, Any]], key_prefix: str
     # -------------------------------------------------------------
     st.markdown('<div class="modern-card">', unsafe_allow_html=True)
     st.markdown('<div class="modern-section-title">👕 2. Dettaglio Pezzi Appesi / Stesi & Correzione Profumi</div>', unsafe_allow_html=True)
-    st.caption("Pezzi calcolati al netto dei profumi dedicati per la corretta determinazione degli stander e dei bancali stesi (dinamico da Anagrafica Negozi).")
+    st.caption("Pezzi calcolati al netto dei profumi dedicati per la corretta determinazione degli stender e dei bancali stesi (dinamico da Anagrafica Negozi).")
 
     pezzi_rows_html = []
     if spec:
@@ -1023,7 +1018,7 @@ def render_lavorazioni_piattaforma(sb: Optional[Dict[str, Any]], key_prefix: str
     st.markdown('</div>', unsafe_allow_html=True)
 
     # -------------------------------------------------------------
-    # 3. RIPARTIZIONE ZARA HOME & 4. SVILUPPO STANDER / BANCALI
+    # 3. RIPARTIZIONE ZARA HOME & 4. SVILUPPO STENDER / BANCALI
     # -------------------------------------------------------------
     c_zh, c_sv = st.columns([1, 1.25])
 
@@ -1071,19 +1066,19 @@ def render_lavorazioni_piattaforma(sb: Optional[Dict[str, Any]], key_prefix: str
 
     with c_sv:
         st.markdown('<div class="modern-card">', unsafe_allow_html=True)
-        st.markdown('<div class="modern-section-title">👗 4. Sviluppo Stander, Bancali & Impronta a Terra</div>', unsafe_allow_html=True)
-        st.caption("Fattori di carico: 200 pz/stander, 300 pz/bancale steso (store 3680 fattore 65% Barra 0). Regola 2 stander = 4 pedane 'a madonna'.")
+        st.markdown('<div class="modern-section-title">👗 4. Sviluppo Stender, Bancali & Impronta a Terra</div>', unsafe_allow_html=True)
+        st.caption("Fattori di carico: 200 pz/stender, 300 pz/bancale steso (store 3680 fattore 65% Barra 0). Regola 2 stender = 4 pedane 'a madonna'.")
 
         sv_rows_html = []
         if spec:
             for sid, sdata in spec.items():
                 lbl = sdata.get("label", sid)
-                stdr = sdata.get("stander", 0)
-                stdr_eq = sdata.get("stander_pedane_eq", stdr * 2)
+                stdr = sdata.get("stender", sdata.get("stander", 0))
+                stdr_eq = sdata.get("stender_pedane_eq", sdata.get("stander_pedane_eq", stdr * 2))
                 banc_tot = sdata.get("bancali", 0)
                 banc_stesi = sdata.get("bancali_stesi", banc_tot)
                 banc_extra = sdata.get("bancali_extra", 0)
-                sint = sdata.get("sintesi", f"{banc_tot} bancali + {stdr} stander")
+                sint = sdata.get("sintesi", f"{banc_tot} bancali + {stdr} stender")
                 impr = sdata.get("impronta_a_terra", banc_tot + stdr_eq)
                 teor = sdata.get("pedane_senza_lavorazione", 0)
                 diff = impr - teor if teor > 0 else 0
@@ -1109,7 +1104,7 @@ def render_lavorazioni_piattaforma(sb: Optional[Dict[str, Any]], key_prefix: str
             '<table class="modern-tbl">'
             '<thead><tr>'
             '<th style="text-align: left; width: 22%;">Negozio</th>'
-            '<th style="width: 20%;">Stander</th>'
+            '<th style="width: 20%;">Stender</th>'
             '<th style="width: 18%;">Bancali</th>'
             '<th style="width: 25%;">Allestimento</th>'
             '<th style="width: 15%;">Impronta</th>'
@@ -1117,7 +1112,7 @@ def render_lavorazioni_piattaforma(sb: Optional[Dict[str, Any]], key_prefix: str
             f'<tbody>{"".join(sv_rows_html)}</tbody>'
             '</table>'
             '<div class="callout-box" style="margin-top: 14px;">'
-            "💡 <strong>Regola di Carico Mezzi Piattaforma:</strong> 2 stander occupano lo spazio di 4 bancali disposti trasversalmente ('a madonna'), ovvero <strong>1 stander = 2 pedane equivalenti a terra</strong>. Nelle viste per giro e saturazione mezzi, l'ingombro reale considera l'impronta a terra complessiva (bancali effettivi + stander convertiti)."
+            "💡 <strong>Regola di Carico Mezzi Piattaforma:</strong> 2 stender occupano lo spazio di 4 bancali disposti trasversalmente ('a madonna'), ovvero <strong>1 stender = 2 pedane equivalenti a terra</strong>. Nelle viste per giro e saturazione mezzi, l'ingombro reale considera l'impronta a terra complessiva (bancali effettivi + stender convertiti)."
             '</div>'
         )
         st.markdown(html_sv, unsafe_allow_html=True)
@@ -1160,8 +1155,7 @@ def render_anagrafica_negozi_modern(df_stores: pd.DataFrame):
         brand = html.escape(str(r.get("brand", "") or r.get("punto_vendita", "")))
         giro = html.escape(str(r.get("giro", "") or "—"))
         mezzo = html.escape(str(r.get("tipo_mezzo", "") or "—"))
-        aut = html.escape(str(r.get("autista", "") or "—"))
-        cell = str(r.get("cell_autista", "") or "").strip()
+        vett = html.escape(str(r.get("vettore", "") or "—"))
         lav = str(r.get("lavorazione", "NO") or "NO").strip().upper()
         scorp = str(r.get("scorporo_profumi", "NO") or "NO").strip().upper()
         sdop = str(r.get("sdoppiamento_b9", "NO") or "NO").strip().upper()
@@ -1169,8 +1163,6 @@ def render_anagrafica_negozi_modern(df_stores: pd.DataFrame):
         form = html.escape(str(r.get("formula", "") or "MC/1,9"))
         ind = html.escape(str(r.get("indirizzo", "") or ""))
         cc = html.escape(str(r.get("cc", "") or ""))
-
-        aut_cell = f"{aut}<br><span style='font-size:11px; opacity:0.75;'>📞 {html.escape(cell)}</span>" if cell and aut != "—" else aut
 
         brand_badge = f'<span class="badge-pill-blue" style="font-size:11px; padding:2px 7px;">{brand}</span>' if brand else ""
         giro_badge = f'<span class="badge-giro">{giro}</span>' if giro != "—" else '<span class="text-muted-custom">—</span>'
@@ -1220,7 +1212,7 @@ def render_anagrafica_negozi_modern(df_stores: pd.DataFrame):
             f'<td>{giro_badge}</td>'
             f'<td>{status_badge}</td>'
             f'<td style="text-align: left;">{mezzo_badge}</td>'
-            f'<td style="text-align: left; font-size: 12.5px;">{aut_cell}</td>'
+            f'<td style="text-align: left; font-size: 12.5px; font-weight: 600;">{vett}</td>'
             f'<td>{lav_badge}</td>'
             f'<td>{scorp_badge}</td>'
             f'<td>{sdop_badge}</td>'
@@ -1261,7 +1253,7 @@ def render_anagrafica_negozi_modern(df_stores: pd.DataFrame):
         '<th style="min-width: 80px;">Giro</th>'
         '<th style="min-width: 95px;">Stato</th>'
         '<th style="text-align: left; min-width: 130px;">Mezzo STD</th>'
-        '<th style="text-align: left; min-width: 140px;">Autista & Cellulare</th>'
+        '<th style="text-align: left; min-width: 140px;">Vettore</th>'
         '<th style="min-width: 110px;">Lavorazione</th>'
         '<th style="min-width: 90px;">Profumi</th>'
         '<th style="min-width: 90px;">Sdopp. /9</th>'

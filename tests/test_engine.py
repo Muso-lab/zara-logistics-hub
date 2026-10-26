@@ -382,14 +382,15 @@ def test_platform_footprint_calculation_9226():
     )
 
     s9226 = sb["special_stores"]["9226"]
+    assert s9226["stender"] == 12
     assert s9226["stander"] == 12
     assert s9226["bancali_stesi"] == 11
     assert s9226["bancali_extra"] == 4  # 70 non-textile colli / 18 = 4 bancali
     assert s9226["bancali"] == 15      # 11 stesi + 4 extra = 15 bancali
-    assert s9226["stander_pedane_eq"] == 24  # 12 stander * 2 ("a madonna") = 24 pedane equivalenti
-    assert s9226["impronta_a_terra"] == 39   # 15 bancali + 24 stander eq = 39 pedane totali
+    assert s9226["stender_pedane_eq"] == 24  # 12 stender * 2 ("a madonna") = 24 pedane equivalenti
+    assert s9226["impronta_a_terra"] == 39   # 15 bancali + 24 stender eq = 39 pedane totali
     assert s9226["pedane_senza_lavorazione"] == 25
-    assert s9226["sintesi"] == "15 bancali + 12 stander"
+    assert s9226["sintesi"] == "15 bancali + 12 stender"
 
 
 def test_suggest_support_vehicle():
