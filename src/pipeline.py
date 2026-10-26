@@ -213,8 +213,12 @@ def run_pipeline(
     conn.commit()
     conn.close()
 
-    # Trigger automatic background sync to Google Sheets
-    auto_sync_tables(["runs", "planning_results", "spunta_arrivi", "forecast_raw", "stores"])
+    # Sync immediately to Google Sheets to persist across container restarts
+    try:
+        from src.cloud_sync import push_tables_to_cloud
+        push_tables_to_cloud(["runs", "planning_results", "spunta_arrivi", "stores"], timeout=15)
+    except Exception as e:
+        print(f"Warning: Cloud sync skipped or failed: {e}")
 
     # 5. Export Files
     out_dir = OUTPUT_DIR / f"run_{run_id}_{run_date}"

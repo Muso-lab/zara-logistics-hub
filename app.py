@@ -129,6 +129,15 @@ def _initialize_system():
     except Exception:
         pass
 
+    # Ripristino automatico dallo storico Cloud (Google Sheets) se SQLite non contiene run
+    # (es. dopo un riavvio del container o un nuovo deploy su Streamlit Cloud)
+    try:
+        from src.db import get_all_runs
+        if get_all_runs().empty:
+            pull_all_from_cloud()
+    except Exception:
+        pass
+
 _initialize_system()
 
 # ==============================================================================
@@ -291,6 +300,13 @@ else:
 st.sidebar.write(f"📋 Bolle in Archivio: **{format_number_it(total_bolle_db, 0)}**")
 if get_cloud_url():
     st.sidebar.success("☁️ Google Sheets Sync: **ATTIVO**")
+    if st.sidebar.button("🔄 Sincronizza da Google Sheets", use_container_width=True, key="side_btn_pull_cloud", help="Ripristina tutte le run e le bolle salvate sul tuo Foglio Google"):
+        with st.spinner("Sincronizzazione in corso da Google Sheets..."):
+            r_p = pull_all_from_cloud()
+            if r_p.get("status") == "ok":
+                st.session_state.pop("last_run", None)
+                st.session_state.pop("active_view_run_id", None)
+                st.rerun()
 else:
     st.sidebar.caption("☁️ Google Sheets Sync: *Non collegato*")
 
