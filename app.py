@@ -737,6 +737,19 @@ if menu == "📥 1. Previsione & Arrivi":
 
             ex_user, ex_pass = get_extranet_credentials()
 
+            col_cred1, col_cred2 = st.columns([2.5, 1.5])
+            with col_cred1:
+                st.markdown(f"<div style='font-size:13px; color:#475569; margin: 4px 0 10px 0;'>🔑 Accesso configurato: <strong><code>{ex_user}</code></strong></div>", unsafe_allow_html=True)
+            with col_cred2:
+                with st.popover("⚙️ Modifica Credenziali Inditex", use_container_width=True):
+                    st.markdown("##### 🔐 Credenziali Extranet Inditex")
+                    new_u = st.text_input("Utente", value=ex_user, key="pop_ext_u")
+                    new_p = st.text_input("Password", value=ex_pass, type="password", key="pop_ext_p")
+                    if st.button("💾 Salva Nuove Credenziali", use_container_width=True, key="btn_save_pop_ext_creds"):
+                        set_extranet_credentials(new_u, new_p)
+                        st.success("Credenziali Extranet aggiornate!")
+                        st.rerun()
+
             if st.button("🌐 SCARICA DA EXTRANET ED ELABORA", type="primary", use_container_width=True, key="btn_ask_scrape"):
                 st.session_state["confirm_perfume_mode"] = "extranet"
 

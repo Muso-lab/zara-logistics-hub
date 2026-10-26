@@ -16,7 +16,8 @@ _DEFAULT_EXT_P = base64.b64decode("aVNtUEV2dnVrVjkt").decode("utf-8")
 
 def get_extranet_credentials() -> tuple[str, str]:
     """
-    Restituisce (username, password) salvati per Extranet Inditex.
+    Restituisce (username, password) salvati per Extranet Inditex
+    verificando env, Streamlit secrets, DB app_settings, cloud_config.json e fallback.
     """
     u = os.environ.get("EXTRANET_USER", "").strip()
     p = os.environ.get("EXTRANET_PASS", "").strip()
@@ -28,6 +29,20 @@ def get_extranet_credentials() -> tuple[str, str]:
         if hasattr(st, "secrets"):
             if "EXTRANET_USER" in st.secrets and "EXTRANET_PASS" in st.secrets:
                 return str(st.secrets["EXTRANET_USER"]).strip(), str(st.secrets["EXTRANET_PASS"]).strip()
+            if "extranet" in st.secrets:
+                su = str(st.secrets["extranet"].get("user", "")).strip()
+                sp = str(st.secrets["extranet"].get("password", "")).strip()
+                if su and sp:
+                    return su, sp
+    except Exception:
+        pass
+
+    try:
+        from src.db import get_app_setting
+        db_u = get_app_setting("extranet_user", "").strip()
+        db_p = get_app_setting("extranet_pass", "").strip()
+        if db_u and db_p:
+            return db_u, db_p
     except Exception:
         pass
 
@@ -45,7 +60,10 @@ def get_extranet_credentials() -> tuple[str, str]:
 
 
 def set_extranet_credentials(username: str, password: str):
-    """Salva le credenziali Extranet Inditex nel file di configurazione."""
+    """Salva le credenziali Extranet Inditex nel file locale, nel DB e sincronizza su Google Sheets."""
+    username = str(username).strip()
+    password = str(password).strip()
+
     CLOUD_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     data = {}
     if CLOUD_CONFIG_FILE.exists():
@@ -53,9 +71,17 @@ def set_extranet_credentials(username: str, password: str):
             data = json.loads(CLOUD_CONFIG_FILE.read_text(encoding="utf-8"))
         except Exception:
             data = {}
-    data["extranet_user"] = str(username).strip()
-    data["extranet_pass"] = str(password).strip()
+    data["extranet_user"] = username
+    data["extranet_pass"] = password
     CLOUD_CONFIG_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    try:
+        from src.db import set_app_setting
+        set_app_setting("extranet_user", username)
+        set_app_setting("extranet_pass", password)
+        auto_sync_tables(["app_settings"])
+    except Exception:
+        pass
 
 ALL_SYNC_TABLES = [
     "stores",

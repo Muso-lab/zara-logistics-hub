@@ -345,21 +345,46 @@ class InditexExtranetScraper:
             session.close()
 
     def _login(self, session: requests.Session):
-        r1 = session.get(EXTRANET_LOGIN_URL, timeout=30)
-        r1.raise_for_status()
-        r2 = session.post(
-            "https://extranet.inditex.com/my.policy",
-            data={
-                "username": self.username,
-                "password": self.password,
-                "vhost": "standard",
-                "check": "checkbox",
-            },
-            timeout=30,
-        )
-        r2.raise_for_status()
-        if "my.policy" in r2.url and "error" in r2.text.lower():
-            raise RuntimeError("Credenziali Extranet Inditex non valide o sessione rifiutata.")
+        # 1. Reset di eventuali sessioni residue o sospese su F5 BIG-IP APM
+        try:
+            session.get("https://extranet.inditex.com/vdesk/hangup.php3", timeout=15)
+        except Exception:
+            pass
+
+        # 2. Inizializzazione cookie di atterraggio (non bloccare se risponde 401 challenge)
+        try:
+            r1 = session.get(EXTRANET_LOGIN_URL, timeout=30, allow_redirects=True)
+        except Exception:
+            try:
+                r1 = session.get("https://extranet.inditex.com/my.policy", timeout=30, allow_redirects=True)
+            except Exception as e:
+                raise RuntimeError(f"Impossibile collegarsi al portale Inditex: {e}")
+
+        # 3. Invio credenziali al form F5 APM my.policy
+        try:
+            r2 = session.post(
+                "https://extranet.inditex.com/my.policy",
+                data={
+                    "username": self.username,
+                    "password": self.password,
+                    "vhost": "standard",
+                    "check": "checkbox",
+                },
+                timeout=30,
+                allow_redirects=True,
+            )
+        except Exception as e:
+            raise RuntimeError(f"Errore di rete durante l'invio credenziali a Extranet: {e}")
+
+        # 4. Verifica autenticazione
+        if r2.status_code == 401 or ("my.policy" in r2.url and ("error" in r2.text.lower() or "credencial" in r2.text.lower() or "denied" in r2.text.lower())):
+            raise RuntimeError(
+                f"Autenticazione Extranet non autorizzata (401 / credenziali rifiutate). "
+                f"Verifica che l'utente '{self.username}' e la relativa password siano attivi su extranet.inditex.com."
+            )
+
+        if r2.status_code >= 400:
+            raise RuntimeError(f"Risposta imprevista dal server Inditex durante il login (HTTP {r2.status_code}).")
 
     def _search_shipments(
         self,
