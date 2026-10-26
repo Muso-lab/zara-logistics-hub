@@ -706,10 +706,10 @@ def compute_planning_roma(
                 for (sid, tcons), grp in df_actuals.groupby([act_col, df_actuals["tipo_cons"].fillna("STD").astype(str).str.upper()]):
                     sid_str = str(sid).strip()
                     base_sid = sid_str[:-1] if sid_str.endswith("B") else sid_str
-                    c_abb = _safe_float(grp["TOT_ABBIGL"].sum()) if "TOT_ABBIGL" in grp.columns else _safe_float(grp.get("colli_abbigl", 0).sum())
-                    c_calz = _safe_float(grp["TOT_CALZAT"].sum()) if "TOT_CALZAT" in grp.columns else _safe_float(grp.get("colli_calzat", 0).sum())
-                    c_eco = _safe_float(grp["TOT_ECOM"].sum()) if "TOT_ECOM" in grp.columns else _safe_float(grp.get("colli_ecom", 0).sum())
-                    c_oth = _safe_float(grp["TOT_OTHERS"].sum()) if "TOT_OTHERS" in grp.columns else _safe_float(grp.get("colli_others", 0).sum())
+                    c_abb = _safe_float(grp["TOT_ABBIGL"].sum()) if "TOT_ABBIGL" in grp.columns else (_safe_float(grp["colli_abbigl"].sum()) if "colli_abbigl" in grp.columns else 0.0)
+                    c_calz = _safe_float(grp["TOT_CALZAT"].sum()) if "TOT_CALZAT" in grp.columns else (_safe_float(grp["colli_calzat"].sum()) if "colli_calzat" in grp.columns else 0.0)
+                    c_eco = _safe_float(grp["TOT_ECOM"].sum()) if "TOT_ECOM" in grp.columns else (_safe_float(grp["colli_ecom"].sum()) if "colli_ecom" in grp.columns else 0.0)
+                    c_oth = _safe_float(grp["TOT_OTHERS"].sum()) if "TOT_OTHERS" in grp.columns else (_safe_float(grp["colli_others"].sum()) if "colli_others" in grp.columns else 0.0)
                     str_list = [str(s) for s in grp["stringa"].dropna() if str(s).strip()] if "stringa" in grp.columns else []
                     d_info = {
                         "tot_abbigl": c_abb,
@@ -726,10 +726,10 @@ def compute_planning_roma(
             for sid, grp in df_actuals.groupby(act_col):
                 sid_str = str(sid).strip()
                 base_sid = sid_str[:-1] if sid_str.endswith("B") else sid_str
-                c_abb = _safe_float(grp["TOT_ABBIGL"].sum()) if "TOT_ABBIGL" in grp.columns else _safe_float(grp.get("colli_abbigl", 0).sum())
-                c_calz = _safe_float(grp["TOT_CALZAT"].sum()) if "TOT_CALZAT" in grp.columns else _safe_float(grp.get("colli_calzat", 0).sum())
-                c_eco = _safe_float(grp["TOT_ECOM"].sum()) if "TOT_ECOM" in grp.columns else _safe_float(grp.get("colli_ecom", 0).sum())
-                c_oth = _safe_float(grp["TOT_OTHERS"].sum()) if "TOT_OTHERS" in grp.columns else _safe_float(grp.get("colli_others", 0).sum())
+                c_abb = _safe_float(grp["TOT_ABBIGL"].sum()) if "TOT_ABBIGL" in grp.columns else (_safe_float(grp["colli_abbigl"].sum()) if "colli_abbigl" in grp.columns else 0.0)
+                c_calz = _safe_float(grp["TOT_CALZAT"].sum()) if "TOT_CALZAT" in grp.columns else (_safe_float(grp["colli_calzat"].sum()) if "colli_calzat" in grp.columns else 0.0)
+                c_eco = _safe_float(grp["TOT_ECOM"].sum()) if "TOT_ECOM" in grp.columns else (_safe_float(grp["colli_ecom"].sum()) if "colli_ecom" in grp.columns else 0.0)
+                c_oth = _safe_float(grp["TOT_OTHERS"].sum()) if "TOT_OTHERS" in grp.columns else (_safe_float(grp["colli_others"].sum()) if "colli_others" in grp.columns else 0.0)
                 str_list = [str(s) for s in grp["stringa"].dropna() if str(s).strip()] if "stringa" in grp.columns else []
                 map_act_tot[base_sid] = {
                     "tot_abbigl": c_abb,

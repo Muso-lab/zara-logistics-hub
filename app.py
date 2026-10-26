@@ -1599,7 +1599,13 @@ elif menu == "📊 3. Consuntivo & Planner Inditex":
 
             # Esportazione immediata del file ufficiale Planning ITX_RM.xlsx
             out_planner_path = OUTPUT_DIR / f"Planning_ITX_RM_{sel_plan_date}.xlsx"
-            export_planner_roma(df_planner_real, PLANNER_TEMPLATE_FILE, out_planner_path, sel_plan_date)
+            export_planner_roma(
+                df_planner=df_planner_real,
+                output_path=out_planner_path,
+                template_path=PLANNER_TEMPLATE_FILE,
+                delivery_date=sel_plan_date,
+                df_stores=df_stores_side
+            )
             if out_planner_path.exists():
                 with open(out_planner_path, "rb") as f_pl:
                     st.download_button(

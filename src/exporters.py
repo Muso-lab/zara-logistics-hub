@@ -858,86 +858,229 @@ def export_sintesi_operativa(
     return output_path
 
 
+def is_cell_gray(cell) -> bool:
+    """
+    Returns True if the cell has a gray or colored background indicating a non-fillable field.
+    Checks openpyxl fill types, RGB values, and theme tints.
+    """
+    try:
+        fill = getattr(cell, "fill", None)
+        if not fill or not fill.fill_type or fill.fill_type in ("none", None):
+            return False
+        sc = getattr(fill, "start_color", None)
+        if not sc:
+            return False
+        if getattr(sc, "type", None) == "rgb" and sc.rgb:
+            rgb_str = str(sc.rgb).upper()
+            if rgb_str in ("00000000", "FFFFFFFF"):
+                return False
+            return True
+        if getattr(sc, "type", None) == "theme":
+            if sc.theme == 0 and (sc.tint is None or sc.tint == 0.0):
+                return False
+            return True
+        return False
+    except Exception:
+        return False
+
+
 def export_planner_roma(
     df_planner: pd.DataFrame,
-    output_path: Union[str, Path],
-    template_path: Optional[Union[str, Path]] = None
-):
+    output_path: Union[str, Path] = None,
+    template_path: Optional[Union[str, Path]] = None,
+    delivery_date: Optional[Union[str, Any]] = None,
+    df_stores: Optional[pd.DataFrame] = None,
+    *args,
+    **kwargs
+) -> Path:
     """
-    Exports Planning ITX_RM.xlsx with standard format.
+    Exports Planning ITX_RM.xlsx strictly respecting the official Inditex format.
+    - Preserves existing sheets ('Planning Roma' and 'DATA ENTRY') and all formulas.
+    - Automatically ignores all gray cells ("LE VOCI IN GRIGIO NON VANNO COMPILATE").
+    - Populates delivery date in cell D3 (row 3, col 4).
+    - Dynamically matches stores and stream types (Textile, Shoes, Barra 9 'B').
+    - Handles swapped (template_path, output_path) gracefully.
     """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Fallback for extra positional arguments if called like (df, template, output, date)
+    if args:
+        if delivery_date is None and len(args) >= 1:
+            delivery_date = args[0]
+
+    # Handle swapped or default paths
+    if output_path is None and template_path is not None:
+        output_path = template_path
+        template_path = None
+
+    if output_path is not None and template_path is not None:
+        p_out = Path(output_path)
+        p_tpl = Path(template_path)
+        # If output_path is the template and template_path is the output destination
+        if p_out.name == "Planning ITX_RM.xlsx" and p_tpl.name != "Planning ITX_RM.xlsx":
+            output_path, template_path = template_path, output_path
+        elif p_out.exists() and not p_tpl.exists() and "Planning_ITX_RM_" in p_tpl.name:
+            output_path, template_path = template_path, output_path
 
     if template_path is None:
         template_path = PLANNER_TEMPLATE_FILE
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if template_path and Path(template_path).exists():
         wb = openpyxl.load_workbook(template_path)
     else:
         wb = openpyxl.Workbook()
 
-    ws = wb.active
-    ws.title = "PLANNING"
+    # Sheet selection - DO NOT rename to PLANNING, as formulas in DATA ENTRY depend on 'Planning Roma'
+    if "Planning Roma" in wb.sheetnames:
+        ws = wb["Planning Roma"]
+    else:
+        ws = wb.active
 
-    col_sid = "store_id" if "store_id" in df_planner.columns else "store_code"
-    map_p = {}
-    if not df_planner.empty and col_sid in df_planner.columns:
+    # 1. Update Date in cell D3 (row 3, col 4) if provided
+    if delivery_date:
+        try:
+            from src.utils import parse_date_obj
+            d_obj = parse_date_obj(delivery_date)
+            ws.cell(row=3, column=4, value=d_obj.strftime("%d/%m/%Y"))
+        except Exception:
+            ws.cell(row=3, column=4, value=str(delivery_date).strip())
+
+    # 2. Load store vehicle & driver info from df_stores or database
+    if df_stores is None or df_stores.empty:
+        try:
+            from src.db import get_stores_df
+            df_stores = get_stores_df()
+        except Exception:
+            df_stores = None
+
+    stores_info = {}
+    if df_stores is not None and not df_stores.empty:
+        sid_col = "store_id" if "store_id" in df_stores.columns else ("store_code" if "store_code" in df_stores.columns else None)
+        if sid_col:
+            for _, s_row in df_stores.iterrows():
+                sid_s = str(s_row[sid_col]).strip()
+                stores_info[sid_s] = s_row.to_dict()
+
+    # 3. Index df_planner
+    map_by_row_idx = {}
+    map_by_code_brand = {}
+    map_by_code = {}
+
+    if df_planner is not None and not df_planner.empty:
         for _, r_pl in df_planner.iterrows():
-            k_pl = str(r_pl[col_sid]).strip()
-            if k_pl not in map_p:
-                map_p[k_pl] = r_pl.to_dict()
+            r_dict = r_pl.to_dict()
+            if "row_idx" in r_dict and pd.notna(r_dict["row_idx"]):
+                try:
+                    map_by_row_idx[int(r_dict["row_idx"])] = r_dict
+                except Exception:
+                    pass
+            sid_s = str(r_dict.get("store_code", r_dict.get("store_id", ""))).strip()
+            brand_s = str(r_dict.get("brand", "")).upper()
+            is_shoes = "SHOES" in brand_s
+            map_by_code_brand[(sid_s, is_shoes)] = r_dict
+            if sid_s not in map_by_code:
+                map_by_code[sid_s] = r_dict
 
-    for r_idx in range(6, 60):
-        c_val = ws.cell(row=r_idx, column=3).value
-        if not c_val:
+    def _set_cell(cell, value, is_numeric=True):
+        # Rule: LE VOCI IN GRIGIO NON VANNO COMPILATE
+        if is_cell_gray(cell):
+            return
+        # Preserve existing formulas
+        if cell.value and str(cell.value).strip().startswith("="):
+            return
+        if is_numeric:
+            try:
+                num = float(value)
+                if num > 0:
+                    cell.value = int(round(num)) if float(num).is_integer() else round(num, 2)
+                else:
+                    cell.value = None
+            except (ValueError, TypeError):
+                cell.value = None
+        else:
+            cell.value = str(value).strip() if value and str(value).strip() else None
+
+    # 4. Iterate dynamically over template data rows (starting at row 7)
+    for r_idx in range(7, ws.max_row + 1):
+        c_code_val = ws.cell(row=r_idx, column=2).value
+        if c_code_val is None:
             continue
-        sid = str(c_val).strip()
-        p_row = map_p.get(sid)
+        c_code_str = str(c_code_val).strip()
+        if not c_code_str or c_code_str.startswith("="):
+            continue
+
+        c_brand_val = ws.cell(row=r_idx, column=3).value
+        brand_str = str(c_brand_val).strip().upper() if c_brand_val else ""
+        is_shoes = "SHOES" in brand_str
+
+        # Match row
+        p_row = map_by_row_idx.get(r_idx)
+        if not p_row:
+            p_row = map_by_code_brand.get((c_code_str, is_shoes))
+        if not p_row:
+            p_row = map_by_code.get(c_code_str)
         if not p_row:
             continue
 
-        pl_text = p_row.get("planned_textile", 0.0)
-        rec_text = p_row.get("received_textile", 0.0)
-        pl_oth = p_row.get("planned_others", 0.0)
-        rec_oth = p_row.get("received_others", 0.0)
-        vol_text = p_row.get("vol_textile", 0.0)
-        wt_text = p_row.get("weight_textile", 0.0)
+        # Col 6 (F): PLANNED CRTS TEXTILE
+        _set_cell(ws.cell(row=r_idx, column=6), p_row.get("planned_textile", 0.0))
+        # Col 7 (G): RECEIVED CRTS TEXTILE
+        _set_cell(ws.cell(row=r_idx, column=7), p_row.get("received_textile", 0.0))
+        # Col 8 (H): PLANNED CRTS OTHERS
+        _set_cell(ws.cell(row=r_idx, column=8), p_row.get("planned_others", 0.0))
+        # Col 9 (I): RECEIVED CRTS OTHERS
+        _set_cell(ws.cell(row=r_idx, column=9), p_row.get("received_others", 0.0))
+        # Col 10 (J): VOLUME TEXTILE
+        _set_cell(ws.cell(row=r_idx, column=10), p_row.get("vol_textile", 0.0))
+        # Col 11 (K): WEIGHT TEXTILE
+        _set_cell(ws.cell(row=r_idx, column=11), p_row.get("weight_textile", 0.0))
 
-        pl_sho = p_row.get("planned_shoes", 0.0)
-        rec_sho = p_row.get("received_shoes", 0.0)
-        vol_sho = p_row.get("vol_shoes", 0.0)
-        wt_sho = p_row.get("weight_shoes", 0.0)
+        # Col 12 (L): PLANNED CRTS SHOES
+        _set_cell(ws.cell(row=r_idx, column=12), p_row.get("planned_shoes", 0.0))
+        # Col 13 (M): RECEIVED CRTS SHOES
+        _set_cell(ws.cell(row=r_idx, column=13), p_row.get("received_shoes", 0.0))
+        # Col 14 (N): VOLUME SHOES
+        _set_cell(ws.cell(row=r_idx, column=14), p_row.get("vol_shoes", 0.0))
+        # Col 15 (O): WEIGHT SHOES
+        _set_cell(ws.cell(row=r_idx, column=15), p_row.get("weight_shoes", 0.0))
 
-        pl_eco = p_row.get("planned_ecom", 0.0)
-        rec_eco = p_row.get("received_ecom", 0.0)
-        vol_eco = p_row.get("vol_ecom", 0.0)
-        wt_eco = p_row.get("weight_ecom", 0.0)
+        # Col 16 (P): PLANNED CRTS ECOM
+        _set_cell(ws.cell(row=r_idx, column=16), p_row.get("planned_ecom", 0.0))
+        # Col 17 (Q): RECEIVED CRTS ECOM
+        _set_cell(ws.cell(row=r_idx, column=17), p_row.get("received_ecom", 0.0))
+        # Col 18 (R): VOLUME ECOM
+        _set_cell(ws.cell(row=r_idx, column=18), p_row.get("vol_ecom", 0.0))
+        # Col 19 (S): WEIGHT ECOM
+        _set_cell(ws.cell(row=r_idx, column=19), p_row.get("weight_ecom", 0.0))
 
-        intershops = p_row.get("intershops", "")
+        # Note: Col 20 (TOTAL VOLUME) & Col 21 (TOTAL WEIGHT) are formulas in template - preserved!
 
-        # Write Col F (6) to Col S (19)
-        ws.cell(row=r_idx, column=6, value=pl_text if pl_text > 0 else None)
-        ws.cell(row=r_idx, column=7, value=rec_text if rec_text > 0 else None)
-        ws.cell(row=r_idx, column=8, value=pl_oth if pl_oth > 0 else None)
-        ws.cell(row=r_idx, column=9, value=rec_oth if rec_oth > 0 else None)
-        ws.cell(row=r_idx, column=10, value=vol_text if vol_text > 0 else None)
-        ws.cell(row=r_idx, column=11, value=wt_text if wt_text > 0 else None)
+        # Col 22 (V): INTERSHOPS / ID STORE SENDER
+        _set_cell(ws.cell(row=r_idx, column=22), p_row.get("intershops", ""), is_numeric=False)
 
-        ws.cell(row=r_idx, column=12, value=pl_sho if pl_sho > 0 else None)
-        ws.cell(row=r_idx, column=13, value=rec_sho if rec_sho > 0 else None)
-        ws.cell(row=r_idx, column=14, value=vol_sho if vol_sho > 0 else None)
-        ws.cell(row=r_idx, column=15, value=wt_sho if wt_sho > 0 else None)
+        # Col 29..32: Mezzo, Vettore, Targa, Autista
+        st_info = stores_info.get(c_code_str, {})
+        # If B store, check base store profile fallback if needed
+        if not st_info and c_code_str.endswith("B"):
+            st_info = stores_info.get(c_code_str[:-1], {})
 
-        ws.cell(row=r_idx, column=16, value=pl_eco if pl_eco > 0 else None)
-        ws.cell(row=r_idx, column=17, value=rec_eco if rec_eco > 0 else None)
-        ws.cell(row=r_idx, column=18, value=vol_eco if vol_eco > 0 else None)
-        ws.cell(row=r_idx, column=19, value=wt_eco if wt_eco > 0 else None)
+        mezzo = p_row.get("tipo_mezzo") or st_info.get("tipo_mezzo")
+        vettore = p_row.get("vettore") or st_info.get("vettore")
+        targa = p_row.get("targa") or st_info.get("targa")
+        autista = p_row.get("autista") or st_info.get("autista")
 
-        # Col V (22): Intershops
-        ws.cell(row=r_idx, column=22, value=intershops if intershops else None)
+        if mezzo:
+            _set_cell(ws.cell(row=r_idx, column=29), mezzo, is_numeric=False)
+        if vettore and not ws.cell(row=r_idx, column=30).value:
+            _set_cell(ws.cell(row=r_idx, column=30), vettore, is_numeric=False)
+        if targa:
+            _set_cell(ws.cell(row=r_idx, column=31), targa, is_numeric=False)
+        if autista:
+            _set_cell(ws.cell(row=r_idx, column=32), autista, is_numeric=False)
 
     wb.save(output_path)
+    return output_path
 
 
 def export_bolle_excel(df_bolle: pd.DataFrame, delivery_date: str) -> bytes:

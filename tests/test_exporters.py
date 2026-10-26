@@ -238,3 +238,91 @@ def test_sintesi_operativa_structure():
         # Row 5 is Giro Banner, Row 6 is Store 3503
         supp_cell = ws1.cell(row=6, column=9).value
         assert supp_cell is not None and "FURGONE" in str(supp_cell)
+
+
+def test_export_planner_roma():
+    from src.exporters import export_planner_roma, is_cell_gray
+    from src.config import PLANNER_TEMPLATE_FILE
+    import openpyxl
+
+    df_test_planner = pd.DataFrame([
+        {
+            "row_idx": 7,
+            "route_id": "1",
+            "store_code": "8601",
+            "brand": "BERSHKA",
+            "planned_textile": 120,
+            "received_textile": 118,
+            "planned_others": 15,
+            "received_others": 15,
+            "vol_textile": 8.5,
+            "weight_textile": 450,
+            "planned_shoes": 0,
+            "received_shoes": 0,
+            "intershops": ""
+        },
+        {
+            "row_idx": 40,
+            "route_id": "1",
+            "store_code": "12271",
+            "brand": "ZARA SHOES",
+            "planned_textile": 0,
+            "received_textile": 0,
+            "planned_shoes": 45,
+            "received_shoes": 45,
+            "vol_shoes": 3.2,
+            "weight_shoes": 180,
+            "intershops": ""
+        },
+        {
+            "row_idx": 48,
+            "route_id": "1",
+            "store_code": "3680B",
+            "brand": "ZARA",
+            "planned_textile": 60,
+            "received_textile": 60,
+            "intershops": ""
+        }
+    ])
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        out_file = Path(tmp_dir) / "Planning_ITX_RM_2026-10-27.xlsx"
+        
+        # Test call with explicit keyword arguments
+        export_planner_roma(
+            df_planner=df_test_planner,
+            output_path=out_file,
+            template_path=PLANNER_TEMPLATE_FILE,
+            delivery_date="2026-10-27"
+        )
+        assert out_file.exists()
+
+        wb = openpyxl.load_workbook(out_file)
+        # Verify both sheets preserved
+        assert "Planning Roma" in wb.sheetnames
+        assert "DATA ENTRY" in wb.sheetnames
+
+        ws = wb["Planning Roma"]
+        # Verify date in D3
+        assert ws.cell(row=3, column=4).value == "27/10/2026"
+
+        # Verify Bershka row 7
+        assert ws.cell(row=7, column=6).value == 120  # planned_textile
+        assert ws.cell(row=7, column=7).value == 118  # received_textile
+
+        # Verify Zara Shoes row 40: textile cols 6-11 are gray and MUST NOT be written
+        assert is_cell_gray(ws.cell(row=40, column=6))
+        assert ws.cell(row=40, column=6).value is None
+        # shoes cols 12-13 are white and filled
+        assert ws.cell(row=40, column=12).value == 45
+        assert ws.cell(row=40, column=13).value == 45
+
+        # Verify DATA ENTRY still has formula pointing to Planning Roma
+        ws_de = wb["DATA ENTRY"]
+        assert "Planning Roma" in str(ws_de.cell(row=2, column=1).value)
+
+        # Test call with swapped positional arguments (df, template, output, date)
+        out_file2 = Path(tmp_dir) / "Planning_ITX_RM_swapped.xlsx"
+        export_planner_roma(df_test_planner, PLANNER_TEMPLATE_FILE, out_file2, "2026-10-27")
+        assert out_file2.exists()
+
