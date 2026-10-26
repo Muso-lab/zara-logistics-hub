@@ -1,3 +1,5 @@
+import sys
+import importlib
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,6 +12,26 @@ import threading
 import html
 import hmac
 import hashlib
+
+# Ensure fresh reload of local modules on Streamlit Cloud code re-runs
+for _mod in [
+    "src.config",
+    "src.utils",
+    "src.cloud_sync",
+    "src.db",
+    "src.parsers",
+    "src.engine",
+    "src.pipeline",
+    "src.bolle_manager",
+    "src.exporters",
+    "src.mailer",
+    "src.components"
+]:
+    if _mod in sys.modules:
+        try:
+            importlib.reload(sys.modules[_mod])
+        except Exception:
+            pass
 
 from src.cloud_sync import (
     get_cloud_url,
@@ -57,23 +79,32 @@ from src.db import (
 from src.parsers import classify_uploaded_files
 from src.engine import evaluate_pedane, compute_planning_roma
 from src.pipeline import run_pipeline
-from src.bolle_manager import (
-    init_bolle_tables,
-    get_bolle_dates,
-    get_all_drivers,
-    get_all_carriers,
-    get_store_delivery_profile,
-    get_bolle,
-    get_bolla_by_id,
-    save_or_update_bolla,
-    delete_bolla,
-    delete_bolle_by_date,
-    generate_bolle_from_forecast,
-    get_actuals_for_planner,
-    render_bolla_printable_html,
-    format_intershops_string,
-    export_bolle_excel,
-)
+import src.bolle_manager as bm
+
+# Safe resolution of bolle manager functions with auto-reload protection
+if not hasattr(bm, "export_bolle_excel"):
+    try:
+        importlib.reload(bm)
+    except Exception:
+        pass
+
+init_bolle_tables = bm.init_bolle_tables
+get_bolle_dates = bm.get_bolle_dates
+get_all_drivers = bm.get_all_drivers
+get_all_carriers = bm.get_all_carriers
+get_store_delivery_profile = bm.get_store_delivery_profile
+get_bolle = bm.get_bolle
+get_bolla_by_id = bm.get_bolla_by_id
+save_or_update_bolla = bm.save_or_update_bolla
+delete_bolla = bm.delete_bolla
+delete_bolle_by_date = bm.delete_bolle_by_date
+generate_bolle_from_forecast = bm.generate_bolle_from_forecast
+get_actuals_for_planner = bm.get_actuals_for_planner
+render_bolla_printable_html = bm.render_bolla_printable_html
+format_intershops_string = bm.format_intershops_string
+export_bolle_excel = getattr(bm, "export_bolle_excel", None)
+if export_bolle_excel is None:
+    from src.exporters import export_bolle_excel
 from src.exporters import export_planner_roma, export_sintesi_operativa, export_sga_file
 from src.mailer import send_operativa_email, send_test_email, build_operativa_zip
 from src.scraper import InditexExtranetScraper

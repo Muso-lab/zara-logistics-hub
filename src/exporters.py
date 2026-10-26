@@ -938,3 +938,10 @@ def export_planner_roma(
         ws.cell(row=r_idx, column=22, value=intershops if intershops else None)
 
     wb.save(output_path)
+
+
+def export_bolle_excel(df_bolle: pd.DataFrame, delivery_date: str) -> bytes:
+    """Exports delivery notes (bolle) to a styled Excel sheet."""
+    from src.bolle_manager import export_bolle_excel as _ebe
+    return _ebe(df_bolle, delivery_date)
+
