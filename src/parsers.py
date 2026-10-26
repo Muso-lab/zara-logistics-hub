@@ -205,53 +205,72 @@ def parse_other_files(folder_or_files: Union[str, Path, List[Any]]) -> Tuple[pd.
                 wb = xlrd.open_workbook(file_contents=fsource.read())
             sheet = wb.sheet_by_index(0)
 
-            # Find header
+            # Dynamic header & column detection
             header_r = -1
-            for r in range(sheet.nrows):
-                val = str(sheet.cell_value(r, 0)).strip()
-                if val == "Confirm.":
+            tienda_col = 1
+            otros_col = 13
+            bultos_col = 6
+            for r in range(min(15, sheet.nrows)):
+                row_str = " ".join(str(sheet.cell_value(r, c)).strip().lower() for c in range(sheet.ncols))
+                if "confirm" in row_str or "tienda" in row_str:
                     header_r = r
+                    for c in range(sheet.ncols):
+                        c_val = str(sheet.cell_value(r, c)).strip().lower()
+                        if "tienda" in c_val:
+                            tienda_col = c
+                        elif "bultos" in c_val and c < 10:
+                            bultos_col = c
+                    for check_r in [r - 1, r]:
+                        if check_r >= 0:
+                            for c in range(sheet.ncols):
+                                if "otro" in str(sheet.cell_value(check_r, c)).strip().lower():
+                                    otros_col = c
+                                    break
                     break
-            
+
             if header_r != -1:
                 for r in range(header_r + 1, sheet.nrows):
-                    conf = str(sheet.cell_value(r, 0)).strip()
-                    if conf.lower() == "no":
-                        raw_tienda = str(sheet.cell_value(r, 1)).strip()
-                        sid = clean_store_id(raw_tienda)
-                        # Col N is index 13: Otros Bultos Enviado
-                        val_enviado = 0.0
-                        if sheet.ncols > 13:
-                            v = sheet.cell_value(r, 13)
-                            try:
-                                val_enviado = float(v)
-                            except:
-                                val_enviado = 0.0
-                        
-                        bultos_tot = 0.0
-                        if sheet.ncols > 6:
-                            try:
-                                bultos_tot = float(sheet.cell_value(r, 6))
-                            except:
-                                bultos_tot = 0.0
+                    raw_tienda = str(sheet.cell_value(r, tienda_col)).strip()
+                    if not raw_tienda or raw_tienda.lower().startswith("total"):
+                        continue
+                    sid = clean_store_id(raw_tienda)
+                    if not sid:
+                        continue
 
-                        records.append({
-                            "file_name": fname,
-                            "raw_tienda": raw_tienda,
-                            "store_code": sid,
-                            "confirm": conf,
-                            "bultos": bultos_tot,
-                            "otros_bultos_enviado": val_enviado
-                        })
+                    val_enviado = 0.0
+                    if sheet.ncols > otros_col:
+                        try:
+                            val_enviado = float(sheet.cell_value(r, otros_col))
+                        except Exception:
+                            val_enviado = 0.0
+
+                    bultos_tot = 0.0
+                    if sheet.ncols > bultos_col:
+                        try:
+                            bultos_tot = float(sheet.cell_value(r, bultos_col))
+                        except Exception:
+                            bultos_tot = 0.0
+
+                    conf = str(sheet.cell_value(r, 0)).strip() if sheet.ncols > 0 else ""
+
+                    records.append({
+                        "file_name": fname,
+                        "raw_tienda": raw_tienda,
+                        "store_code": sid,
+                        "confirm": conf,
+                        "bultos": bultos_tot,
+                        "otros_bultos_enviado": val_enviado
+                    })
         except Exception as e:
             print(f"Error parsing other file {fname}: {e}")
 
     df_raw = pd.DataFrame(records)
     if df_raw.empty:
-        df_agg = pd.DataFrame(columns=["store_code", "otros_enviado"])
+        df_agg = pd.DataFrame(columns=["store_code", "store_id", "otros_enviado"])
     else:
         df_agg = df_raw.groupby("store_code")["otros_bultos_enviado"].sum().reset_index()
         df_agg.rename(columns={"otros_bultos_enviado": "otros_enviado"}, inplace=True)
+        df_agg["store_id"] = df_agg["store_code"]
 
     return df_raw, df_agg
 

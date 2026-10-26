@@ -491,10 +491,28 @@ class InditexExtranetScraper:
 
             tot_otros = 0.0
             for st_item in store_items:
-                try:
-                    tot_otros += float(st_item.get("otrosEnt", 0) or 0)
-                except Exception:
-                    pass
+                val_o = 0.0
+                for k in ["otrosEnv", "otrosBultosEnv", "totOEnv", "otrosEnt", "otros", "bultosOtros", "bultos_otros"]:
+                    v = st_item.get(k)
+                    if v is not None:
+                        try:
+                            val_f = float(v)
+                            if val_f > 0:
+                                val_o = val_f
+                                break
+                        except Exception:
+                            pass
+                if val_o == 0.0:
+                    for k, v in st_item.items():
+                        if "otro" in k.lower() and v is not None:
+                            try:
+                                val_f = float(v)
+                                if val_f > 0:
+                                    val_o = val_f
+                                    break
+                            except Exception:
+                                pass
+                tot_otros += val_o
 
             if tot_otros > 0:
                 out_file = other_dir / f"{file_num}.xls"

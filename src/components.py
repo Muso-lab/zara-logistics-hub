@@ -344,14 +344,16 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame, df_stores: Optional[pd.
 
     row_idx_col = "row_idx" if "row_idx" in df.columns else "_sort_str"
 
-    # 4 Groups:
+    # Exclude all Barra 9 / 'B' stores from Spunta Arrivi (per Negozio)
+    # The arrival checklist is strictly for base stores arriving at the platform
+    df = df[~df["_is_b"]].copy()
+
+    # 3 Groups:
     # 1. Active Standard Stores
-    df_std = df[df["_is_active"] & ~df["_is_b"] & ~df["_is_new"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
-    # 2. Active Barra 9 Stores
-    df_b9 = df[df["_is_active"] & df["_is_b"] & ~df["_is_new"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
-    # 3. Inactive / Standby Stores
+    df_std = df[df["_is_active"] & ~df["_is_new"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
+    # 2. Inactive / Standby Stores
     df_inactive = df[~df["_is_active"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
-    # 4. New Stores Unmapped
+    # 3. New Stores Unmapped
     df_new = df[df["_is_active"] & df["_is_new"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
 
     rows_html = []
@@ -418,17 +420,7 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame, df_stores: Optional[pd.
     for _, r in df_std.iterrows():
         rows_html.append(_build_row(r, row_type="std"))
 
-    # 2. Barra 9 active stores
-    if not df_b9.empty:
-        rows_html.append(
-            '<tr class="section-divider">'
-            '<td colspan="11">🚚 NEGOZI SDOPPIAMENTO BARRA 9 ("B" — Quota Volume 30%)</td>'
-            "</tr>"
-        )
-        for _, r in df_b9.iterrows():
-            rows_html.append(_build_row(r, row_type="b9"))
-
-    # 3. Inactive / Standby stores
+    # 2. Inactive / Standby stores
     if not df_inactive.empty:
         rows_html.append(
             '<tr class="section-divider-standby">'

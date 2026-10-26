@@ -215,6 +215,18 @@ def run_pipeline(
                     float(r.get("bultos", 0.0) or 0.0)
                 ))
 
+    # Save other shipments items
+    if 'df_oth_raw' in locals() and df_oth_raw is not None and not df_oth_raw.empty:
+        for _, r in df_oth_raw.iterrows():
+            cursor.execute("""
+            INSERT INTO other_items (run_id, file_name, raw_tienda, store_code, confirm, bultos, otros_bultos_enviado)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                run_id, str(r.get("file_name", "")), str(r.get("raw_tienda", "")),
+                str(r.get("store_code", "")), str(r.get("confirm", "")),
+                float(r.get("bultos", 0.0) or 0.0), float(r.get("otros_bultos_enviado", 0.0) or 0.0)
+            ))
+
     conn.commit()
     conn.close()
 
