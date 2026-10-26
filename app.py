@@ -2007,55 +2007,69 @@ elif menu.startswith("🗄️ 5.") or menu.startswith("⚙️ 5."):
 
         cfg_now = get_email_config()
 
+        if "flash_preset_msg" in st.session_state:
+            st.success(st.session_state.pop("flash_preset_msg"))
+
+        # Inizializza chiavi in session_state se non presenti
+        if "cfg_in_smtp_host" not in st.session_state:
+            st.session_state["cfg_in_smtp_host"] = cfg_now.get("smtp_host", "")
+        if "cfg_in_smtp_port" not in st.session_state:
+            st.session_state["cfg_in_smtp_port"] = int(cfg_now.get("smtp_port", 587))
+        if "cfg_in_smtp_sec" not in st.session_state:
+            st.session_state["cfg_in_smtp_sec"] = cfg_now.get("smtp_security", "STARTTLS")
+        if "cfg_in_sender_name" not in st.session_state:
+            st.session_state["cfg_in_sender_name"] = cfg_now.get("sender_name", "Logistica Zara Hub")
+        if "cfg_in_smtp_user" not in st.session_state:
+            st.session_state["cfg_in_smtp_user"] = cfg_now.get("smtp_user", "")
+        if "cfg_in_smtp_pass" not in st.session_state:
+            st.session_state["cfg_in_smtp_pass"] = cfg_now.get("smtp_password", "")
+        if "cfg_in_def_to" not in st.session_state:
+            st.session_state["cfg_in_def_to"] = cfg_now.get("default_to", "operativa@trasporti.it, traffico@trasporti.it")
+        if "cfg_in_def_cc" not in st.session_state:
+            st.session_state["cfg_in_def_cc"] = cfg_now.get("default_cc", "")
+        if "cfg_in_subj_tmpl" not in st.session_state:
+            st.session_state["cfg_in_subj_tmpl"] = cfg_now.get("subject_template", "[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {date}")
+
+        def apply_preset(host: str, port: int, sec: str, prov_name: str):
+            st.session_state["cfg_in_smtp_host"] = host
+            st.session_state["cfg_in_smtp_port"] = port
+            st.session_state["cfg_in_smtp_sec"] = sec
+            cfg_now["smtp_host"] = host
+            cfg_now["smtp_port"] = port
+            cfg_now["smtp_security"] = sec
+            save_email_config(cfg_now)
+            st.session_state["flash_preset_msg"] = f"✅ Preimpostazione **{prov_name}** applicata nei campi: Host = `{host}`, Porta = `{port}`, Sicurezza = `{sec}`"
+            st.rerun()
+
         # Preset rapidi
-        st.markdown("##### 🚀 Preimpostazioni Rapide Provider")
+        st.markdown("##### 🚀 Preimpostazioni Rapide Provider (Clicca per compilare al volo i campi)")
         pr1, pr2, pr3, pr4, pr5 = st.columns(5)
         with pr1:
             if st.button("🔴 Gmail (Google)", use_container_width=True, key="preset_gmail"):
-                cfg_now["smtp_host"] = "smtp.gmail.com"
-                cfg_now["smtp_port"] = 587
-                cfg_now["smtp_security"] = "STARTTLS"
-                save_email_config(cfg_now)
-                st.rerun()
+                apply_preset("smtp.gmail.com", 587, "STARTTLS", "Google Gmail")
         with pr2:
-            if st.button("🔵 Microsoft 365 / Outlook", use_container_width=True, key="preset_m365"):
-                cfg_now["smtp_host"] = "smtp.office365.com"
-                cfg_now["smtp_port"] = 587
-                cfg_now["smtp_security"] = "STARTTLS"
-                save_email_config(cfg_now)
-                st.rerun()
+            if st.button("🔵 Microsoft 365", use_container_width=True, key="preset_m365"):
+                apply_preset("smtp.office365.com", 587, "STARTTLS", "Microsoft 365 / Outlook")
         with pr3:
             if st.button("🟡 Aruba Webmail", use_container_width=True, key="preset_aruba"):
-                cfg_now["smtp_host"] = "smtps.aruba.it"
-                cfg_now["smtp_port"] = 465
-                cfg_now["smtp_security"] = "SSL"
-                save_email_config(cfg_now)
-                st.rerun()
+                apply_preset("smtps.aruba.it", 465, "SSL", "Aruba Webmail")
         with pr4:
-            if st.button("🏢 Server Lacchi / Custom", use_container_width=True, key="preset_lacchi"):
-                cfg_now["smtp_host"] = "mail.lacchi.it"
-                cfg_now["smtp_port"] = 587
-                cfg_now["smtp_security"] = "STARTTLS"
-                save_email_config(cfg_now)
-                st.rerun()
+            if st.button("🏢 Server Lacchi", use_container_width=True, key="preset_lacchi"):
+                apply_preset("mail.lacchi.it", 587, "STARTTLS", "Server Lacchi SpA")
         with pr5:
-            if st.button("🔄 Reimposta Default", use_container_width=True, key="preset_reset"):
-                cfg_now["smtp_host"] = ""
-                cfg_now["smtp_port"] = 587
-                cfg_now["smtp_security"] = "STARTTLS"
-                save_email_config(cfg_now)
-                st.rerun()
+            if st.button("🔄 Pulisci Host", use_container_width=True, key="preset_reset"):
+                apply_preset("", 587, "STARTTLS", "Vuoto (Personalizzato)")
 
         st.markdown("<hr style='margin: 12px 0; border: none; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
 
         col_s1, col_s2, col_s3 = st.columns([2, 1, 1.2])
         with col_s1:
-            cfg_host = st.text_input("Server SMTP (Host)", value=cfg_now.get("smtp_host", ""), placeholder="es. smtp.gmail.com o smtp.office365.com", key="cfg_in_smtp_host")
+            cfg_host = st.text_input("Server SMTP (Host)", placeholder="es. smtp.gmail.com o smtp.office365.com", key="cfg_in_smtp_host")
         with col_s2:
-            cfg_port = st.number_input("Porta SMTP", min_value=1, max_value=65535, value=int(cfg_now.get("smtp_port", 587)), step=1, key="cfg_in_smtp_port")
+            cfg_port = st.number_input("Porta SMTP", min_value=1, max_value=65535, step=1, key="cfg_in_smtp_port")
         with col_s3:
             sec_opts = ["STARTTLS", "SSL", "NESSUNA"]
-            curr_sec = cfg_now.get("smtp_security", "STARTTLS").upper()
+            curr_sec = str(st.session_state.get("cfg_in_smtp_sec", "STARTTLS")).upper()
             curr_sec_idx = sec_opts.index(curr_sec) if curr_sec in sec_opts else 0
             cfg_sec = st.selectbox("Protocollo Sicurezza", sec_opts, index=curr_sec_idx, key="cfg_in_smtp_sec")
 

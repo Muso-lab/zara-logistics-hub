@@ -939,14 +939,15 @@ def get_email_config(db_path=None) -> Dict[str, Any]:
         except Exception:
             pass
 
-    c_file = DATA_DIR / "cloud_config.json"
-    if c_file.exists() and not cfg.get("smtp_host"):
-        try:
-            fdata = json.loads(c_file.read_text(encoding="utf-8"))
-            if "email_config" in fdata:
-                cfg.update(fdata["email_config"])
-        except Exception:
-            pass
+    if db_path is None:
+        c_file = DATA_DIR / "cloud_config.json"
+        if c_file.exists() and not cfg.get("smtp_host"):
+            try:
+                fdata = json.loads(c_file.read_text(encoding="utf-8"))
+                if "email_config" in fdata:
+                    cfg.update(fdata["email_config"])
+            except Exception:
+                pass
 
     if not cfg["smtp_host"] and os.getenv("SMTP_HOST"):
         cfg["smtp_host"] = os.getenv("SMTP_HOST", "")
@@ -973,16 +974,17 @@ def save_email_config(cfg: Dict[str, Any], db_path=None):
     raw_json = json.dumps(cfg, ensure_ascii=False, indent=2)
     set_app_setting("email_config_json", raw_json, db_path=db_path)
 
-    try:
-        c_file = DATA_DIR / "cloud_config.json"
-        c_file.parent.mkdir(parents=True, exist_ok=True)
-        data = {}
-        if c_file.exists():
-            try:
-                data = json.loads(c_file.read_text(encoding="utf-8"))
-            except Exception:
-                data = {}
-        data["email_config"] = cfg
-        c_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    if db_path is None:
+        try:
+            c_file = DATA_DIR / "cloud_config.json"
+            c_file.parent.mkdir(parents=True, exist_ok=True)
+            data = {}
+            if c_file.exists():
+                try:
+                    data = json.loads(c_file.read_text(encoding="utf-8"))
+                except Exception:
+                    data = {}
+            data["email_config"] = cfg
+            c_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception:
+            pass
