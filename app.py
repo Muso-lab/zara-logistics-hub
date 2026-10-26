@@ -308,14 +308,14 @@ if menu == "📥 1. Previsione & Arrivi":
     ])
 
     with tab_view_active:
+        active_run_data = None
         latest_run_id = int(runs_side.iloc[0]["id"]) if not runs_side.empty else None
 
-        if "active_view_run_id" not in st.session_state or st.session_state["active_view_run_id"] not in list(runs_side["id"]):
-            st.session_state["active_view_run_id"] = latest_run_id
+        if not runs_side.empty:
+            valid_ids = list(runs_side["id"])
+            if "active_view_run_id" not in st.session_state or st.session_state["active_view_run_id"] not in valid_ids:
+                st.session_state["active_view_run_id"] = latest_run_id
 
-        if runs_side.empty:
-            st.info("ℹ️ Nessuna elaborazione presente nello storico. Passa alla scheda **'⚡ Nuova Elaborazione'** qui sopra per eseguire il primo scarico da Extranet o caricare i file Inditex.")
-        else:
             col_r_sel, col_r_btn = st.columns([3.2, 1.2])
             with col_r_sel:
                 run_opts_map = {
@@ -342,11 +342,12 @@ if menu == "📥 1. Previsione & Arrivi":
                     st.rerun()
 
             # Caricamento effettivo della run
-            active_run_data = None
             if "last_run" in st.session_state and st.session_state["last_run"] and st.session_state["last_run"].get("run_id") == st.session_state["active_view_run_id"]:
                 active_run_data = st.session_state["last_run"]
             else:
                 active_run_data = load_run_data(st.session_state["active_view_run_id"])
+        else:
+            st.info("ℹ️ Nessuna elaborazione presente nello storico. Passa alla scheda **'⚡ Nuova Elaborazione'** qui sopra per eseguire il primo scarico da Extranet o caricare i file Inditex.")
 
         if active_run_data:
             curr_rid = active_run_data["run_id"]
