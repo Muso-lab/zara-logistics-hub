@@ -95,16 +95,15 @@ function doPost(e) {
 
     Object.keys(tablesData).forEach(function(tableName) {
       const rows = tablesData[tableName] || [];
+      if (rows.length === 0) {
+        updated.push(tableName + " (0 righe ignorate - foglio protetto)");
+        return;
+      }
       let sheet = ss.getSheetByName(tableName);
       if (!sheet) {
         sheet = ss.insertSheet(tableName);
       } else {
         sheet.clearContents();
-      }
-
-      if (rows.length === 0) {
-        updated.push(tableName + " (0 righe)");
-        return;
       }
 
       // Ricava le intestazioni dalla prima riga (o dall'unione delle chiavi)

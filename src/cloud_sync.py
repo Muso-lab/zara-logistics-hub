@@ -172,6 +172,9 @@ def push_tables_to_cloud(table_names=None, timeout: int = 25) -> dict:
                 df = pd.read_sql_query("SELECT * FROM bolle ORDER BY id DESC LIMIT 800", conn)
             else:
                 df = pd.read_sql_query(f"SELECT * FROM {t}", conn)
+            # SAFETY GUARD: Never overwrite cloud data with an empty table if local table has 0 rows!
+            if df.empty and t in ["runs", "planning_results", "spunta_arrivi", "forecast_raw", "bolle", "stores", "store_delivery_profiles", "vehicles"]:
+                continue
             payload_tables[t] = json.loads(df.to_json(orient="records"))
     finally:
         conn.close()

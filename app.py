@@ -280,6 +280,18 @@ st.session_state["nav_menu"] = menu
 st.sidebar.markdown("---")
 df_stores_side = get_stores_df()
 runs_side = get_all_runs()
+
+# Auto-restore trasparente da Google Sheets all'avvio se il database locale del container è vuoto (es. dopo nuovo deploy)
+if "cloud_auto_checked" not in st.session_state:
+    st.session_state["cloud_auto_checked"] = True
+    if runs_side.empty and get_cloud_url():
+        try:
+            r_pull = pull_all_from_cloud(timeout=15)
+            if r_pull.get("status") == "ok":
+                df_stores_side = get_stores_df()
+                runs_side = get_all_runs()
+        except Exception:
+            pass
 active_stores_cnt = int((df_stores_side["attivo"].fillna("SI").str.upper() == "SI").sum()) if not df_stores_side.empty else 0
 sdopp_stores_cnt = int((df_stores_side["sdoppiamento_b9"].fillna("NO").str.upper() == "SI").sum()) if not df_stores_side.empty else 0
 
