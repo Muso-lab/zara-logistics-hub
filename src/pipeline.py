@@ -196,6 +196,20 @@ def run_pipeline(
             float(r["PESO"]), float(r["VOLUME"]), float(r["COLLI"]), str(r["store_code"])
         ))
 
+    # Save raw forecast items for reloading
+    for cat_name, df_src in [("TOTAL", df_tot), ("SHOES", df_sho), ("TEXILE", df_tex), ("ECOM", df_eco)]:
+        if df_src is not None and not df_src.empty:
+            for _, r in df_src.iterrows():
+                cursor.execute("""
+                INSERT INTO forecast_raw (run_id, file_category, store_code, raw_tienda, p_colgada, paqueteria, peso, volumen, bultos)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    run_id, cat_name, str(r.get("store_id", "")), str(r.get("tienda", "")),
+                    float(r.get("p_colgada", 0.0) or 0.0), float(r.get("paqueteria", 0.0) or 0.0),
+                    float(r.get("peso", 0.0) or 0.0), float(r.get("volumen", 0.0) or 0.0),
+                    float(r.get("bultos", 0.0) or 0.0)
+                ))
+
     conn.commit()
     conn.close()
 
@@ -250,7 +264,7 @@ def run_pipeline(
         except Exception as e:
             print(f"Warning: could not copy to network directory: {e}")
 
-    return {
+    res = {
         "run_id": run_id,
         "run_date": run_date,
         "cycle_type": cycle_type,
@@ -269,3 +283,12 @@ def run_pipeline(
         "exported_files": exported_files,
         "new_stores_alert": new_stores_alert
     }
+
+    import pickle
+    try:
+        with open(out_dir / "run_cache.pkl", "wb") as f_c:
+            pickle.dump(res, f_c)
+    except Exception:
+        pass
+
+    return res

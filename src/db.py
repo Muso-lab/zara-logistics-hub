@@ -797,6 +797,77 @@ def get_run_details(run_id: int, db_path=DB_PATH) -> Dict[str, Any]:
         }
 
 
+def load_run_data(run_id: int, db_path=DB_PATH) -> Optional[Dict[str, Any]]:
+    """
+    Loads full run data either from the fast run_cache.pkl or by reconstructing
+    from SQLite database tables (spunta_arrivi, sga_flows, planning_results, forecast_raw).
+    """
+    import pickle
+    from src.config import OUTPUT_DIR
+
+    # 1. Search for run_cache.pkl in OUTPUT_DIR
+    for p_cache in OUTPUT_DIR.glob(f"run_{run_id}_*/run_cache.pkl"):
+        try:
+            with open(p_cache, "rb") as f_c:
+                data = pickle.load(f_c)
+                if data and isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+
+    # 2. Reconstruct from DB
+    det = get_run_details(run_id, db_path=db_path)
+    if not det or not det.get("run"):
+        return None
+
+    r_info = det["run"]
+    r_date = str(r_info.get("run_date", ""))
+    out_dir = OUTPUT_DIR / f"run_{run_id}_{r_date}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    spunta_df = det.get("spunta", pd.DataFrame())
+    sga0_df = det.get("sga0", pd.DataFrame())
+    sga9_df = det.get("sga9", pd.DataFrame())
+    planning_df = det.get("planning", pd.DataFrame())
+    special_breakdowns = det.get("special_breakdowns", {})
+
+    path_sintesi = out_dir / "Sintesi_Operativa.xlsx"
+    path_sga0 = out_dir / "barrazero_Sga.xlsx"
+    path_sga9 = out_dir / "barranove_Sga.xlsx"
+    path_zip = out_dir / f"File_Operativa_{run_id}_{r_date}.zip"
+
+    exported_files = {
+        "sintesi": path_sintesi,
+        "sga0": path_sga0,
+        "sga9": path_sga9,
+        "sga0_csv": path_sga0.with_suffix(".csv"),
+        "sga9_csv": path_sga9.with_suffix(".csv"),
+        "operativa_zip": path_zip,
+        "zara": out_dir / "ZARA.xlsx",
+        "planner": out_dir / f"PLANNER ROMA _{r_date}.xlsx",
+    }
+
+    return {
+        "run_id": run_id,
+        "run_date": r_date,
+        "cycle_type": r_info.get("cycle_type", ""),
+        "totals": {
+            "total_bultos": float(r_info.get("total_bultos", 0) or 0),
+            "total_volume": float(r_info.get("total_volume", 0) or 0),
+            "total_weight": float(r_info.get("total_weight", 0) or 0),
+            "total_pedane": float(r_info.get("total_pedane", 0) or 0),
+        },
+        "df_analisi": planning_df,
+        "df_spunta": spunta_df,
+        "df_sga0": sga0_df,
+        "df_sga9": sga9_df,
+        "df_planner": planning_df,
+        "special_breakdowns": special_breakdowns,
+        "exported_files": exported_files,
+        "new_stores_alert": []
+    }
+
+
 def delete_run(run_id: int, db_path=DB_PATH):
     """
     Deletes a run and all its associated child records (forecast_raw, other_items,
