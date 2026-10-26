@@ -79,3 +79,36 @@ def format_date_it(dt: Any) -> str:
     if isinstance(dt, (datetime, date)):
         return dt.strftime("%d/%m/%Y")
     return str(dt)
+
+
+def parse_date_obj(val: Any, default: Optional[date] = None) -> date:
+    """
+    Safely parses strings, datetimes or dates into a datetime.date object.
+    Supports YYYY-MM-DD, timestamps (YYYY-MM-DD HH:MM:SS), DD/MM/YYYY, etc.
+    """
+    fallback = default or (date.today() + timedelta(days=1))
+    if val is None or pd.isna(val):
+        return fallback
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    s = str(val).strip()
+    if not s:
+        return fallback
+    if len(s) >= 10 and s[4] == '-' and s[7] == '-':
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d").date()
+        except Exception:
+            pass
+    if len(s) >= 10 and s[2] == '/' and s[5] == '/':
+        try:
+            return datetime.strptime(s[:10], "%d/%m/%Y").date()
+        except Exception:
+            pass
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            pass
+    return fallback

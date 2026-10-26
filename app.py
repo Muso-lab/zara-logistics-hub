@@ -108,7 +108,7 @@ if export_bolle_excel is None:
 from src.exporters import export_planner_roma, export_sintesi_operativa, export_sga_file
 from src.mailer import send_operativa_email, send_test_email, build_operativa_zip
 from src.scraper import InditexExtranetScraper
-from src.utils import get_cycle_date_range, format_number_it, format_date_it
+from src.utils import get_cycle_date_range, format_number_it, format_date_it, parse_date_obj
 from src.components import (
     render_lavorazioni_piattaforma,
     render_spunta_arrivi_modern,
@@ -1118,7 +1118,7 @@ elif menu == "🚚 2. Bolle di Consegna":
         if "_next_store_override" in st.session_state:
             st.session_state["form_store_sel"] = st.session_state.pop("_next_store_override")
 
-        target_dt_obj = datetime.strptime(target_date, "%Y-%m-%d").date() if target_date else (date.today() + timedelta(days=1))
+        target_dt_obj = parse_date_obj(target_date)
         if st.session_state.get("_prev_target_date_for_form") != target_date:
             st.session_state["_prev_target_date_for_form"] = target_date
             st.session_state["form_dt_cons"] = target_dt_obj

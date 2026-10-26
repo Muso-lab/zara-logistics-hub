@@ -95,7 +95,14 @@ def get_bolle_dates(limit: int = 100, db_path: Path = DB_PATH) -> List[str]:
     """, (limit,))
     rows = cur.fetchall()
     conn.close()
-    return [r[0] for r in rows if r[0]]
+    cleaned = []
+    for r in rows:
+        val = str(r[0]).strip() if r[0] else ""
+        if len(val) >= 10 and val[4] == '-' and val[7] == '-':
+            cleaned.append(val[:10])
+        elif val:
+            cleaned.append(val)
+    return list(dict.fromkeys(cleaned))
 
 
 def get_all_drivers(db_path: Path = DB_PATH) -> List[str]:
