@@ -1,3 +1,4 @@
+from src.components import suggest_support_vehicle, parse_vehicle_capacity
 from pathlib import Path
 from typing import Optional, Union, Dict, Any
 import openpyxl
@@ -12,10 +13,28 @@ from src.config import (
 )
 
 
+def _format_sga_date(val: Any) -> str:
+    """Converte qualsiasi data nel formato rigido gg/mm/aaaa (DD/MM/YYYY)."""
+    if pd.isna(val) or val is None or str(val).strip() == "":
+        return ""
+    s = str(val).strip().split(" ")[0]
+    if "-" in s:
+        parts = s.split("-")
+        if len(parts) == 3 and len(parts[0]) == 4:
+            return f"{parts[2]}/{parts[1]}/{parts[0]}"
+    if "/" in s:
+        parts = s.split("/")
+        if len(parts) == 3 and len(parts[2]) == 4:
+            return f"{int(parts[0]):02d}/{int(parts[1]):02d}/{parts[2]}"
+    return s
+
+
 def export_sga_file(df_flows: pd.DataFrame, output_path: Union[str, Path]):
     """
     Exports SGA flows (Barra 0 or Barra 9) to an Excel file and CSV matching rigid TMS requirements:
     Columns: GIRO, DATA_CARICO, COD_MITTENTE, MAGAZZINO_CARICO, DATA_SCARICO, COD_DESTINATARIO, MAGAZZINO_SCARICO, PESO, VOLUME, COLLI
+    - Date strictly formatted as gg/mm/aaaa (DD/MM/YYYY).
+    - Stores 'DA ASSEGNARE' / unassigned are strictly excluded.
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -25,6 +44,21 @@ def export_sga_file(df_flows: pd.DataFrame, output_path: Union[str, Path]):
         "DATA_SCARICO", "COD_DESTINATARIO", "MAGAZZINO_SCARICO",
         "PESO", "VOLUME", "COLLI"
     ]
+
+    # Esclusione rigida negozi 'DA ASSEGNARE' o senza giro definito
+    if df_flows is not None and not df_flows.empty:
+        mask_valid = ~df_flows["GIRO"].fillna("").astype(str).str.strip().str.upper().apply(
+            lambda g: g in ("", "DA ASSEGNARE", "NON ASSEGNATO", "NON DEFINITO", "NONE", "NAN", "-")
+            or g.startswith("DA ASS")
+            or g.startswith("NON ASS")
+        )
+        if "store_code" in df_flows.columns:
+            mask_valid = mask_valid & ~df_flows["store_code"].fillna("").astype(str).str.strip().str.upper().apply(
+                lambda s: s in ("DA ASSEGNARE", "NON ASSEGNATO") or s.startswith("DA ASS")
+            )
+        df_flows = df_flows[mask_valid].copy()
+    else:
+        df_flows = pd.DataFrame(columns=cols_order)
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -53,8 +87,8 @@ def export_sga_file(df_flows: pd.DataFrame, output_path: Union[str, Path]):
             val = row.get(col_name, 0 if is_ritorno and col_name in ("PESO", "VOLUME", "COLLI") else "")
             if is_ritorno and col_name in ("PESO", "VOLUME", "COLLI"):
                 val = 0
-            elif col_name in ("DATA_CARICO", "DATA_SCARICO") and val:
-                val = str(val).split(" ")[0]
+            elif col_name in ("DATA_CARICO", "DATA_SCARICO"):
+                val = _format_sga_date(val)
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
             cell.border = thin_border
             if col_name in ("PESO", "VOLUME", "COLLI"):
@@ -71,17 +105,17 @@ def export_sga_file(df_flows: pd.DataFrame, output_path: Union[str, Path]):
 
     wb.save(output_path)
 
-    # Save matching rigid CSV
+    # Save matching rigid CSV with DD/MM/YYYY dates
     csv_path = output_path.with_suffix(".csv")
     csv_rows = []
     for _, row in df_flows.iterrows():
         is_ritorno = (row.get("flusso_tipo") == "RITORNO")
         csv_rows.append({
             "GIRO": row.get("GIRO", ""),
-            "DATA_CARICO": str(row.get("DATA_CARICO", "")).split(" ")[0],
+            "DATA_CARICO": _format_sga_date(row.get("DATA_CARICO", "")),
             "COD_MITTENTE": row.get("COD_MITTENTE", ""),
             "MAGAZZINO_CARICO": row.get("MAGAZZINO_CARICO", ""),
-            "DATA_SCARICO": str(row.get("DATA_SCARICO", "")).split(" ")[0],
+            "DATA_SCARICO": _format_sga_date(row.get("DATA_SCARICO", "")),
             "COD_DESTINATARIO": row.get("COD_DESTINATARIO", ""),
             "MAGAZZINO_SCARICO": row.get("MAGAZZINO_SCARICO", ""),
             "PESO": 0 if is_ritorno else row.get("PESO", 0),
@@ -281,10 +315,9 @@ def export_sintesi_operativa(
     run_date: Optional[str] = None
 ) -> Path:
     """
-    Exports an enhanced, professional operational workbook (Sintesi Operativa) with:
-    1. Piano Giri & Mezzi (grouped by giro with sub-totals, vehicle details, driver, carrier)
+    Exports an enhanced, professional operational workbook (Sintesi Operativa) with 2 sheets:
+    1. Piano Giri & Mezzi (totale colli, volume, pedane, mezzo assegnato, proposta supporto)
     2. Lavorazioni Piattaforma (textile hanging/folded breakdown, perfumes, stander, pallets, Zara Home 50/50)
-    3. Elenco Punti Vendita Completo (flat filterable table with all stores)
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -350,15 +383,15 @@ def export_sintesi_operativa(
     ws_giri.title = "Piano Giri & Mezzi"
     ws_giri.views.sheetView[0].showGridLines = True
 
-    # Title Banner
-    ws_giri.merge_cells("A1:Q1")
+    # Title Banner (13 columns: A to M)
+    ws_giri.merge_cells("A1:M1")
     c_title = ws_giri.cell(row=1, column=1, value="SINTESI OPERATIVA TRASPORTI & GIRI - ZARA LOGISTICS HUB")
     c_title.font = font_title
     c_title.fill = fill_title
     c_title.alignment = align_center
     ws_giri.row_dimensions[1].height = 32
 
-    ws_giri.merge_cells("A2:Q2")
+    ws_giri.merge_cells("A2:M2")
     c_sub = ws_giri.cell(
         row=2, column=1,
         value=f"Data Spedizione: {run_date or 'N/D'}  |  Totale Colli: {tot_colli_all:,}  |  Totale Volume: {tot_vol_all:.2f} m³  |  Totale Pedane: {tot_ped_all:,} PLT"
@@ -368,23 +401,19 @@ def export_sintesi_operativa(
     c_sub.alignment = align_center
     ws_giri.row_dimensions[2].height = 24
 
-    # Table Header (Row 4)
+    # Table Header (Row 4) - 13 columns
     tbl_cols = [
         ("Giro", align_center),
         ("Store ID", align_center),
         ("Brand", align_left),
         ("Punto Vendita / Destinazione", align_left),
-        ("Colli Tex", align_right),
-        ("Colli Oth", align_right),
-        ("Colli Sho", align_right),
-        ("Colli Eco", align_right),
         ("Totale Colli", align_right),
         ("Volume (m³)", align_right),
         ("Pedane (PLT)", align_right),
-        ("Formula Pedane", align_center),
+        ("Mezzo Assegnato", align_left),
+        ("Supporto Mezzo Proposto", align_left),
         ("Vettore", align_left),
         ("Autista", align_left),
-        ("Mezzo Assegnato", align_left),
         ("Targa", align_center),
         ("Stato Negozio", align_center)
     ]
@@ -430,8 +459,38 @@ def export_sintesi_operativa(
             if st_meta.get("autista"):
                 aut_str = str(st_meta.get("autista"))
 
-        # Giro Banner Row
-        ws_giri.merge_cells(start_row=curr_row, start_column=1, end_row=curr_row, end_column=17)
+        # Calcolo Proposta Mezzo di Supporto
+        g_ped_active = int(sum(
+            int(round(float(sr.get("pedane", 0) or 0)))
+            for _, sr in g_stores.iterrows()
+            if str(sr.get("attivo", map_stores.get(str(sr.get("store_code", "")).strip(), {}).get("attivo", "SI")) or "SI").upper() == "SI"
+        ))
+
+        if special_breakdowns and "special_stores" in special_breakdowns:
+            for _, sr in g_stores.iterrows():
+                sc = str(sr.get("store_code", "")).strip()
+                if sc in special_breakdowns["special_stores"] and not bool(sr.get("is_barra9", 0)):
+                    sp_info = special_breakdowns["special_stores"][sc]
+                    impronta = int(sp_info.get("impronta_a_terra", 0))
+                    raw_p = int(round(float(sr.get("pedane", 0) or 0)))
+                    if impronta > 0:
+                        g_ped_active = g_ped_active - raw_p + impronta
+
+        cap_val = parse_vehicle_capacity(tipo_m)
+        supp_res = suggest_support_vehicle(g_ped_active, cap_val)
+        if supp_m and supp_m.strip() and supp_m.strip().upper() not in ("NONE", "NAN", "-", ""):
+            supp_display = supp_m.strip()
+        elif supp_res["status"] == "ok":
+            supp_display = "Mezzo Idoneo"
+        elif supp_res["status"] == "overload":
+            supp_display = f"{supp_res['badge']} ({supp_res['note']})"
+        elif supp_res["status"] == "unassigned":
+            supp_display = f"{supp_res['badge']} ({supp_res['note']})"
+        else:
+            supp_display = "—"
+
+        # Giro Banner Row (Cols 1-13)
+        ws_giri.merge_cells(start_row=curr_row, start_column=1, end_row=curr_row, end_column=13)
         banner_text = f"🚛 GIRO: {giro}"
         if vett_str:
             banner_text += f"   |   Vettore: {vett_str}"
@@ -441,8 +500,8 @@ def export_sintesi_operativa(
             banner_text += f"   |   Mezzo: {tipo_m}"
         if targa_m:
             banner_text += f"   |   Targa: {targa_m}"
-        if supp_m:
-            banner_text += f"   |   Supporto: {supp_m}"
+        if supp_display and supp_display != "—":
+            banner_text += f"   |   Supporto: {supp_display}"
 
         c_gb = ws_giri.cell(row=curr_row, column=1, value=banner_text)
         c_gb.fill = fill_giro_banner
@@ -454,10 +513,6 @@ def export_sintesi_operativa(
         g_colli_tot = 0
         g_vol_tot = 0.0
         g_ped_tot = 0
-        g_tex = 0
-        g_oth = 0
-        g_sho = 0
-        g_eco = 0
 
         for _, s_row in g_stores.iterrows():
             sid = str(s_row.get("store_code", "")).strip()
@@ -476,38 +531,32 @@ def export_sintesi_operativa(
             is_op = (st_att == "SI")
 
             if is_op:
-                g_tex += tex
-                g_oth += oth
-                g_sho += sho
-                g_eco += eco
                 g_colli_tot += c_tot
                 g_vol_tot += vol
                 g_ped_tot += ped
 
-            formula_val = str(s_meta.get("formula", "") or "")
             brand_val = str(s_row.get("brand", s_row.get("punto_vendita", "")) or "")
             name_val = str(s_row.get("store_name", "") or "")
             s_vett = str(s_meta.get("vettore", vett_str) or vett_str)
             s_aut = str(s_meta.get("autista", aut_str) or aut_str)
             s_mez = str(s_row.get("tipo_mezzo", tipo_m) or tipo_m)
             s_tar = str(s_row.get("targa", targa_m) or targa_m)
+            s_supp = str(s_row.get("supporto", "") or "").strip()
+            if not s_supp or s_supp.upper() in ("NONE", "NAN", "-"):
+                s_supp = supp_display
 
             row_data = [
                 (giro, align_center, None),
                 (sid, align_center, None),
                 (brand_val, align_left, None),
                 (name_val, align_left, None),
-                (tex if tex > 0 else 0, align_right, "#,##0"),
-                (oth if oth > 0 else 0, align_right, "#,##0"),
-                (sho if sho > 0 else 0, align_right, "#,##0"),
-                (eco if eco > 0 else 0, align_right, "#,##0"),
                 (c_tot, align_right, "#,##0"),
                 (vol, align_right, "0.00"),
                 (ped, align_right, "#,##0"),
-                (formula_val, align_center, None),
+                (s_mez, align_left, None),
+                (s_supp, align_left, None),
                 (s_vett, align_left, None),
                 (s_aut, align_left, None),
-                (s_mez, align_left, None),
                 (s_tar, align_center, None),
                 ("OPERATIVO" if is_op else "STANDBY", align_center, None)
             ]
@@ -525,24 +574,20 @@ def export_sintesi_operativa(
             ws_giri.row_dimensions[curr_row].height = 19
             curr_row += 1
 
-        # Giro Subtotal Row
+        # Giro Subtotal Row (Cols 1-13)
         subtot_data = [
             (f"SUBTOTALE {giro}", align_left, font_bold),
             ("", align_left, font_bold),
             ("", align_left, font_bold),
             ("", align_left, font_bold),
-            (g_tex, align_right, font_bold),
-            (g_oth, align_right, font_bold),
-            (g_sho, align_right, font_bold),
-            (g_eco, align_right, font_bold),
             (g_colli_tot, align_right, font_bold),
             (round(g_vol_tot, 2), align_right, font_bold),
             (g_ped_tot, align_right, font_bold),
-            ("", align_center, font_bold),
-            ("", align_left, font_bold),
-            ("", align_left, font_bold),
-            ("", align_left, font_bold),
-            ("", align_center, font_bold),
+            (tipo_m, align_left, font_bold),
+            (supp_display, align_left, font_bold),
+            (vett_str, align_left, font_bold),
+            (aut_str, align_left, font_bold),
+            (targa_m, align_center, font_bold),
             ("", align_center, font_bold)
         ]
 
@@ -552,29 +597,25 @@ def export_sintesi_operativa(
             cell.fill = fill_subtot
             cell.alignment = a_align
             cell.border = thin_border
-            if c_i in [5, 6, 7, 8, 9, 11]:
+            if c_i in [5, 7]:
                 cell.number_format = "#,##0"
-            elif c_i == 10:
+            elif c_i == 6:
                 cell.number_format = "0.00"
 
         ws_giri.merge_cells(start_row=curr_row, start_column=1, end_row=curr_row, end_column=4)
         ws_giri.row_dimensions[curr_row].height = 21
         curr_row += 2  # leaves an empty spacer row
 
-    # Grand Total Row at bottom
+    # Grand Total Row at bottom (Cols 1-13)
     tot_data = [
         ("TOTALE GENERALE SPEDIZIONI", align_left),
         ("", align_left),
         ("", align_left),
         ("", align_left),
-        ("", align_right),
-        ("", align_right),
-        ("", align_right),
-        ("", align_right),
         (tot_colli_all, align_right),
         (tot_vol_all, align_right),
         (tot_ped_all, align_right),
-        ("", align_center),
+        ("", align_left),
         ("", align_left),
         ("", align_left),
         ("", align_left),
@@ -587,9 +628,9 @@ def export_sintesi_operativa(
         cell.fill = fill_tot
         cell.alignment = a_align
         cell.border = thin_border
-        if c_i in [9, 11]:
+        if c_i in [5, 7]:
             cell.number_format = "#,##0"
-        elif c_i == 10:
+        elif c_i == 6:
             cell.number_format = "0.00"
 
     ws_giri.merge_cells(start_row=curr_row, start_column=1, end_row=curr_row, end_column=4)
@@ -597,8 +638,8 @@ def export_sintesi_operativa(
 
     # Column widths for Sheet 1
     col_widths_s1 = {
-        1: 10, 2: 12, 3: 15, 4: 28, 5: 11, 6: 11, 7: 11, 8: 11,
-        9: 13, 10: 13, 11: 13, 12: 17, 13: 16, 14: 16, 15: 16, 16: 12, 17: 14
+        1: 10, 2: 12, 3: 15, 4: 30, 5: 14, 6: 14, 7: 14,
+        8: 18, 9: 25, 10: 18, 11: 18, 12: 14, 13: 14
     }
     for c_idx, w in col_widths_s1.items():
         ws_giri.column_dimensions[get_column_letter(c_idx)].width = w
@@ -655,13 +696,13 @@ def export_sintesi_operativa(
     sum_plt = 0
 
     for sid, sdata in spec.items():
-        c_tot = int(sdata.get("totali", 0) or 0)
+        c_tot = int(sdata.get("totali", sdata.get("totale_pezzi", 0)) or 0)
         c_app = int(sdata.get("appesi", 0) or 0)
         c_ste = int(sdata.get("stesi", 0) or 0)
-        c_prf = int(sdata.get("profumi", 0) or 0)
+        c_prf = int(sdata.get("profumi", sdata.get("correzione_profumi", 0)) or 0)
         stnd = int(sdata.get("stander", 0) or 0)
-        banc = int(sdata.get("plt", 0) or 0)
-        svil = str(sdata.get("sviluppo_str", "") or f"{banc} bancali + {stnd} stander")
+        banc = int(sdata.get("plt", sdata.get("bancali", 0)) or 0)
+        svil = str(sdata.get("sviluppo_str", sdata.get("sintesi", "")) or f"{banc} bancali + {stnd} stander")
         sname = str(sdata.get("store_name", sid))
 
         sum_capi += c_tot
@@ -739,9 +780,9 @@ def export_sintesi_operativa(
     sum_zh_b9 = 0
 
     for sid, zdata in zh.items():
-        ztot = int(zdata.get("totale", 0) or 0)
-        zb0 = int(zdata.get("barra0", 0) or 0)
-        zb9 = int(zdata.get("barra9", 0) or 0)
+        ztot = int(zdata.get("totale", zdata.get("totale_paqueteria", 0)) or 0)
+        zb0 = int(zdata.get("barra0", zdata.get("quota_barra0", 0)) or 0)
+        zb9 = int(zdata.get("barra9", zdata.get("quota_barra8", 0)) or 0)
         zsname = str(zdata.get("store_name", sid))
 
         sum_zh_tot += ztot
@@ -822,79 +863,6 @@ def export_sintesi_operativa(
     }
     for c_idx, w in col_widths_s2.items():
         ws_lav.column_dimensions[get_column_letter(c_idx)].width = w
-
-    # -------------------------------------------------------------
-    # SHEET 3: ELENCO PUNTI VENDITA COMPLETO (Per Filtri / Pivot)
-    # -------------------------------------------------------------
-    ws_flat = wb.create_sheet(title="Elenco Punti Vendita")
-    ws_flat.views.sheetView[0].showGridLines = True
-
-    flat_headers = [
-        "Store ID", "Giro", "Brand", "Nome Negozio", "Barra",
-        "Colli Tex", "Colli Oth", "Colli Sho", "Colli Eco", "Totale Colli",
-        "Volume (m³)", "Pedane (PLT)", "Formula", "Vettore", "Autista",
-        "Tipo Mezzo", "Targa", "Cod. SGA", "Stato"
-    ]
-    for c_i, h in enumerate(flat_headers, 1):
-        cell = ws_flat.cell(row=1, column=c_i, value=h)
-        cell.fill = fill_tbl_hdr
-        cell.font = font_tbl_hdr
-        cell.alignment = align_center
-        cell.border = thin_border
-    ws_flat.row_dimensions[1].height = 24
-
-    for r_i, (_, s_row) in enumerate(stores_only.iterrows(), 2):
-        sid = str(s_row.get("store_code", "")).strip()
-        bsid = sid[:-1] if sid.endswith("B") else sid
-        s_meta = map_stores.get(sid) or map_stores.get(bsid, {})
-
-        tex = int(round(float(s_row.get("textile_attesi", 0) or 0)))
-        oth = int(round(float(s_row.get("other_attesi", 0) or 0)))
-        sho = int(round(float(s_row.get("shoes_attesi", 0) or 0)))
-        eco = int(round(float(s_row.get("ecom_attesi", 0) or 0)))
-        c_tot = tex + oth + sho + eco
-        vol = round(float(s_row.get("mc", 0.0) or 0.0), 2)
-        ped = int(round(float(s_row.get("pedane", 0) or 0)))
-        b_val = 9 if s_row.get("is_barra9") else 0
-        st_att = str(s_row.get("attivo", s_meta.get("attivo", "SI")) or "SI").upper()
-
-        row_vals = [
-            (sid, align_center, None),
-            (s_row.get("giro", ""), align_center, None),
-            (s_row.get("brand", s_row.get("punto_vendita", "")), align_left, None),
-            (s_row.get("store_name", ""), align_left, None),
-            (b_val, align_center, None),
-            (tex, align_right, "#,##0"),
-            (oth, align_right, "#,##0"),
-            (sho, align_right, "#,##0"),
-            (eco, align_right, "#,##0"),
-            (c_tot, align_right, "#,##0"),
-            (vol, align_right, "0.00"),
-            (ped, align_right, "#,##0"),
-            (str(s_meta.get("formula", "") or ""), align_center, None),
-            (str(s_meta.get("vettore", s_row.get("vettore_autista", "")) or ""), align_left, None),
-            (str(s_meta.get("autista", "") or ""), align_left, None),
-            (str(s_row.get("tipo_mezzo", "") or ""), align_left, None),
-            (str(s_row.get("targa", "") or ""), align_center, None),
-            (s_meta.get("cod_sga", ""), align_center, None),
-            (st_att, align_center, None)
-        ]
-        for c_i, (v, a_align, n_fmt) in enumerate(row_vals, 1):
-            c = ws_flat.cell(row=r_i, column=c_i, value=v)
-            c.font = font_main
-            c.alignment = a_align
-            c.border = thin_border
-            if n_fmt:
-                c.number_format = n_fmt
-        ws_flat.row_dimensions[r_i].height = 19
-
-    if not stores_only.empty:
-        ws_flat.auto_filter.ref = f"A1:{get_column_letter(len(flat_headers))}{len(stores_only) + 1}"
-
-    for col in ws_flat.columns:
-        max_l = max(len(str(cell.value or "")) for cell in col)
-        c_letter = get_column_letter(col[0].column)
-        ws_flat.column_dimensions[c_letter].width = max(max_l + 3, 11)
 
     wb.save(output_path)
     return output_path

@@ -401,14 +401,13 @@ if menu == "📥 1. Previsione & Arrivi":
                 p_sga9_csv = out_dir / "barranove_Sga.csv"
                 p_zip = out_dir / f"File_Operativa_{curr_rid}_{r_date}.zip"
 
-                if not p_sintesi.exists() or p_sintesi.stat().st_size == 0:
-                    export_sintesi_operativa(
-                        active_run_data.get("df_spunta", pd.DataFrame()),
-                        active_run_data.get("special_breakdowns", {}),
-                        df_stores_side,
-                        p_sintesi,
-                        run_date=r_date
-                    )
+                export_sintesi_operativa(
+                    active_run_data.get("df_spunta", pd.DataFrame()),
+                    active_run_data.get("special_breakdowns", {}),
+                    df_stores_side,
+                    p_sintesi,
+                    run_date=r_date
+                )
 
                 s0_df = active_run_data.get("df_sga0")
                 if (s0_df is None or s0_df.empty) and "sga0" in active_run_data.get("exported_files", {}):
@@ -529,6 +528,40 @@ if menu == "📥 1. Previsione & Arrivi":
                     key=f"em_subj_in_{curr_rid}"
                 )
 
+                spec_bd = active_run_data.get("special_breakdowns", {})
+                lav_lines = []
+                if spec_bd:
+                    spec_stores = spec_bd.get("special_stores", {})
+                    zh_stores = spec_bd.get("zara_home", {})
+                    tot_pezzi_lav = spec_bd.get("totale_pezzi_lavorati", 0)
+
+                    lav_lines.append("Sintesi Lavorazioni di Piattaforma del Giorno:")
+                    if spec_stores:
+                        lav_lines.append("- Lavorazione Speciale Tessile:")
+                        for sid, sdata in spec_stores.items():
+                            sname = sdata.get("store_name", sid)
+                            app = int(sdata.get("appesi", 0))
+                            stnd = int(sdata.get("stander", 0))
+                            ste = int(sdata.get("stesi", 0))
+                            plt = int(sdata.get("bancali", sdata.get("bancali_stesi", 0)))
+                            prf = int(sdata.get("correzione_profumi", 0))
+                            tot_s = int(sdata.get("totale_pezzi", app + ste))
+                            lav_lines.append(f"  • {sid} {sname}: {tot_s:,} capi tot | {app:,} appesi ({stnd} stander) | {ste:,} stesi ({plt} bancali) | profumi: {prf:,}")
+
+                    if zh_stores:
+                        lav_lines.append("- Lavorazione Zara Home (50% /0 e 50% /8):")
+                        for sid, zdata in zh_stores.items():
+                            zsname = zdata.get("store_name", sid)
+                            paq = int(zdata.get("totale_paqueteria", zdata.get("totale", 0)))
+                            q0 = int(zdata.get("quota_barra0", zdata.get("barra0", 0)))
+                            q8 = int(zdata.get("quota_barra8", zdata.get("barra8", 0)))
+                            lav_lines.append(f"  • {sid} {zsname}: {paq:,} pz totali (50% /0: {q0:,} pz — 50% /8: {q8:,} pz)")
+
+                    if tot_pezzi_lav:
+                        lav_lines.append(f"- Totale Pezzi Lavorati in Piattaforma: {tot_pezzi_lav:,} pz")
+
+                lav_section = ("\n" + "\n".join(lav_lines) + "\n") if lav_lines else ""
+
                 default_body = (
                     f"Gentili Colleghi,\n\n"
                     f"in allegato trasmettiamo i file operativi relativi alla spedizione del {r_date}:\n\n"
@@ -539,13 +572,14 @@ if menu == "📥 1. Previsione & Arrivi":
                     f"- Totale Colli: {format_number_it(totals['total_bultos'], 0)}\n"
                     f"- Volume Complessivo: {format_number_it(totals['total_volume'], 2)} m³\n"
                     f"- Peso Complessivo: {format_number_it(totals['total_weight'], 0)} kg\n"
-                    f"- Pedane Stimate: {format_number_it(totals['total_pedane'], 0)} PLT\n\n"
+                    f"- Pedane Stimate: {format_number_it(totals['total_pedane'], 0)} PLT\n"
+                    f"{lav_section}\n"
                     f"Restiamo a disposizione per qualsiasi chiarimento operativo.\n\n"
                     f"Cordiali saluti,\n"
                     f"Ufficio Logistica & Traffico Zara Hub"
                 )
 
-                em_body = st.text_area("Testo del Messaggio", value=default_body, height=140, key=f"em_body_in_{curr_rid}")
+                em_body = st.text_area("Testo del Messaggio", value=default_body, height=220, key=f"em_body_in_{curr_rid}")
 
                 if st.button("🚀 INVIA EMAIL ORA", type="primary", use_container_width=True, key=f"btn_send_now_{curr_rid}"):
                     to_list = [x.strip() for x in em_to.split(",") if x.strip()]

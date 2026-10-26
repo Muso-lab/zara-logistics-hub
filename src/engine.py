@@ -441,11 +441,21 @@ def compute_sga_flows(
     except:
         dt = datetime.now()
 
-    # Data Carico / Scarico:
+    # Data Carico / Scarico: formato rigido gg/mm/aaaa (DD/MM/YYYY)
     # Barra 0: NOW() + 1
     # Barra 9: NOW() + 2
-    dt_b0 = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
-    dt_b9 = (dt + timedelta(days=2)).strftime("%Y-%m-%d")
+    dt_b0 = (dt + timedelta(days=1)).strftime("%d/%m/%Y")
+    dt_b9 = (dt + timedelta(days=2)).strftime("%d/%m/%Y")
+
+    def _is_unassigned_giro(val: Any) -> bool:
+        if pd.isna(val) or val is None:
+            return True
+        g = str(val).strip().upper()
+        if not g or g in ("DA ASSEGNARE", "NON ASSEGNATO", "NON DEFINITO", "NONE", "NAN", "-"):
+            return True
+        if g.startswith("DA ASS") or g.startswith("NON ASS"):
+            return True
+        return False
 
     map_codsga = {}
     if df_stores is not None and not df_stores.empty:
@@ -464,6 +474,8 @@ def compute_sga_flows(
     for _, r in b0_stores.iterrows():
         sid = str(r["store_code"]).strip()
         giro = str(r["giro"]).strip()
+        if _is_unassigned_giro(giro) or _is_unassigned_giro(sid):
+            continue
         cod_sga = map_codsga.get(sid, None)
         if pd.isna(cod_sga) or cod_sga is None:
             # Fallback
@@ -520,6 +532,8 @@ def compute_sga_flows(
     for _, r in b9_stores.iterrows():
         sid = str(r["store_code"]).strip()
         giro = str(r["giro"]).strip()
+        if _is_unassigned_giro(giro) or _is_unassigned_giro(sid):
+            continue
         cod_sga = map_codsga.get(sid, None)
         if pd.isna(cod_sga) or cod_sga is None:
             base_sid = sid[:-1] if sid.endswith("B") else sid
