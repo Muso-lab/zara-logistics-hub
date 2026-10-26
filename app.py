@@ -1101,13 +1101,281 @@ elif menu == "🚚 2. Bolle di Consegna":
                     st.session_state["flash_bolle_msg"] = f"🎉 Generate **{c_cnt}** bolle per il **{format_date_it(sel_gen_dt)}** ({s_cnt} già esistenti)."
                     st.rerun()
 
-    tab_b_list, tab_b_form = st.tabs([
-        "📋 Elenco, Filtri Giro/Vettore & Stampa",
-        "✏️ Compila / Modifica Singola Bolla",
+    tab_b_form, tab_b_list = st.tabs([
+        "📝 Compilazione Singola Bolla",
+        "📋 Elenco Bolle & Stampa Documenti",
     ])
 
     # --------------------------------------------------------------------------
-    # SOTTO-SCHEDA 1: ELENCO, FILTRI & STAMPA
+    # SOTTO-SCHEDA 1: COMPILAZIONE SINGOLA BOLLA (MODALITÀ STANDARD)
+    # --------------------------------------------------------------------------
+    with tab_b_form:
+        store_choices = [
+            f"{r['store_id']} - {r['store_name']} ({r['brand']}) [{r['giro']}]"
+            for _, r in df_stores_side.iterrows()
+        ] if not df_stores_side.empty else []
+
+        if "_next_store_override" in st.session_state:
+            st.session_state["form_store_sel"] = st.session_state.pop("_next_store_override")
+
+        target_dt_obj = datetime.strptime(target_date, "%Y-%m-%d").date() if target_date else (date.today() + timedelta(days=1))
+        if st.session_state.get("_prev_target_date_for_form") != target_date:
+            st.session_state["_prev_target_date_for_form"] = target_date
+            st.session_state["form_dt_cons"] = target_dt_obj
+
+        col_t1, col_t2, col_t3 = st.columns([2.5, 1.2, 1.3])
+        with col_t1:
+            sel_store_str = st.selectbox(
+                "Punto Vendita (Store)",
+                store_choices,
+                key="form_store_sel",
+                help="Seleziona il punto vendita. Se per la data indicata esiste già una bolla registrata, verrà aperta automaticamente per la modifica rapida."
+            )
+            current_sid = sel_store_str.split(" - ")[0].strip() if sel_store_str else "3680"
+
+        # Verifica flag sdoppiamento_b9 in anagrafica per consentire o bloccare DOPPIA
+        is_sdoppia = False
+        if not df_stores_side.empty:
+            m_row = df_stores_side[df_stores_side["store_id"].astype(str) == current_sid]
+            if not m_row.empty:
+                is_sdoppia = str(m_row.iloc[0].get("sdoppiamento_b9", "NO")).strip().upper() == "SI"
+
+        tipo_options = ["STD", "DOPPIA"] if is_sdoppia else ["STD"]
+        with col_t2:
+            form_tipo_cons = st.selectbox(
+                "Tipologia Consegna",
+                tipo_options,
+                key="form_tipo_cons",
+                help="STD: consegna standard (/0). DOPPIA: sdoppiamento (/9 'B') attivo per i negozi abilitati in Anagrafica.",
+            )
+
+        with col_t3:
+            form_data_cons = st.date_input(
+                "Data Consegna",
+                value=target_dt_obj,
+                format="DD/MM/YYYY",
+                key="form_dt_cons"
+            )
+
+        # Rilevamento automatico se la bolla esiste già
+        df_existing = get_bolle(
+            data_consegna=str(form_data_cons),
+            id_store=current_sid,
+            tipo_cons=form_tipo_cons
+        )
+        existing_bolla = df_existing.iloc[0].to_dict() if not df_existing.empty else None
+
+        if existing_bolla:
+            st.markdown(
+                f"""
+                <div style="background: rgba(30, 142, 62, 0.10); border-left: 4px solid #1e8e3e; padding: 9px 14px; border-radius: 6px; margin: 8px 0 14px 0;">
+                    <div style="font-weight: 600; color: #137333;">🟢 Bolla #{existing_bolla['id']} Registrata</div>
+                    <div style="font-size: 0.88rem; color: #202124;">
+                        Bolla esistente per <b>{current_sid}</b> con consegna <b>{format_date_it(str(form_data_cons))}</b> ({form_tipo_cons}). 
+                        I quantitativi e le informazioni registrate sono caricati nei campi sottostanti per la modifica immediata.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                f"""
+                <div style="background: rgba(26, 115, 232, 0.08); border-left: 4px solid #1a73e8; padding: 9px 14px; border-radius: 6px; margin: 8px 0 14px 0;">
+                    <div style="font-weight: 600; color: #1a73e8;">✨ Nuova Bolla in Compilazione</div>
+                    <div style="font-size: 0.88rem; color: #202124;">
+                        Nessuna bolla presente per <b>{current_sid}</b> con consegna <b>{format_date_it(str(form_data_cons))}</b> ({form_tipo_cons}). 
+                        I parametri del vettore e mezzo sono precompilati dall'Anagrafica. Inserisci i colli o precompila dalla previsione.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        # Cache key per inizializzazione e sincronizzazione campi form
+        active_cache_key = f"{form_data_cons}_{current_sid}_{form_tipo_cons}_{existing_bolla['id'] if existing_bolla else 'new'}"
+        if st.session_state.get("_last_active_bolla_key") != active_cache_key:
+            st.session_state["_last_active_bolla_key"] = active_cache_key
+            prof = get_store_delivery_profile(current_sid, form_tipo_cons)
+
+            if existing_bolla:
+                st.session_state["form_pv"] = str(existing_bolla.get("punto_vendita") or prof.get("punto_vendita") or "ZARA")
+                st.session_state["form_vettore"] = str(existing_bolla.get("vettore") or prof.get("vettore") or "LACCHI SPA")
+                st.session_state["form_autista"] = str(existing_bolla.get("autista") or "")
+                st.session_state["form_mezzo"] = str(existing_bolla.get("tipo_mezzo") or prof.get("tipo_mezzo") or "")
+                st.session_state["form_indirizzo"] = str(existing_bolla.get("indirizzo_destino") or prof.get("indirizzo") or "")
+                st.session_state["form_c_abb"] = int(round(float(existing_bolla.get("colli_abbigl", 0) or 0)))
+                st.session_state["form_c_calz"] = int(round(float(existing_bolla.get("colli_calzat", 0) or 0)))
+                st.session_state["form_c_eco"] = int(round(float(existing_bolla.get("colli_ecom", 0) or 0)))
+                st.session_state["form_c_oth"] = int(round(float(existing_bolla.get("colli_others", 0) or 0)))
+                st.session_state["form_c_var"] = int(round(float(existing_bolla.get("colli_vario", 0) or 0)))
+                st.session_state["form_c_cont"] = int(round(float(existing_bolla.get("colli_cont", 0) or 0)))
+                st.session_state["form_c_mat"] = int(round(float(existing_bolla.get("colli_mat_vario", 0) or 0)))
+                st.session_state["form_c_dann"] = int(round(float(existing_bolla.get("colli_dann", 0) or 0)))
+                st.session_state["form_c_nonconf"] = int(round(float(existing_bolla.get("colli_non_conf", 0) or 0)))
+                st.session_state["form_stringa_custom"] = str(existing_bolla.get("stringa", "") or "")
+                st.session_state["form_anomalie"] = str(existing_bolla.get("anomalie_scarico", "") or "")
+            else:
+                st.session_state["form_pv"] = str(prof.get("punto_vendita") or "ZARA")
+                st.session_state["form_vettore"] = str(prof.get("vettore") or "LACCHI SPA")
+                st.session_state["form_autista"] = str(prof.get("autista", "") or "")
+                st.session_state["form_mezzo"] = str(prof.get("tipo_mezzo") or ("FURGONE 8" if form_tipo_cons == "DOPPIA" else "MOTRICE 18 PLT"))
+                st.session_state["form_indirizzo"] = str(prof.get("indirizzo") or "")
+                st.session_state["form_c_abb"] = 0
+                st.session_state["form_c_calz"] = 0
+                st.session_state["form_c_eco"] = 0
+                st.session_state["form_c_oth"] = 0
+                st.session_state["form_c_var"] = 0
+                st.session_state["form_c_cont"] = 0
+                st.session_state["form_c_mat"] = 0
+                st.session_state["form_c_dann"] = 0
+                st.session_state["form_c_nonconf"] = 0
+                st.session_state["form_stringa_custom"] = ""
+                st.session_state["form_anomalie"] = ""
+
+        # Testata Bolla
+        col_v1, col_v2, col_v3, col_v4 = st.columns([1.2, 1.3, 1.5, 1.5])
+        with col_v1:
+            form_data_carico = st.date_input("Data Spedizione", value=date.today(), format="DD/MM/YYYY", key="form_dt_carico")
+        with col_v2:
+            form_pv = st.text_input("Insegna / Brand", key="form_pv")
+        with col_v3:
+            form_vettore = st.text_input("Vettore Assegnato", key="form_vettore")
+        with col_v4:
+            form_mezzo = st.text_input("Tipo Mezzo", key="form_mezzo")
+
+        col_ind1, col_ind2 = st.columns([3, 1.5])
+        with col_ind1:
+            form_indirizzo = st.text_input("Indirizzo di Destino", key="form_indirizzo")
+        with col_ind2:
+            form_autista = st.text_input("Autista (Opzionale)", key="form_autista")
+
+        # Quantità Colli
+        st.markdown("---")
+        col_q_title, col_q_prefill = st.columns([3, 2])
+        with col_q_title:
+            st.markdown("##### 📦 Quantità Colli (Numeri Interi)")
+        with col_q_prefill:
+            if st.button("📥 Precompila con Colli Previsti dalla Run", key="btn_prefill_planned", use_container_width=True):
+                pl_data = get_store_latest_planned_data(current_sid)
+                if pl_data.get("has_data"):
+                    sdop_factor = 0.3 if form_tipo_cons == "DOPPIA" else (0.7 if is_sdoppia else 1.0)
+                    st.session_state["form_c_abb"] = int(round(float(pl_data.get("textile", 0) or 0) * sdop_factor))
+                    st.session_state["form_c_calz"] = int(round(float(pl_data.get("shoes", 0) or 0) * sdop_factor))
+                    st.session_state["form_c_eco"] = int(round(float(pl_data.get("ecom", 0) or 0) * sdop_factor))
+                    st.session_state["form_c_oth"] = int(round(float(pl_data.get("others", 0) or 0) * sdop_factor))
+                    st.rerun()
+                else:
+                    st.warning("Nessun dato previsionale trovato per questo negozio nell'ultima run.")
+
+        col_q1, col_q2, col_q3, col_q4 = st.columns(4)
+        with col_q1:
+            c_abb = st.number_input("Abbigliamento + Profumi", min_value=0, step=1, key="form_c_abb")
+            c_var = st.number_input("Mat. Vario Piattaforma", min_value=0, step=1, key="form_c_var")
+        with col_q2:
+            c_calz = st.number_input("Calzature (Shoes)", min_value=0, step=1, key="form_c_calz")
+            c_mat = st.number_input("Mat. Vario", min_value=0, step=1, key="form_c_mat")
+        with col_q3:
+            c_oth = st.number_input("Others (Altri Bultos)", min_value=0, step=1, key="form_c_oth")
+            c_cont = st.number_input("Contenitori", min_value=0, step=1, key="form_c_cont")
+        with col_q4:
+            c_eco = st.number_input("E-Commerce", min_value=0, step=1, key="form_c_eco")
+            c_dann = st.number_input("Danneggiati", min_value=0, step=1, key="form_c_dann")
+            c_nonconf = st.number_input("Non Conformi", min_value=0, step=1, key="form_c_nonconf")
+
+        tot_operativa_calc = int(c_abb + c_calz + c_eco + c_oth + c_var)
+        st.info(f"📦 **Totale Colli Operativa Consegna: {format_number_it(tot_operativa_calc, 0)} colli**")
+
+        # Intershops & Anomalie
+        with st.expander("🔄 Trasferimenti tra Negozi (Intershops / Stand / Ceste) & Note Scarico", expanded=False):
+            inter_rows_data = []
+            existing_inter = []
+            try:
+                if existing_bolla and existing_bolla.get("intershops_json"):
+                    existing_inter = json.loads(existing_bolla["intershops_json"])
+            except Exception:
+                existing_inter = []
+
+            for row_i in range(3):
+                cur_item = existing_inter[row_i] if row_i < len(existing_inter) else {}
+                ci1, ci2, ci3 = st.columns([1, 1, 2])
+                with ci1:
+                    m_val = st.text_input(f"Negozio Mittente #{row_i+1}", value=str(cur_item.get("mittente", "")), key=f"inter_m_{row_i}")
+                with ci2:
+                    c_val = st.number_input(f"Colli #{row_i+1}", min_value=0, value=int(round(float(cur_item.get("colli", 0) or 0))), step=1, key=f"inter_c_{row_i}")
+                with ci3:
+                    t_val = st.text_input(f"Tipologia #{row_i+1}", value=str(cur_item.get("tipo", "")), placeholder="es. MERCE, CESTE, STAND", key=f"inter_t_{row_i}")
+                if c_val > 0:
+                    inter_rows_data.append({"mittente": m_val, "colli": int(c_val), "tipo": t_val})
+
+            form_stringa_custom = st.text_input("Note / Intershops libere sulla bolla", key="form_stringa_custom")
+            form_anomalie = st.text_area("Anomalie allo Scarico", key="form_anomalie")
+
+        # Pulsanti di Azione
+        col_sv1, col_sv2, col_sv3 = st.columns([2, 2, 1.2])
+        with col_sv1:
+            btn_save_text = "💾 AGGIORNA BOLLA" if existing_bolla else "💾 SALVA BOLLA"
+            save_clicked = st.button(btn_save_text, type="primary", use_container_width=True, key="btn_save_bolla")
+        with col_sv2:
+            btn_next_text = "💾 Aggiorna e Passa al Prossimo ➡️" if existing_bolla else "💾 Salva e Passa al Prossimo ➡️"
+            save_next_clicked = st.button(btn_next_text, use_container_width=True, key="btn_save_next_bolla")
+        with col_sv3:
+            if existing_bolla:
+                with st.popover("🗑️ Elimina Bolla", use_container_width=True):
+                    st.warning(f"Eliminare la bolla #{existing_bolla['id']} per {current_sid}?")
+                    if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key="btn_del_curr_bolla"):
+                        delete_bolla(existing_bolla["id"])
+                        st.session_state["flash_bolle_msg"] = f"🗑️ Bolla #{existing_bolla['id']} eliminata con successo."
+                        st.rerun()
+
+        if save_clicked or save_next_clicked:
+            if inter_rows_data:
+                computed_stringa = format_intershops_string(inter_rows_data)
+                if form_stringa_custom and form_stringa_custom not in computed_stringa:
+                    computed_stringa += f" {form_stringa_custom}"
+            else:
+                computed_stringa = form_stringa_custom
+
+            bolla_save_payload = {
+                "id": existing_bolla.get("id") if existing_bolla else None,
+                "data": str(form_data_carico),
+                "data_consegna": str(form_data_cons),
+                "id_store": current_sid,
+                "punto_vendita": form_pv,
+                "store_name": sel_store_str.split(" - ")[1].split(" (")[0] if " - " in sel_store_str else "",
+                "tipo_cons": form_tipo_cons,
+                "vettore": form_vettore,
+                "cell_autista": "",
+                "autista": form_autista,
+                "tipo_mezzo": form_mezzo,
+                "indirizzo_destino": form_indirizzo,
+                "colli_abbigl": int(c_abb),
+                "colli_calzat": int(c_calz),
+                "colli_ecom": int(c_eco),
+                "colli_others": int(c_oth),
+                "colli_vario": int(c_var),
+                "colli_cont": int(c_cont),
+                "colli_mat_vario": int(c_mat),
+                "colli_dann": int(c_dann),
+                "colli_non_conf": int(c_nonconf),
+                "anomalie_scarico": form_anomalie,
+                "intershops_list": inter_rows_data,
+                "stringa": computed_stringa,
+            }
+            new_id = save_or_update_bolla(bolla_save_payload)
+            if save_next_clicked and store_choices:
+                try:
+                    curr_idx = store_choices.index(sel_store_str)
+                    if curr_idx + 1 < len(store_choices):
+                        st.session_state["_next_store_override"] = store_choices[curr_idx + 1]
+                except Exception:
+                    pass
+            act_word = "aggiornata" if existing_bolla else "salvata"
+            st.session_state["flash_bolle_msg"] = f"🎉 Bolla #{new_id} per Store **{current_sid}** {act_word} con successo!"
+            st.rerun()
+
+    # --------------------------------------------------------------------------
+    # SOTTO-SCHEDA 2: ELENCO, FILTRI & STAMPA
     # --------------------------------------------------------------------------
     with tab_b_list:
         store_giro_map = {}
@@ -1139,17 +1407,17 @@ elif menu == "🚚 2. Bolle di Consegna":
                 df_bolle = df_bolle[df_bolle["giro"] == f_giro].copy()
 
         # Metriche rapide sulla selezione
-        tot_colli_b = (
+        tot_colli_b = int((
             df_bolle["colli_abbigl"] + df_bolle["colli_calzat"] +
             df_bolle["colli_ecom"] + df_bolle["colli_others"] + df_bolle["colli_vario"]
-        ).sum() if not df_bolle.empty else 0
+        ).sum()) if not df_bolle.empty else 0
 
         mk1, mk2, mk3, mk4, mk5 = st.columns(5)
         mk1.metric("Bolle Visualizzate", len(df_bolle))
         mk2.metric("Colli Totali", format_number_it(tot_colli_b, 0))
-        mk3.metric("Abbigliamento", format_number_it(df_bolle["colli_abbigl"].sum() if not df_bolle.empty else 0, 0))
-        mk4.metric("Calzature", format_number_it(df_bolle["colli_calzat"].sum() if not df_bolle.empty else 0, 0))
-        mk5.metric("Altri + E-Com", format_number_it((df_bolle["colli_others"].sum() + df_bolle["colli_ecom"].sum()) if not df_bolle.empty else 0, 0))
+        mk3.metric("Abbigliamento", format_number_it(int(df_bolle["colli_abbigl"].sum()) if not df_bolle.empty else 0, 0))
+        mk4.metric("Calzature", format_number_it(int(df_bolle["colli_calzat"].sum()) if not df_bolle.empty else 0, 0))
+        mk5.metric("Altri + E-Com", format_number_it(int(df_bolle["colli_others"].sum() + df_bolle["colli_ecom"].sum()) if not df_bolle.empty else 0, 0))
 
         # Barra Pulsanti Stampa & Export
         b_act1, b_act2, b_act3, b_act4, b_act5 = st.columns(5)
@@ -1227,7 +1495,7 @@ elif menu == "🚚 2. Bolle di Consegna":
                 df_b_disp["colli_ecom"] + df_b_disp["colli_others"] + df_b_disp["colli_vario"]
             )
             # Format quantities as clean integers
-            for col_n in ["TOT_COLLI", "colli_abbigl", "colli_calzat", "colli_others", "colli_ecom"]:
+            for col_n in ["TOT_COLLI", "colli_abbigl", "colli_calzat", "colli_others", "colli_ecom", "colli_vario", "colli_cont", "colli_mat_vario", "colli_dann", "colli_non_conf"]:
                 if col_n in df_b_disp.columns:
                     df_b_disp[col_n] = df_b_disp[col_n].fillna(0).round().astype(int)
 
@@ -1248,231 +1516,18 @@ elif menu == "🚚 2. Bolle di Consegna":
             }
             cols_avail = [c for c in cols_map.keys() if c in df_b_disp.columns]
             df_show = df_b_disp[cols_avail].rename(columns=cols_map)
-            st.dataframe(df_show, use_container_width=True, height=420)
-
-    # --------------------------------------------------------------------------
-    # SOTTO-SCHEDA 2: COMPILA O MODIFICA SINGOLA BOLLA
-    # --------------------------------------------------------------------------
-    with tab_b_form:
-        mode_bolla = st.radio(
-            "Modalità Operativa",
-            ["➕ Compila Nuova Bolla", "✏️ Modifica Bolla Esistente"],
-            horizontal=True,
-            key="bolle_edit_mode",
-        )
-
-        store_choices = [f"{r['store_id']} - {r['store_name']} ({r['brand']}) [{r['giro']}]" for _, r in df_stores_side.iterrows()] if not df_stores_side.empty else []
-
-        bolla_to_edit = {}
-        if "Modifica" in mode_bolla:
-            recent_bolle = get_bolle(data=target_date)
-            if recent_bolle.empty:
-                recent_bolle = get_bolle()
-            if recent_bolle.empty:
-                st.warning("Nessuna bolla in archivio da modificare.")
-            else:
-                b_edit_opts = {
-                    int(r["id"]): f"Bolla #{int(r['id'])} ({format_date_it(r['data_consegna'] or r['data'])}) - Store {r['id_store']} ({r['store_name']}) [{r['tipo_cons']}]"
-                    for _, r in recent_bolle.head(150).iterrows()
+            st.dataframe(
+                df_show,
+                use_container_width=True,
+                height=420,
+                column_config={
+                    "Tot. Colli": st.column_config.NumberColumn(format="%d"),
+                    "Abbigliamento": st.column_config.NumberColumn(format="%d"),
+                    "Calzature": st.column_config.NumberColumn(format="%d"),
+                    "Altri": st.column_config.NumberColumn(format="%d"),
+                    "E-Com": st.column_config.NumberColumn(format="%d"),
                 }
-                sel_edit_id = st.selectbox(
-                    "Seleziona Bolla da Modificare",
-                    list(b_edit_opts.keys()),
-                    format_func=lambda bid: b_edit_opts[bid],
-                    key="sel_edit_bolla_id",
-                )
-                bolla_to_edit = get_bolla_by_id(sel_edit_id) or {}
-
-        def_sid = str(bolla_to_edit.get("id_store", "3680"))
-        def_tipo = str(bolla_to_edit.get("tipo_cons", "STD"))
-
-        if "_next_store_override" in st.session_state:
-            st.session_state["form_store_sel"] = st.session_state.pop("_next_store_override")
-
-        col_t1, col_t2, col_t3 = st.columns([2, 1.3, 1.3])
-        with col_t1:
-            default_store_idx = 0
-            for i, opt in enumerate(store_choices):
-                if opt.startswith(def_sid + " -"):
-                    default_store_idx = i
-                    break
-            sel_store_str = st.selectbox("Punto Vendita", store_choices, index=default_store_idx if store_choices else 0, key="form_store_sel")
-            current_sid = sel_store_str.split(" - ")[0].strip() if sel_store_str else def_sid
-
-        # Verifica flag sdoppiamento_b9 in anagrafica per consentire o bloccare DOPPIA
-        is_sdoppia = False
-        if not df_stores_side.empty:
-            m_row = df_stores_side[df_stores_side["store_id"].astype(str) == current_sid]
-            if not m_row.empty:
-                is_sdoppia = str(m_row.iloc[0].get("sdoppiamento_b9", "NO")).strip().upper() == "SI"
-
-        tipo_options = ["STD", "DOPPIA"] if is_sdoppia else ["STD"]
-        if def_tipo == "DOPPIA" and "DOPPIA" not in tipo_options:
-            tipo_options.append("DOPPIA")
-        curr_tipo_idx = tipo_options.index(def_tipo) if def_tipo in tipo_options else 0
-
-        with col_t2:
-            form_tipo_cons = st.selectbox(
-                "Tipologia Consegna",
-                tipo_options,
-                index=curr_tipo_idx,
-                key="form_tipo_cons",
-                help="La consegna DOPPIA (/9 'B') è abilitata esclusivamente per i negozi con flag Sdoppiamento = SI in Anagrafica.",
             )
-            if is_sdoppia:
-                st.caption("✨ Sdoppiamento attivo (/0 STD e /9 'B' DOPPIA)")
-            else:
-                st.caption("ℹ️ Consegna unica STD (Sdoppiamento = NO)")
-
-        prof = get_store_delivery_profile(current_sid, form_tipo_cons)
-        current_cache_key = f"{mode_bolla}_{bolla_to_edit.get('id', 'new')}_{current_sid}_{form_tipo_cons}"
-        if st.session_state.get("_last_bolla_form_key") != current_cache_key:
-            st.session_state["_last_bolla_form_key"] = current_cache_key
-            st.session_state["form_pv"] = bolla_to_edit.get("punto_vendita") or prof.get("punto_vendita") or "ZARA"
-            st.session_state["form_vettore"] = bolla_to_edit.get("vettore") or prof.get("vettore") or "LACCHI SPA"
-            st.session_state["form_autista"] = bolla_to_edit.get("autista") or prof.get("autista", "")
-            st.session_state["form_cell"] = bolla_to_edit.get("cell_autista") or prof.get("cell_autista", "")
-            st.session_state["form_mezzo"] = bolla_to_edit.get("tipo_mezzo") or prof.get("tipo_mezzo", "")
-            st.session_state["form_indirizzo"] = bolla_to_edit.get("indirizzo_destino") or prof.get("indirizzo", "")
-            st.session_state["form_c_abb"] = float(bolla_to_edit.get("colli_abbigl", 0))
-            st.session_state["form_c_calz"] = float(bolla_to_edit.get("colli_calzat", 0))
-            st.session_state["form_c_eco"] = float(bolla_to_edit.get("colli_ecom", 0))
-            st.session_state["form_c_oth"] = float(bolla_to_edit.get("colli_others", 0))
-            st.session_state["form_c_var"] = float(bolla_to_edit.get("colli_vario", 0))
-            st.session_state["form_c_mat"] = float(bolla_to_edit.get("colli_mat_vario", 0))
-            st.session_state["form_c_cont"] = float(bolla_to_edit.get("colli_cont", 0))
-            st.session_state["form_c_dann"] = float(bolla_to_edit.get("colli_dann", 0))
-            st.session_state["form_c_nonconf"] = float(bolla_to_edit.get("colli_non_conf", 0))
-
-        with col_t3:
-            form_pv = st.text_input("Insegna / Brand", key="form_pv")
-
-        col_v1, col_v2, col_v3, col_v4 = st.columns([1.2, 1.2, 1.5, 1.5])
-        with col_v1:
-            form_data_carico = st.date_input("Data Spedizione", value=date.today(), format="DD/MM/YYYY", key="form_dt_carico")
-        with col_v2:
-            form_data_cons = st.date_input("Data Consegna", value=date.today() + timedelta(days=1), format="DD/MM/YYYY", key="form_dt_cons")
-        with col_v3:
-            form_vettore = st.text_input("Vettore", key="form_vettore")
-        with col_v4:
-            form_mezzo = st.text_input("Mezzo", key="form_mezzo")
-
-        col_ind1, col_ind2 = st.columns([2.5, 1.5])
-        with col_ind1:
-            form_indirizzo = st.text_input("Indirizzo di Destino", key="form_indirizzo")
-        with col_ind2:
-            form_autista = st.text_input("Autista (Opzionale)", key="form_autista")
-        form_cell = st.session_state.get("form_cell", "")
-
-        st.markdown("---")
-        col_q_title, col_q_prefill = st.columns([3, 2])
-        with col_q_title:
-            st.markdown("##### 📦 Quantità Colli in Uscita")
-        with col_q_prefill:
-            if st.button("📥 Precompila con Colli Previsti dalla Run", key="btn_prefill_planned", use_container_width=True):
-                pl_data = get_store_latest_planned_data(current_sid)
-                if pl_data.get("has_data"):
-                    sdop_factor = 0.3 if form_tipo_cons == "DOPPIA" else (0.7 if is_sdoppia else 1.0)
-                    st.session_state["form_c_abb"] = float(round(pl_data.get("textile", 0.0) * sdop_factor, 1))
-                    st.session_state["form_c_calz"] = float(round(pl_data.get("shoes", 0.0) * sdop_factor, 1))
-                    st.session_state["form_c_eco"] = float(round(pl_data.get("ecom", 0.0) * sdop_factor, 1))
-                    st.session_state["form_c_oth"] = float(round(pl_data.get("others", 0.0) * sdop_factor, 1))
-                    st.rerun()
-                else:
-                    st.warning("Nessun dato previsionale trovato per questo negozio nell'ultima run.")
-
-        col_q1, col_q2, col_q3, col_q4 = st.columns(4)
-        with col_q1:
-            c_abb = st.number_input("Abbigliamento + Profumi", min_value=0.0, step=1.0, key="form_c_abb")
-            c_var = st.number_input("Mat. Vario Piattaforma", min_value=0.0, step=1.0, key="form_c_var")
-        with col_q2:
-            c_calz = st.number_input("Calzature (Shoes)", min_value=0.0, step=1.0, key="form_c_calz")
-            c_mat = st.number_input("Mat. Vario", min_value=0.0, step=1.0, key="form_c_mat")
-        with col_q3:
-            c_oth = st.number_input("Others (Altri Bultos)", min_value=0.0, step=1.0, key="form_c_oth")
-            c_cont = st.number_input("Contenitori", min_value=0.0, step=1.0, key="form_c_cont")
-        with col_q4:
-            c_eco = st.number_input("E-Commerce", min_value=0.0, step=1.0, key="form_c_eco")
-            c_dann = st.number_input("Danneggiati", min_value=0.0, step=1.0, key="form_c_dann")
-            c_nonconf = st.number_input("Non Conformi", min_value=0.0, step=1.0, key="form_c_nonconf")
-
-        tot_operativa_calc = c_abb + c_calz + c_eco + c_oth + c_var
-        st.info(f"📦 **Totale Colli Operativa Consegna: {int(tot_operativa_calc)} colli**")
-
-        with st.expander("🔄 Trasferimenti tra Negozi (Intershops / Stand / Ceste) & Note Scarico", expanded=False):
-            inter_rows_data = []
-            existing_inter = []
-            try:
-                if bolla_to_edit.get("intershops_json"):
-                    existing_inter = json.loads(bolla_to_edit["intershops_json"])
-            except Exception:
-                existing_inter = []
-
-            for row_i in range(3):
-                cur_item = existing_inter[row_i] if row_i < len(existing_inter) else {}
-                ci1, ci2, ci3 = st.columns([1, 1, 2])
-                with ci1:
-                    m_val = st.text_input(f"Negozio Mittente #{row_i+1}", value=str(cur_item.get("mittente", "")), key=f"inter_m_{row_i}")
-                with ci2:
-                    c_val = st.number_input(f"Colli #{row_i+1}", min_value=0, value=int(cur_item.get("colli", 0)), step=1, key=f"inter_c_{row_i}")
-                with ci3:
-                    t_val = st.text_input(f"Tipologia #{row_i+1}", value=str(cur_item.get("tipo", "")), placeholder="es. MERCE, CESTE, STAND", key=f"inter_t_{row_i}")
-                if c_val > 0:
-                    inter_rows_data.append({"mittente": m_val, "colli": c_val, "tipo": t_val})
-
-            form_stringa_custom = st.text_input("Note / Intershops libere sulla bolla", value=bolla_to_edit.get("stringa", ""), key="form_stringa_custom")
-            form_anomalie = st.text_area("Anomalie allo Scarico", value=bolla_to_edit.get("anomalie_scarico", ""), key="form_anomalie")
-
-        col_sv1, col_sv2 = st.columns(2)
-        with col_sv1:
-            save_clicked = st.button("💾 SALVA BOLLA DI TRASPORTO", type="primary", use_container_width=True, key="btn_save_bolla")
-        with col_sv2:
-            save_next_clicked = st.button("💾 Salva e Passa al Prossimo Negozio ➡️", use_container_width=True, key="btn_save_next_bolla")
-
-        if save_clicked or save_next_clicked:
-            if inter_rows_data:
-                computed_stringa = format_intershops_string(inter_rows_data)
-                if form_stringa_custom and form_stringa_custom not in computed_stringa:
-                    computed_stringa += f" {form_stringa_custom}"
-            else:
-                computed_stringa = form_stringa_custom
-
-            bolla_save_payload = {
-                "id": bolla_to_edit.get("id"),
-                "data": str(form_data_carico),
-                "data_consegna": str(form_data_cons),
-                "id_store": current_sid,
-                "punto_vendita": form_pv,
-                "store_name": sel_store_str.split(" - ")[1].split(" (")[0] if " - " in sel_store_str else "",
-                "tipo_cons": form_tipo_cons,
-                "vettore": form_vettore,
-                "cell_autista": form_cell,
-                "autista": form_autista,
-                "tipo_mezzo": form_mezzo,
-                "indirizzo_destino": form_indirizzo,
-                "colli_abbigl": c_abb,
-                "colli_calzat": c_calz,
-                "colli_ecom": c_eco,
-                "colli_others": c_oth,
-                "colli_vario": c_var,
-                "colli_cont": c_cont,
-                "colli_mat_vario": c_mat,
-                "colli_dann": c_dann,
-                "colli_non_conf": c_nonconf,
-                "anomalie_scarico": form_anomalie,
-                "intershops_list": inter_rows_data,
-                "stringa": computed_stringa,
-            }
-            new_id = save_or_update_bolla(bolla_save_payload)
-            if save_next_clicked and store_choices:
-                try:
-                    curr_idx = store_choices.index(sel_store_str)
-                    if curr_idx + 1 < len(store_choices):
-                        st.session_state["_next_store_override"] = store_choices[curr_idx + 1]
-                except Exception:
-                    pass
-            st.success(f"🎉 Bolla #{new_id} per Store **{current_sid}** salvata!")
-            st.rerun()
 
 
 # ==============================================================================
@@ -1639,7 +1694,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
         df_giro_sum = get_giro_summary()
         giri_avail = sorted([g for g in df_stores["giro"].dropna().unique().tolist() if str(g).strip() != ""], key=_giro_sort_key) if not df_stores.empty else []
 
-        col_bm1, col_bm2, col_bm3, col_bm4 = st.columns([1.3, 2.2, 2.0, 1.8])
+        col_bm1, col_bm2, col_bm3, col_bm4, col_bm5 = st.columns([1.1, 1.8, 1.8, 1.8, 1.6])
         with col_bm1:
             sel_g = st.selectbox("Seleziona Giro", giri_avail, key="mass_sel_giro") if giri_avail else "ZA1"
             g_row = df_giro_sum[df_giro_sum["giro"] == sel_g].iloc[0] if not df_giro_sum.empty and not df_giro_sum[df_giro_sum["giro"] == sel_g].empty else {}
@@ -1649,12 +1704,16 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
         with col_bm3:
             curr_m = str(g_row.get("tipo_mezzo", "MOTRICE 18 PLT") or "MOTRICE 18 PLT").strip()
             idx_m = mezzi_list_full.index(curr_m) if curr_m in mezzi_list_full else 0
-            g_mez = st.selectbox("Tipo Mezzo", options=mezzi_list_full, index=idx_m, key=f"mass_mez_{sel_g}")
+            g_mez = st.selectbox("Mezzo Standard (/0)", options=mezzi_list_full, index=idx_m, key=f"mass_mez_{sel_g}")
         with col_bm4:
+            curr_md = str(g_row.get("tipo_mezzo_doppia", "FURGONE 8") or "FURGONE 8").strip()
+            idx_md = mezzi_list_full.index(curr_md) if curr_md in mezzi_list_full else 0
+            g_mez_d = st.selectbox("Mezzo Giri Doppi (/9)", options=mezzi_list_full, index=idx_md, key=f"mass_mez_d_{sel_g}")
+        with col_bm5:
             st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
             if st.button(f"💾 APPLICA AL GIRO {sel_g}", type="primary", use_container_width=True, key=f"btn_apply_giro_{sel_g}"):
-                n_up = update_giro_driver(sel_g, autista="", cell_autista="", tipo_mezzo=g_mez, vettore=g_vet)
-                st.success(f"✅ Aggiornati con successo tutti i **{n_up}** punti vendita del giro **{sel_g}**!")
+                n_up = update_giro_driver(sel_g, autista="", cell_autista="", tipo_mezzo=g_mez, tipo_mezzo_doppia=g_mez_d, vettore=g_vet)
+                st.success(f"✅ Aggiornati tutti i **{n_up}** negozi del giro **{sel_g}** (Standard: {g_mez}, Doppia: {g_mez_d})!")
                 st.rerun()
 
         st.markdown('</div>', unsafe_allow_html=True)

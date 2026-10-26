@@ -449,24 +449,51 @@ def update_store_record(store_id: str, updates: Dict[str, Any], db_path=DB_PATH)
     auto_sync_tables(["stores", "store_delivery_profiles"])
 
 
-def update_giro_driver(giro: str, autista: str, cell_autista: str = "", tipo_mezzo: str = "", vettore: str = "LACCHI SPA", db_path=DB_PATH) -> int:
-    """Updates driver, vehicle, and carrier for all stores belonging to a specific giro."""
+def update_giro_driver(
+    giro: str,
+    autista: str = "",
+    cell_autista: str = "",
+    tipo_mezzo: str = "",
+    tipo_mezzo_doppia: str = "",
+    vettore: str = "LACCHI SPA",
+    db_path=DB_PATH
+) -> int:
+    """Updates vehicle types (standard and doppia/b9) and carrier for all stores belonging to a specific giro."""
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-        UPDATE stores 
-        SET autista = ?, cell_autista = ?, tipo_mezzo = ?, vettore = ?
-        WHERE giro = ?
-        """, (autista.strip(), cell_autista.strip(), tipo_mezzo.strip(), vettore.strip(), giro.strip()))
+        
+        updates = ["vettore = ?"]
+        params = [vettore.strip() if vettore else "LACCHI SPA"]
+        
+        if autista or cell_autista:
+            updates.extend(["autista = ?", "cell_autista = ?"])
+            params.extend([autista.strip(), cell_autista.strip()])
+        if tipo_mezzo:
+            updates.append("tipo_mezzo = ?")
+            params.append(tipo_mezzo.strip())
+        if tipo_mezzo_doppia:
+            updates.append("tipo_mezzo_doppia = ?")
+            params.append(tipo_mezzo_doppia.strip())
+
+        params.append(giro.strip())
+        sql = f"UPDATE stores SET {', '.join(updates)} WHERE giro = ?"
+        cursor.execute(sql, params)
         n_updated = cursor.rowcount
 
         # Sync to store_delivery_profiles for all stores in this giro
-        aut_display = f"{autista.strip()} ({cell_autista.strip()})" if cell_autista.strip() else autista.strip()
-        cursor.execute("""
-        UPDATE store_delivery_profiles
-        SET autista = ?, tipo_mezzo = ?
-        WHERE id_store IN (SELECT store_id FROM stores WHERE giro = ?)
-        """, (aut_display, tipo_mezzo.strip(), giro.strip()))
+        if tipo_mezzo:
+            cursor.execute("""
+            UPDATE store_delivery_profiles
+            SET tipo_mezzo = ?
+            WHERE id_store IN (SELECT store_id FROM stores WHERE giro = ?) AND tipo_cons = 'STD'
+            """, (tipo_mezzo.strip(), giro.strip()))
+        if tipo_mezzo_doppia:
+            cursor.execute("""
+            UPDATE store_delivery_profiles
+            SET tipo_mezzo = ?
+            WHERE id_store IN (SELECT store_id FROM stores WHERE giro = ?) AND tipo_cons = 'DOPPIA'
+            """, (tipo_mezzo_doppia.strip(), giro.strip()))
+
         conn.commit()
     from src.cloud_sync import auto_sync_tables
     auto_sync_tables(["stores", "store_delivery_profiles"])
@@ -474,7 +501,7 @@ def update_giro_driver(giro: str, autista: str, cell_autista: str = "", tipo_mez
 
 
 def get_giro_summary(db_path=DB_PATH) -> pd.DataFrame:
-    """Returns aggregated summary of all delivery routes (Giri) with their assigned drivers and stores."""
+    """Returns aggregated summary of all delivery routes (Giri) with their assigned carriers, standard vehicle, and double-route vehicle."""
     with get_connection(db_path) as conn:
         query = """
         SELECT 
@@ -482,7 +509,8 @@ def get_giro_summary(db_path=DB_PATH) -> pd.DataFrame:
             COUNT(*) as n_stores,
             MAX(COALESCE(NULLIF(autista, ''), 'Non Assegnato')) as autista,
             MAX(COALESCE(cell_autista, '')) as cell_autista,
-            MAX(COALESCE(NULLIF(tipo_mezzo, ''), 'MOTRICE')) as tipo_mezzo,
+            MAX(COALESCE(NULLIF(tipo_mezzo, ''), 'MOTRICE 18 PLT')) as tipo_mezzo,
+            MAX(COALESCE(NULLIF(tipo_mezzo_doppia, ''), 'FURGONE 8')) as tipo_mezzo_doppia,
             MAX(COALESCE(NULLIF(vettore, ''), 'LACCHI SPA')) as vettore,
             GROUP_CONCAT(store_id || ' (' || store_name || ')') as elenco_negozi
         FROM stores
