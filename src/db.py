@@ -9,7 +9,12 @@ def get_connection(db_path=None):
     if db_path is None:
         db_path = DB_PATH
     conn = sqlite3.connect(db_path, timeout=30.0)
-    conn.execute("PRAGMA foreign_keys = ON;")
+    try:
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA busy_timeout = 30000;")
+        conn.execute("PRAGMA journal_mode = DELETE;")
+    except Exception:
+        pass
     return conn
 
 
@@ -355,8 +360,42 @@ def seed_anagrafica_if_empty(db_path=DB_PATH, anagrafica_file=ANAGRAFICA_FILE):
 
 
 def get_stores_df(db_path=DB_PATH) -> pd.DataFrame:
-    with get_connection(db_path) as conn:
-        return pd.read_sql_query("SELECT * FROM stores ORDER BY giro ASC, store_id ASC", conn)
+    try:
+        with get_connection(db_path) as conn:
+            return pd.read_sql_query("SELECT * FROM stores ORDER BY giro ASC, store_id ASC", conn)
+    except Exception:
+        try:
+            init_db(db_path)
+            seed_anagrafica_if_empty(db_path)
+            with get_connection(db_path) as conn:
+                return pd.read_sql_query("SELECT * FROM stores ORDER BY giro ASC, store_id ASC", conn)
+        except Exception:
+            try:
+                if ANAGRAFICA_FILE.exists():
+                    df = pd.read_excel(ANAGRAFICA_FILE)
+                    df = df.rename(columns={
+                        "STORE_ID": "store_id",
+                        "STORE": "store_name",
+                        "PUNTO_VENDITA": "punto_vendita",
+                        "RAGG": "giro",
+                        "codSGA": "cod_sga",
+                        "CC": "cc",
+                        "ATTIVO": "attivo",
+                        "BARRA": "barra",
+                        "STENDER": "stender",
+                        "FORMULA": "formula",
+                        "ff": "ff"
+                    })
+                    if "brand" not in df.columns and "punto_vendita" in df.columns:
+                        df["brand"] = df["punto_vendita"]
+                    if "lavorazione" not in df.columns:
+                        df["lavorazione"] = "NO"
+                    if "sdoppiamento_b9" not in df.columns:
+                        df["sdoppiamento_b9"] = "NO"
+                    return df
+            except Exception:
+                pass
+            return pd.DataFrame()
 
 
 def update_store_formula(store_id: str, formula: str, db_path=DB_PATH):
@@ -682,11 +721,22 @@ def update_run_totals(run_id: int, total_bultos: float, total_volume: float, tot
 
 
 def get_all_runs(db_path=DB_PATH) -> pd.DataFrame:
-    with get_connection(db_path) as conn:
-        return pd.read_sql_query(
-            "SELECT id, id AS run_id, run_date, cycle_type, total_bultos, total_bultos AS total_planned_crts, total_volume, total_weight, total_pedane, notes, created_at FROM runs ORDER BY id DESC",
-            conn
-        )
+    try:
+        with get_connection(db_path) as conn:
+            return pd.read_sql_query(
+                "SELECT id, id AS run_id, run_date, cycle_type, total_bultos, total_bultos AS total_planned_crts, total_volume, total_weight, total_pedane, notes, created_at FROM runs ORDER BY id DESC",
+                conn
+            )
+    except Exception:
+        try:
+            init_db(db_path)
+            with get_connection(db_path) as conn:
+                return pd.read_sql_query(
+                    "SELECT id, id AS run_id, run_date, cycle_type, total_bultos, total_bultos AS total_planned_crts, total_volume, total_weight, total_pedane, notes, created_at FROM runs ORDER BY id DESC",
+                    conn
+                )
+        except Exception:
+            return pd.DataFrame()
 
 
 def get_run_details(run_id: int, db_path=DB_PATH) -> Dict[str, Any]:

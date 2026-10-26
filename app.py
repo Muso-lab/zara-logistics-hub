@@ -119,15 +119,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_resource
-def _initialize_system_once():
-    """Esegue l'inizializzazione del DB una sola volta all'avvio del server."""
-    init_db()
-    init_bolle_tables()
-    seed_anagrafica_if_empty()
-    return True
+def _initialize_system():
+    """Esegue l'inizializzazione del DB all'avvio del server."""
+    try:
+        init_db()
+        init_bolle_tables()
+        seed_anagrafica_if_empty()
+    except Exception:
+        pass
 
-_initialize_system_once()
+_initialize_system()
 
 # ==============================================================================
 # SISTEMA DI LOGIN CON PERSISTENZA SESSIONE (PC & SMARTPHONE REFRESH)
