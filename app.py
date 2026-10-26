@@ -72,6 +72,7 @@ from src.bolle_manager import (
     get_actuals_for_planner,
     render_bolla_printable_html,
     format_intershops_string,
+    export_bolle_excel,
 )
 from src.exporters import export_planner_roma, export_sintesi_operativa, export_sga_file
 from src.mailer import send_operativa_email, send_test_email, build_operativa_zip
@@ -1016,17 +1017,17 @@ elif menu == "🚚 2. Bolle di Consegna":
     if not all_dates:
         all_dates = [tomorrow_str]
 
-    date_labels = [f"{format_date_it(d)} ({d})" for d in all_dates]
+    if "bolle_tab1_date_val" not in st.session_state or st.session_state["bolle_tab1_date_val"] not in all_dates:
+        st.session_state["bolle_tab1_date_val"] = all_dates[0]
 
     col_top1, col_top2, col_top3 = st.columns([2, 2.2, 1.8])
     with col_top1:
-        sel_date_idx = st.selectbox(
+        target_date = st.selectbox(
             "📅 Data di Consegna Attiva",
-            range(len(all_dates)),
-            format_func=lambda i: date_labels[i],
-            key="bolle_tab1_date_sel",
+            all_dates,
+            format_func=lambda d: f"{format_date_it(d)} ({d})",
+            key="bolle_tab1_date_val",
         )
-        target_date = all_dates[sel_date_idx]
 
     with col_top2:
         st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
@@ -1035,17 +1036,17 @@ elif menu == "🚚 2. Bolle di Consegna":
             if st.button("📅 Oggi", use_container_width=True, key="b_q_tod"):
                 if today_str not in all_dates:
                     all_dates.insert(0, today_str)
-                st.session_state["bolle_tab1_date_sel"] = all_dates.index(today_str)
+                st.session_state["bolle_tab1_date_val"] = today_str
                 st.rerun()
         with qb2:
             if st.button("📅 Domani", use_container_width=True, key="b_q_tom"):
                 if tomorrow_str not in all_dates:
                     all_dates.insert(0, tomorrow_str)
-                st.session_state["bolle_tab1_date_sel"] = all_dates.index(tomorrow_str)
+                st.session_state["bolle_tab1_date_val"] = tomorrow_str
                 st.rerun()
         with qb3:
             if st.button("📅 Ultima", use_container_width=True, key="b_q_lat"):
-                st.session_state["bolle_tab1_date_sel"] = 0
+                st.session_state["bolle_tab1_date_val"] = all_dates[0]
                 st.rerun()
 
     with col_top3:
@@ -1067,7 +1068,7 @@ elif menu == "🚚 2. Bolle di Consegna":
                     st.rerun()
 
     tab_b_list, tab_b_form = st.tabs([
-        "📋 Elenco, Filtri Giro/Autista & Stampa",
+        "📋 Elenco, Filtri Giro/Vettore & Stampa",
         "✏️ Compila / Modifica Singola Bolla",
     ])
 
@@ -1081,22 +1082,19 @@ elif menu == "🚚 2. Bolle di Consegna":
             store_giro_map = df_stores_side.set_index("store_id")["giro"].fillna("").to_dict()
             all_giri_list = sorted([g for g in df_stores_side["giro"].dropna().unique() if str(g).strip()])
 
-        f_c1, f_c2, f_c3, f_c4, f_c5 = st.columns([1.2, 1.5, 1.2, 1.2, 1.8])
+        f_c1, f_c2, f_c3, f_c4 = st.columns([1.2, 1.4, 1.2, 1.8])
         with f_c1:
             f_giro = st.selectbox("Filtra Giro", ["TUTTI"] + all_giri_list, key="bolle_f_giro")
         with f_c2:
-            f_driver = st.selectbox("Filtra Autista", ["TUTTI"] + get_all_drivers(), key="bolle_f_driver")
+            f_carrier = st.selectbox("Filtra Vettore", ["TUTTI"] + get_all_carriers(), key="bolle_f_carrier")
         with f_c3:
             f_tipo = st.selectbox("Tipo Consegna", ["TUTTI", "STD", "DOPPIA"], key="bolle_f_tipo")
         with f_c4:
-            f_carrier = st.selectbox("Filtra Vettore", ["TUTTI"] + get_all_carriers(), key="bolle_f_carrier")
-        with f_c5:
             f_search = st.text_input("🔍 Cerca Store ID o Nome", "", key="bolle_f_search")
 
         df_bolle = get_bolle(
             data=target_date,
             vettore=f_carrier if f_carrier != "TUTTI" else None,
-            autista=f_driver if f_driver != "TUTTI" else None,
             tipo_cons=f_tipo if f_tipo != "TUTTI" else None,
             search=f_search if f_search else None,
         )
@@ -1138,7 +1136,7 @@ elif menu == "🚚 2. Bolle di Consegna":
                 else:
                     st.warning("Nessuna bolla DOPPIA nella selezione.")
         with b_act3:
-            is_filt = (f_giro != "TUTTI" or f_driver != "TUTTI" or f_tipo != "TUTTI" or f_carrier != "TUTTI" or bool(f_search))
+            is_filt = (f_giro != "TUTTI" or f_tipo != "TUTTI" or f_carrier != "TUTTI" or bool(f_search))
             lbl_print = f"🖨️ Stampa Selezione ({len(df_bolle)})" if is_filt else f"🖨️ Stampa Tutte ({len(df_bolle)})"
             if st.button(lbl_print, use_container_width=True):
                 if not df_bolle.empty:
@@ -1148,13 +1146,10 @@ elif menu == "🚚 2. Bolle di Consegna":
                     st.warning("Nessuna bolla da stampare.")
         with b_act4:
             if not df_bolle.empty:
-                b_buf = io.BytesIO()
-                with pd.ExcelWriter(b_buf, engine="openpyxl") as b_writer:
-                    df_bolle.to_excel(b_writer, index=False, sheet_name="Bolle")
-                b_buf.seek(0)
+                excel_bytes = export_bolle_excel(df_bolle, target_date)
                 st.download_button(
                     "📥 Esporta Excel",
-                    data=b_buf.read(),
+                    data=excel_bytes,
                     file_name=f"Riepilogo_Bolle_{target_date}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
@@ -1197,12 +1192,29 @@ elif menu == "🚚 2. Bolle di Consegna":
                 df_b_disp["colli_abbigl"] + df_b_disp["colli_calzat"] +
                 df_b_disp["colli_ecom"] + df_b_disp["colli_others"] + df_b_disp["colli_vario"]
             )
-            cols_show = [
-                "id", "giro", "id_store", "punto_vendita", "store_name", "tipo_cons",
-                "TOT_COLLI", "colli_abbigl", "colli_calzat", "colli_others", "colli_ecom",
-                "vettore", "tipo_mezzo", "stringa"
-            ]
-            st.dataframe(df_b_disp[[c for c in cols_show if c in df_b_disp.columns]], use_container_width=True, height=420)
+            # Format quantities as clean integers
+            for col_n in ["TOT_COLLI", "colli_abbigl", "colli_calzat", "colli_others", "colli_ecom"]:
+                if col_n in df_b_disp.columns:
+                    df_b_disp[col_n] = df_b_disp[col_n].fillna(0).round().astype(int)
+
+            cols_map = {
+                "giro": "Giro",
+                "id_store": "Store ID",
+                "punto_vendita": "Insegna",
+                "store_name": "Punto Vendita",
+                "tipo_cons": "Tipo",
+                "TOT_COLLI": "Tot. Colli",
+                "colli_abbigl": "Abbigliamento",
+                "colli_calzat": "Calzature",
+                "colli_others": "Altri",
+                "colli_ecom": "E-Com",
+                "vettore": "Vettore",
+                "tipo_mezzo": "Mezzo",
+                "stringa": "Intershops / Note"
+            }
+            cols_avail = [c for c in cols_map.keys() if c in df_b_disp.columns]
+            df_show = df_b_disp[cols_avail].rename(columns=cols_map)
+            st.dataframe(df_show, use_container_width=True, height=420)
 
     # --------------------------------------------------------------------------
     # SOTTO-SCHEDA 2: COMPILA O MODIFICA SINGOLA BOLLA
@@ -1298,23 +1310,22 @@ elif menu == "🚚 2. Bolle di Consegna":
         with col_t3:
             form_pv = st.text_input("Insegna / Brand", key="form_pv")
 
-        col_v1, col_v2, col_v3, col_v4 = st.columns(4)
+        col_v1, col_v2, col_v3, col_v4 = st.columns([1.2, 1.2, 1.5, 1.5])
         with col_v1:
             form_data_carico = st.date_input("Data Spedizione", value=date.today(), format="DD/MM/YYYY", key="form_dt_carico")
         with col_v2:
             form_data_cons = st.date_input("Data Consegna", value=date.today() + timedelta(days=1), format="DD/MM/YYYY", key="form_dt_cons")
         with col_v3:
-            form_autista = st.text_input("Autista", key="form_autista")
-        with col_v4:
-            form_cell = st.text_input("Cellulare Autista", key="form_cell")
-
-        col_m1, col_m2, col_m3 = st.columns([1.2, 1.2, 2.2])
-        with col_m1:
-            form_mezzo = st.text_input("Mezzo", key="form_mezzo")
-        with col_m2:
             form_vettore = st.text_input("Vettore", key="form_vettore")
-        with col_m3:
+        with col_v4:
+            form_mezzo = st.text_input("Mezzo", key="form_mezzo")
+
+        col_ind1, col_ind2 = st.columns([2.5, 1.5])
+        with col_ind1:
             form_indirizzo = st.text_input("Indirizzo di Destino", key="form_indirizzo")
+        with col_ind2:
+            form_autista = st.text_input("Autista (Opzionale)", key="form_autista")
+        form_cell = st.session_state.get("form_cell", "")
 
         st.markdown("---")
         col_q_title, col_q_prefill = st.columns([3, 2])

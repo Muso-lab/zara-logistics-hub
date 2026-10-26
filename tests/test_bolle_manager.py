@@ -232,3 +232,78 @@ def test_generate_bolle_and_consuntivo_planner():
     # Clean up test bolle
     delete_bolle_by_date(test_delivery_date)
     assert df_planner_res["total_planned_crts"].sum() > 0
+
+
+def test_export_bolle_excel():
+    import io
+    import openpyxl
+    from src.bolle_manager import export_bolle_excel
+
+    sample_bolle = pd.DataFrame([
+        {
+            "giro": "ZA01",
+            "id_store": "3680",
+            "punto_vendita": "ZARA",
+            "store_name": "ROMA PORTA DI ROMA",
+            "tipo_cons": "STD",
+            "colli_abbigl": 150,
+            "colli_calzat": 30,
+            "colli_ecom": 15,
+            "colli_others": 5,
+            "colli_vario": 2,
+            "vettore": "LACCHI SPA",
+            "tipo_mezzo": "MOTRICE 18 PLT",
+            "indirizzo_destino": "VIA ALBERTO LIONELLO 201",
+            "stringa": "4C CESTE",
+            "anomalie_scarico": ""
+        },
+        {
+            "giro": "ZA01",
+            "id_store": "3680",
+            "punto_vendita": "ZARA",
+            "store_name": "ROMA PORTA DI ROMA",
+            "tipo_cons": "DOPPIA",
+            "colli_abbigl": 65,
+            "colli_calzat": 12,
+            "colli_ecom": 5,
+            "colli_others": 2,
+            "colli_vario": 0,
+            "vettore": "LACCHI SPA",
+            "tipo_mezzo": "FURGONE",
+            "indirizzo_destino": "VIA ALBERTO LIONELLO 201",
+            "stringa": "",
+            "anomalie_scarico": ""
+        }
+    ])
+
+    excel_bytes = export_bolle_excel(sample_bolle, "2026-10-27")
+    assert excel_bytes is not None and len(excel_bytes) > 0
+
+    wb = openpyxl.load_workbook(io.BytesIO(excel_bytes))
+    assert "Riepilogo Bolle" in wb.sheetnames
+    ws = wb["Riepilogo Bolle"]
+    # Check Title
+    assert "RIEPILOGO BOLLE DI CONSEGNA INDITEX" in ws["A1"].value
+    # Check Headers
+    assert ws["A2"].value == "Giro"
+    assert ws["F2"].value == "Totale Colli"
+    # Check Rows (row 3, 4 data, row 5 total)
+    assert ws["B3"].value == "3680"
+    assert ws["E3"].value == "STD"
+    assert ws["F3"].value == 202
+    assert ws["E4"].value == "DOPPIA"
+    assert ws["F4"].value == 84
+    assert ws["A5"].value == "TOTALE"
+    assert "=SUM(F3:F4)" in ws["F5"].value
+
+
+def test_bolle_manager_db_path_parameter():
+    from src.bolle_manager import get_actuals_for_planner, get_bolle, get_bolle_dates
+    # Verify db_path keyword argument is accepted without error
+    df_act = get_actuals_for_planner("2099-01-01", db_path=DB_PATH)
+    assert isinstance(df_act, pd.DataFrame)
+    df_b = get_bolle(data="2099-01-01", db_path=DB_PATH)
+    assert isinstance(df_b, pd.DataFrame)
+    dates = get_bolle_dates(5, db_path=DB_PATH)
+    assert isinstance(dates, list)
+

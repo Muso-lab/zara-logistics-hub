@@ -82,9 +82,9 @@ def init_bolle_tables(db_path: Path = DB_PATH):
     conn.close()
 
 
-def get_bolle_dates(limit: int = 100) -> List[str]:
+def get_bolle_dates(limit: int = 100, db_path: Path = DB_PATH) -> List[str]:
     """Returns sorted unique delivery dates available in bolle."""
-    conn = get_db_connection()
+    conn = get_db_connection(db_path)
     cur = conn.cursor()
     cur.execute("""
         SELECT DISTINCT COALESCE(NULLIF(data_consegna, ''), data) as dt 
@@ -98,9 +98,9 @@ def get_bolle_dates(limit: int = 100) -> List[str]:
     return [r[0] for r in rows if r[0]]
 
 
-def get_all_drivers() -> List[str]:
+def get_all_drivers(db_path: Path = DB_PATH) -> List[str]:
     """Returns unique autisti from bolle and store profiles."""
-    conn = get_db_connection()
+    conn = get_db_connection(db_path)
     cur = conn.cursor()
     cur.execute("""
         SELECT DISTINCT autista FROM store_delivery_profiles WHERE autista IS NOT NULL AND autista != ''
@@ -113,9 +113,9 @@ def get_all_drivers() -> List[str]:
     return [r[0] for r in rows if r[0]]
 
 
-def get_all_carriers() -> List[str]:
+def get_all_carriers(db_path: Path = DB_PATH) -> List[str]:
     """Returns unique vettori."""
-    conn = get_db_connection()
+    conn = get_db_connection(db_path)
     cur = conn.cursor()
     cur.execute("""
         SELECT DISTINCT vettore FROM bolle WHERE vettore IS NOT NULL AND vettore != ''
@@ -129,9 +129,9 @@ def get_all_carriers() -> List[str]:
     return res
 
 
-def get_store_delivery_profile(store_id: str, tipo_cons: str = "STD") -> Dict[str, Any]:
+def get_store_delivery_profile(store_id: str, tipo_cons: str = "STD", db_path: Path = DB_PATH) -> Dict[str, Any]:
     """Returns delivery profile for a store directly from the unified master stores table."""
-    conn = get_db_connection()
+    conn = get_db_connection(db_path)
     cur = conn.cursor()
     cur.execute("SELECT * FROM stores WHERE store_id = ?", (str(store_id).strip(),))
     s_row = cur.fetchone()
@@ -169,9 +169,9 @@ def get_store_delivery_profile(store_id: str, tipo_cons: str = "STD") -> Dict[st
     return res
 
 
-def list_store_delivery_profiles() -> pd.DataFrame:
+def list_store_delivery_profiles(db_path: Path = DB_PATH) -> pd.DataFrame:
     """Returns active delivery profiles constructed directly from stores table."""
-    conn = get_db_connection()
+    conn = get_db_connection(db_path)
     df_s = pd.read_sql("SELECT * FROM stores WHERE attivo = 'SI' ORDER BY giro, store_id", conn)
     conn.close()
     
@@ -219,14 +219,14 @@ def list_store_delivery_profiles() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def save_store_delivery_profile(profile: Dict[str, Any]):
+def save_store_delivery_profile(profile: Dict[str, Any], db_path: Path = DB_PATH):
     """Saves profile updates directly into stores table, creating store if not yet in database."""
     sid = str(profile.get("id_store", "")).strip()
     tipo_cons = str(profile.get("tipo_cons", "STD")).strip().upper()
     if not sid:
         return
     from src.db import update_store_record, add_store_record, get_stores_df
-    df_s = get_stores_df()
+    df_s = get_stores_df(db_path=db_path)
     if df_s.empty or sid not in df_s["store_id"].values:
         add_store_record({
             "store_id": sid,
@@ -240,7 +240,7 @@ def save_store_delivery_profile(profile: Dict[str, Any]):
             "indirizzo": profile.get("indirizzo", ""),
             "provincia": profile.get("provincia", "RM"),
             "attivo": "SI"
-        })
+        }, db_path=db_path)
     else:
         if tipo_cons == "DOPPIA":
             updates = {
@@ -256,7 +256,7 @@ def save_store_delivery_profile(profile: Dict[str, Any]):
                 "tipo_mezzo": profile.get("tipo_mezzo", ""),
                 "indirizzo": profile.get("indirizzo", "")
             }
-        update_store_record(sid, updates)
+        update_store_record(sid, updates, db_path=db_path)
 
 
 def get_bolle(
@@ -266,10 +266,11 @@ def get_bolle(
     tipo_cons: Optional[str] = None,
     autista: Optional[str] = None,
     vettore: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    db_path: Path = DB_PATH
 ) -> pd.DataFrame:
     """Filters bolle and returns a DataFrame."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection(db_path)
     query = ["SELECT * FROM bolle WHERE 1=1"]
     params = []
 
@@ -302,9 +303,9 @@ def get_bolle(
     return df
 
 
-def get_bolla_by_id(bolla_id: int) -> Optional[Dict[str, Any]]:
+def get_bolla_by_id(bolla_id: int, db_path: Path = DB_PATH) -> Optional[Dict[str, Any]]:
     """Returns single bolla dict by id."""
-    conn = get_db_connection()
+    conn = get_db_connection(db_path)
     cur = conn.cursor()
     cur.execute("SELECT * FROM bolle WHERE id = ?", (bolla_id,))
     row = cur.fetchone()
@@ -354,9 +355,9 @@ def parse_intershops_string(stringa: str) -> List[Dict[str, Any]]:
     return [{"mittente": "", "colli": 0, "tipo": stringa}]
 
 
-def save_or_update_bolla(data: Dict[str, Any]) -> int:
+def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
     """Inserts or updates a delivery note in SQLite."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection(db_path)
     cur = conn.cursor()
 
     b_id = data.get("id")
@@ -467,9 +468,9 @@ def save_or_update_bolla(data: Dict[str, Any]) -> int:
     return res_id
 
 
-def delete_bolla(bolla_id: int) -> bool:
+def delete_bolla(bolla_id: int, db_path: Path = DB_PATH) -> bool:
     """Deletes a single bolla by id."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection(db_path)
     cur = conn.cursor()
     cur.execute("DELETE FROM bolle WHERE id = ?", (bolla_id,))
     rows_affected = cur.rowcount
@@ -480,9 +481,9 @@ def delete_bolla(bolla_id: int) -> bool:
     return rows_affected > 0
 
 
-def delete_bolle_by_date(date_str: str) -> int:
+def delete_bolle_by_date(date_str: str, db_path: Path = DB_PATH) -> int:
     """Deletes all bolle for a specific delivery date."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection(db_path)
     cur = conn.cursor()
     cur.execute("DELETE FROM bolle WHERE data_consegna = ? OR data = ?", (date_str, date_str))
     n = cur.rowcount
@@ -493,13 +494,18 @@ def delete_bolle_by_date(date_str: str) -> int:
     return n
 
 
-def generate_bolle_from_forecast(run_id: int, delivery_date: Optional[str] = None, overwrite: bool = False) -> Tuple[int, int]:
+def generate_bolle_from_forecast(
+    run_id: int,
+    delivery_date: Optional[str] = None,
+    overwrite: bool = False,
+    db_path: Path = DB_PATH
+) -> Tuple[int, int]:
     """
     Generates bolle directly from the forecast analysis, spunta arrivi and planning of run_id.
-    Pre-fills store addresses, carrier, driver and vehicle from master stores table.
-    Creates STD and DOPPIA bolle as needed.
+    Pre-fills store addresses, carrier, and vehicle from master stores table.
+    Creates STD and DOPPIA bolle as needed, preserving exact 100% total colli.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection(db_path)
     # 1. Fetch run info
     df_run = pd.read_sql("SELECT * FROM runs WHERE id = ?", conn, params=(run_id,))
     if df_run.empty:
@@ -547,19 +553,44 @@ def generate_bolle_from_forecast(run_id: int, delivery_date: Optional[str] = Non
 
     # Aggregate total planned quantities cleanly per physical store ID
     store_planned = {}
-    seen_store_brands = set()
-    if not df_planning.empty:
+    if not df_spunta.empty:
+        # Preferred source: spunta_arrivi has the clean 100% total per physical store on is_barra9 == 0
+        for _, sp in df_spunta.iterrows():
+            raw_code = str(sp.get("store_code", "")).strip()
+            if not raw_code or raw_code.upper() in ["NEGOZIO", "STORE ID", "EXTRA", "TOTAL", "TOTALE", "NONE", "DA ASSEGNARE"]:
+                continue
+            is_b9 = int(sp.get("is_barra9", 0)) == 1 or raw_code.endswith("B")
+            if is_b9:
+                continue
+            base_sid = raw_code
+            if base_sid not in store_planned:
+                meta = stores_meta.get(base_sid, {})
+                store_planned[base_sid] = {
+                    "textile": 0.0,
+                    "shoes": 0.0,
+                    "others": 0.0,
+                    "ecom": 0.0,
+                    "punto_vendita": meta.get("brand") or sp.get("punto_vendita") or "ZARA",
+                    "store_name": meta.get("store_name") or sp.get("store_name", "")
+                }
+            store_planned[base_sid]["textile"] += _safe_float(sp.get("textile_attesi", 0.0))
+            store_planned[base_sid]["shoes"] += _safe_float(sp.get("shoes_attesi", 0.0))
+            store_planned[base_sid]["others"] += _safe_float(sp.get("other_attesi", 0.0))
+            store_planned[base_sid]["ecom"] += _safe_float(sp.get("ecom_attesi", 0.0))
+    elif not df_planning.empty:
+        seen_store_codes = set()
         for _, r in df_planning.iterrows():
             raw_code = str(r["store_code"]).strip()
-            if not raw_code or raw_code.upper() in ["NEGOZIO", "STORE ID", "EXTRA", "TOTAL", "TOTALE", "NONE"]:
+            if not raw_code or raw_code.upper() in ["NEGOZIO", "STORE ID", "EXTRA", "TOTAL", "TOTALE", "NONE", "DA ASSEGNARE"]:
                 continue
             base_sid = raw_code[:-1] if raw_code.endswith("B") else raw_code
             b_name = str(r.get("brand", "")).upper()
             is_shoes = "SHOES" in b_name
-            # If we already processed this store and brand category (textile vs shoes), skip duplicates
-            if (base_sid, is_shoes) in seen_store_brands:
+            # Prevent duplicate placeholder lines while allowing Barra 9 and shoes lines
+            key_line = (raw_code, is_shoes)
+            if key_line in seen_store_codes:
                 continue
-            seen_store_brands.add((base_sid, is_shoes))
+            seen_store_codes.add(key_line)
 
             if base_sid not in store_planned:
                 meta = stores_meta.get(base_sid, {})
@@ -575,35 +606,10 @@ def generate_bolle_from_forecast(run_id: int, delivery_date: Optional[str] = Non
                 store_planned[base_sid]["shoes"] += _safe_float(r.get("planned_shoes", 0.0))
             else:
                 store_planned[base_sid]["textile"] += _safe_float(r.get("planned_textile", 0.0))
-                # Only take shoes from non-shoes line if store does NOT have a separate SHOES line
                 if base_sid not in stores_with_shoes:
                     store_planned[base_sid]["shoes"] += _safe_float(r.get("planned_shoes", 0.0))
                 store_planned[base_sid]["others"] += _safe_float(r.get("planned_others", 0.0))
                 store_planned[base_sid]["ecom"] += _safe_float(r.get("planned_ecom", 0.0))
-    elif not df_spunta.empty:
-        for _, sp in df_spunta.iterrows():
-            raw_code = str(sp["store_code"]).strip()
-            if not raw_code or raw_code.upper() in ["NEGOZIO", "STORE ID", "EXTRA", "TOTAL", "TOTALE", "NONE"]:
-                continue
-            base_sid = raw_code[:-1] if raw_code.endswith("B") else raw_code
-            # Skip Barra 9 rows in spunta to avoid double summing (since Barra 0 has base volume/colli)
-            is_b9 = int(sp.get("is_barra9", 0)) == 1 or raw_code.endswith("B")
-            if is_b9:
-                continue
-            if base_sid not in store_planned:
-                meta = stores_meta.get(base_sid, {})
-                store_planned[base_sid] = {
-                    "textile": 0.0,
-                    "shoes": 0.0,
-                    "others": 0.0,
-                    "ecom": 0.0,
-                    "punto_vendita": meta.get("brand") or sp.get("punto_vendita") or "ZARA",
-                    "store_name": meta.get("store_name") or sp.get("store_name", "")
-                }
-            store_planned[base_sid]["textile"] += _safe_float(sp.get("textile_attesi", 0.0))
-            store_planned[base_sid]["shoes"] += _safe_float(sp.get("shoes_attesi", 0.0))
-            store_planned[base_sid]["others"] += _safe_float(sp.get("other_attesi", 0.0))
-            store_planned[base_sid]["ecom"] += _safe_float(sp.get("ecom_attesi", 0.0))
 
     created = 0
     skipped = 0
@@ -657,7 +663,7 @@ def generate_bolle_from_forecast(run_id: int, delivery_date: Optional[str] = Non
                     "anomalie_scarico": "",
                     "stringa": ""
                 }
-                save_or_update_bolla(bolla_std)
+                save_or_update_bolla(bolla_std, db_path=db_path)
                 created += 1
 
             # 2. DOPPIA (/9) Bolla (30%)
@@ -688,7 +694,7 @@ def generate_bolle_from_forecast(run_id: int, delivery_date: Optional[str] = Non
                     "anomalie_scarico": "",
                     "stringa": ""
                 }
-                save_or_update_bolla(bolla_d)
+                save_or_update_bolla(bolla_d, db_path=db_path)
                 created += 1
         else:
             # Single STD Bolla (100%)
@@ -707,31 +713,31 @@ def generate_bolle_from_forecast(run_id: int, delivery_date: Optional[str] = Non
                     "autista": meta.get("autista", ""),
                     "tipo_mezzo": meta.get("tipo_mezzo", "MOTRICE 18 PLT"),
                     "indirizzo_destino": indirizzo,
-                    "colli_abbigl": round(tot_tex, 1),
-                    "colli_calzat": round(tot_sho, 1),
-                    "colli_ecom": round(tot_eco, 1),
-                    "colli_others": round(tot_oth, 1),
-                    "colli_vario": 0.0,
-                    "colli_cont": 0.0,
-                    "colli_mat_vario": 0.0,
-                    "colli_dann": 0.0,
-                    "colli_non_conf": 0.0,
+                    "colli_abbigl": tot_tex,
+                    "colli_calzat": tot_sho,
+                    "colli_ecom": tot_eco,
+                    "colli_others": tot_oth,
+                    "colli_vario": 0,
+                    "colli_cont": 0,
+                    "colli_mat_vario": 0,
+                    "colli_dann": 0,
+                    "colli_non_conf": 0,
                     "anomalie_scarico": "",
                     "stringa": ""
                 }
-                save_or_update_bolla(bolla_single)
+                save_or_update_bolla(bolla_single, db_path=db_path)
                 created += 1
 
     return created, skipped
 
 
-def get_actuals_for_planner(target_date: str) -> pd.DataFrame:
+def get_actuals_for_planner(target_date: str, db_path: Path = DB_PATH) -> pd.DataFrame:
     """
     Extracts actual delivered totals and intershops directly from SQLite bolle
     for the specified delivery date (or cargo date), ready for compute_planning_roma().
     Returns DataFrame with columns: ID_STORE, tipo_cons, TOT_ABBIGL, TOT_CALZAT, TOT_ECOM, TOT_OTHERS, stringa.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection(db_path)
     query = """
     SELECT 
         id_store AS ID_STORE,
@@ -753,6 +759,175 @@ def get_actuals_for_planner(target_date: str) -> pd.DataFrame:
         return pd.DataFrame(columns=["ID_STORE", "tipo_cons", "TOT_ABBIGL", "TOT_CALZAT", "TOT_ECOM", "TOT_OTHERS", "stringa"])
 
     return df
+
+
+def export_bolle_excel(df_bolle: pd.DataFrame, delivery_date: str) -> bytes:
+    """
+    Exports delivery notes (bolle) to a styled Excel sheet with Italian formatting,
+    carrier prominence, accurate column ordering, and totals row.
+    """
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Riepilogo Bolle"
+    ws.views.sheetView[0].showGridLines = True
+
+    # Palette
+    FILL_TITLE = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    FILL_HEADER = PatternFill(start_color="203764", end_color="203764", fill_type="solid")
+    FILL_ZEBRA = PatternFill(start_color="F2F5F9", end_color="F2F5F9", fill_type="solid")
+    FILL_TOTAL = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+
+    FONT_TITLE = Font(name="Calibri", size=13, bold=True, color="FFFFFF")
+    FONT_HEADER = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    FONT_DATA = Font(name="Calibri", size=10)
+    FONT_DATA_BOLD = Font(name="Calibri", size=10, bold=True)
+    FONT_TOTAL = Font(name="Calibri", size=10, bold=True, color="1F4E79")
+
+    thin_border = Border(
+        left=Side(style='thin', color='D9D9D9'),
+        right=Side(style='thin', color='D9D9D9'),
+        top=Side(style='thin', color='D9D9D9'),
+        bottom=Side(style='thin', color='D9D9D9')
+    )
+    total_border = Border(
+        top=Side(style='thin', color='1F4E79'),
+        bottom=Side(style='double', color='1F4E79'),
+        left=Side(style='thin', color='D9D9D9'),
+        right=Side(style='thin', color='D9D9D9')
+    )
+
+    # Format delivery date DD/MM/YYYY
+    try:
+        d_obj = datetime.strptime(str(delivery_date)[:10], "%Y-%m-%d")
+        dt_fmt = d_obj.strftime("%d/%m/%Y")
+    except:
+        dt_fmt = str(delivery_date)
+
+    # 1. Title Banner
+    ws.merge_cells("A1:P1")
+    title_cell = ws["A1"]
+    title_cell.value = f"RIEPILOGO BOLLE DI CONSEGNA INDITEX - DATA CONSEGNA: {dt_fmt}"
+    title_cell.font = FONT_TITLE
+    title_cell.fill = FILL_TITLE
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 36
+
+    # 2. Column Headers
+    headers = [
+        "Giro", "Store ID", "Insegna", "Punto Vendita", "Tipo Consegna",
+        "Totale Colli", "Abbigliamento", "Calzature", "E-Commerce",
+        "Altri Colli", "Mat. Vario Piattaforma", "Vettore", "Mezzo",
+        "Indirizzo di Destinazione", "Note / Intershops", "Anomalie allo Scarico"
+    ]
+    ws.row_dimensions[2].height = 26
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=2, column=col_idx, value=h)
+        cell.font = FONT_HEADER
+        cell.fill = FILL_HEADER
+        align = "center" if col_idx in [1, 2, 5] else ("right" if 6 <= col_idx <= 11 else "left")
+        cell.alignment = Alignment(horizontal=align, vertical="center", wrap_text=True)
+
+    # 3. Data Rows
+    current_row = 3
+    if df_bolle is not None and not df_bolle.empty:
+        df_sorted = df_bolle.copy()
+        if "tipo_cons" in df_sorted.columns:
+            tipo_order = {"STD": 0, "DOPPIA": 1}
+            df_sorted["_tipo_rank"] = df_sorted["tipo_cons"].map(lambda t: tipo_order.get(str(t).upper(), 2))
+            sort_cols = [c for c in ["giro", "id_store", "_tipo_rank"] if c in df_sorted.columns]
+            df_sorted = df_sorted.sort_values(by=sort_cols).drop(columns=["_tipo_rank"])
+        else:
+            sort_cols = [c for c in ["giro", "id_store"] if c in df_sorted.columns]
+            if sort_cols:
+                df_sorted = df_sorted.sort_values(by=sort_cols)
+
+        for _, r in df_sorted.iterrows():
+            c_abb = int(round(_safe_float(r.get("colli_abbigl", 0))))
+            c_calz = int(round(_safe_float(r.get("colli_calzat", 0))))
+            c_eco = int(round(_safe_float(r.get("colli_ecom", 0))))
+            c_oth = int(round(_safe_float(r.get("colli_others", 0))))
+            c_var = int(round(_safe_float(r.get("colli_vario", 0))))
+            tot_c = c_abb + c_calz + c_eco + c_oth + c_var
+
+            row_data = [
+                str(r.get("giro", "") or ""),
+                str(r.get("id_store", "") or ""),
+                str(r.get("punto_vendita", "") or "ZARA"),
+                str(r.get("store_name", "") or ""),
+                str(r.get("tipo_cons", "STD") or "STD"),
+                tot_c,
+                c_abb,
+                c_calz,
+                c_eco,
+                c_oth,
+                c_var,
+                str(r.get("vettore", "LACCHI SPA") or ""),
+                str(r.get("tipo_mezzo", "") or ""),
+                str(r.get("indirizzo_destino", "") or ""),
+                str(r.get("stringa", "") or ""),
+                str(r.get("anomalie_scarico", "") or "")
+            ]
+
+            ws.row_dimensions[current_row].height = 20
+            is_even = (current_row % 2 == 0)
+
+            for col_idx, val in enumerate(row_data, 1):
+                cell = ws.cell(row=current_row, column=col_idx, value=val)
+                cell.border = thin_border
+                if is_even:
+                    cell.fill = FILL_ZEBRA
+
+                if 6 <= col_idx <= 11:
+                    cell.number_format = "#,##0"
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                    cell.font = FONT_DATA_BOLD if col_idx == 6 else FONT_DATA
+                elif col_idx in [1, 2, 5]:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    cell.font = FONT_DATA_BOLD if col_idx == 2 else FONT_DATA
+                else:
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
+                    cell.font = FONT_DATA
+
+            current_row += 1
+
+        # 4. Totals Row
+        ws.row_dimensions[current_row].height = 22
+        for col_idx in range(1, 17):
+            c_tot = ws.cell(row=current_row, column=col_idx)
+            c_tot.fill = FILL_TOTAL
+            c_tot.border = total_border
+            c_tot.font = FONT_TOTAL
+
+        ws.cell(row=current_row, column=1, value="TOTALE").alignment = Alignment(horizontal="center", vertical="center")
+        for num_col in range(6, 12):
+            col_letter = get_column_letter(num_col)
+            c_sum = ws.cell(row=current_row, column=num_col)
+            c_sum.value = f"=SUM({col_letter}3:{col_letter}{current_row-1})"
+            c_sum.number_format = "#,##0"
+            c_sum.alignment = Alignment(horizontal="right", vertical="center")
+
+    # Auto-adjust column widths
+    for col in ws.columns:
+        col_letter = get_column_letter(col[0].column)
+        max_len = 0
+        for cell in col:
+            if cell.row == 1:
+                continue
+            val_str = str(cell.value or "")
+            if val_str.startswith("="):
+                max_len = max(max_len, 10)
+            else:
+                max_len = max(max_len, len(val_str))
+        ws.column_dimensions[col_letter].width = max(max_len + 3, 11)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str = "Bolla di Consegna Inditex") -> str:
@@ -780,18 +955,25 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
         sname = b.get("store_name", "")
         tipo_cons = b.get("tipo_cons", "STD")
         vettore = b.get("vettore") or "LACCHI SPA - VIA ERCOLE RAMARINI, 11/13 - 00015 MONTEROTONDO"
-        autista = b.get("autista", "")
-        cell = b.get("cell_autista", "")
+        autista = str(b.get("autista") or "").strip()
+        cell = str(b.get("cell_autista") or "").strip()
         mezzo = b.get("tipo_mezzo", "")
         indirizzo = b.get("indirizzo_destino", "")
 
-        c_abb = float(b.get("colli_abbigl") or 0)
-        c_calz = float(b.get("colli_calzat") or 0)
-        c_eco = float(b.get("colli_ecom") or 0)
-        c_oth = float(b.get("colli_others") or 0)
-        c_var = float(b.get("colli_vario") or 0)
-        c_dann = float(b.get("colli_dann") or 0)
-        c_nonconf = float(b.get("colli_non_conf") or 0)
+        aut_line = ""
+        if autista:
+            aut_line = f"<strong>Autista:</strong> {autista}"
+            if cell:
+                aut_line += f" &nbsp;|&nbsp; <strong>Cell:</strong> {cell}"
+            aut_line += "<br>"
+
+        c_abb = int(round(float(b.get("colli_abbigl") or 0)))
+        c_calz = int(round(float(b.get("colli_calzat") or 0)))
+        c_eco = int(round(float(b.get("colli_ecom") or 0)))
+        c_oth = int(round(float(b.get("colli_others") or 0)))
+        c_var = int(round(float(b.get("colli_vario") or 0)))
+        c_dann = int(round(float(b.get("colli_dann") or 0)))
+        c_nonconf = int(round(float(b.get("colli_non_conf") or 0)))
         anomalie = b.get("anomalie_scarico", "")
         stringa = b.get("stringa", "")
 
@@ -863,8 +1045,8 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
                     <div class="info-title">VETTORE & TRASPORTO</div>
                     <div class="info-content">
                         <strong>Vettore:</strong> {vettore}<br>
-                        <strong>Autista:</strong> {autista} &nbsp;|&nbsp; <strong>Cell:</strong> {cell}<br>
-                        <strong>Mezzo:</strong> {mezzo}
+                        {aut_line}
+                        <strong>Mezzo:</strong> {mezzo or 'ND'}
                     </div>
                 </div>
                 <div class="info-box">
@@ -892,32 +1074,32 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
                 <tbody>
                     <tr>
                         <td><strong>COLLI ABBIGLIAMENTO + PROFUMI</strong></td>
-                        <td class="num">{int(c_abb) if c_abb.is_integer() else c_abb}</td>
+                        <td class="num">{c_abb}</td>
                         <td>Previsione Piattaforma Roma</td>
                     </tr>
                     <tr>
                         <td><strong>COLLI CALZATURE</strong></td>
-                        <td class="num">{int(c_calz) if c_calz.is_integer() else c_calz}</td>
+                        <td class="num">{c_calz}</td>
                         <td>Calzature e Accessori</td>
                     </tr>
                     <tr>
                         <td><strong>COLLI E-COMMERCE</strong></td>
-                        <td class="num">{int(c_eco) if c_eco.is_integer() else c_eco}</td>
+                        <td class="num">{c_eco}</td>
                         <td>Consegne E-com negozio</td>
                     </tr>
                     <tr>
                         <td><strong>COLLI OTHERS</strong></td>
-                        <td class="num">{int(c_oth) if c_oth.is_integer() else c_oth}</td>
+                        <td class="num">{c_oth}</td>
                         <td>Altri Bultos / Arredo / Cancelleria</td>
                     </tr>
                     <tr>
                         <td><strong>COLLI MAT. VARIO DA PIATTAFORMA</strong></td>
-                        <td class="num">{int(c_var) if c_var.is_integer() else c_var}</td>
+                        <td class="num">{c_var}</td>
                         <td>Stand / Ceste / Materiali</td>
                     </tr>
                     <tr class="total-row">
                         <td>TOTALE COLLI OPERATIVA CONSEGNATI</td>
-                        <td class="num" style="font-size: 15px;">{int(tot_operativa) if tot_operativa.is_integer() else tot_operativa}</td>
+                        <td class="num" style="font-size: 15px;">{tot_operativa}</td>
                         <td>-</td>
                     </tr>
                 </tbody>
@@ -944,8 +1126,8 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
             <!-- ANOMALIE E SCARICO -->
             <div style="margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 <div class="border-box">
-                    <strong>COLLI DANNEGGIATI IN ORIGINE:</strong> {int(c_dann) if c_dann else '0'}<br>
-                    <strong>COLLI NON CONFORMI:</strong> {int(c_nonconf) if c_nonconf else '0'}
+                    <strong>COLLI DANNEGGIATI IN ORIGINE:</strong> {c_dann}<br>
+                    <strong>COLLI NON CONFORMI:</strong> {c_nonconf}
                 </div>
                 <div class="border-box">
                     <strong>ANOMALIE RISCONTRATE ALLO SCARICO:</strong><br>
@@ -961,7 +1143,7 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
                     PARTENZA ORE: [ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; : &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ]
                 </div>
                 <div class="sig-box">
-                    <strong>FIRMA VETTORE / AUTISTA</strong><br><br><br>
+                    <strong>FIRMA VETTORE</strong><br><br><br>
                     ____________________________________
                 </div>
                 <div class="sig-box">
