@@ -364,6 +364,25 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
                 target_col = "store_id" if "store_id" in df_clean.columns else "id_store"
                 if target_col in df_clean.columns and del_store_ids:
                     df_clean = df_clean[~df_clean[target_col].isin(del_store_ids)]
+                if t_name == "stores" and "cod_sga" in df_clean.columns:
+                    from src.config import ANAGRAFICA_FILE
+                    if ANAGRAFICA_FILE.exists():
+                        try:
+                            _df_anag = pd.read_excel(ANAGRAFICA_FILE)
+                            _sga_c = [c for c in _df_anag.columns if "sga" in c.lower()]
+                            if _sga_c:
+                                _map_sga = _df_anag.set_index(_df_anag["STORE_ID"].astype(str))[_sga_c[0]].dropna().to_dict()
+                                for idx_r, row_st in df_clean.iterrows():
+                                    val_sga = row_st.get("cod_sga")
+                                    if pd.isna(val_sga) or str(val_sga).strip() in ["", "None", "0"]:
+                                        sid_val = str(row_st.get("store_id", "")).strip()
+                                        base_sid = sid_val[:-1] if sid_val.endswith("B") else sid_val
+                                        if sid_val in _map_sga and pd.notna(_map_sga[sid_val]):
+                                            df_clean.at[idx_r, "cod_sga"] = int(_map_sga[sid_val])
+                                        elif base_sid in _map_sga and pd.notna(_map_sga[base_sid]):
+                                            df_clean.at[idx_r, "cod_sga"] = int(_map_sga[base_sid])
+                        except Exception:
+                            pass
                 cur.execute(f"DELETE FROM {t_name}")
             elif t_name not in ["bolle", "deleted_bolle", "deleted_runs", "deleted_stores"]:
                 cur.execute(f"DELETE FROM {t_name}")

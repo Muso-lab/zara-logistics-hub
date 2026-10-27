@@ -218,6 +218,18 @@ def _inject_modern_css():
             border-top: 2px solid #38BDF8 !important;
             border-bottom: 2px solid #38BDF8 !important;
         }
+        .section-divider-b9 {
+            background: linear-gradient(90deg, #FEF3C7 0%, #FFFBEB 100%) !important;
+            color: #92400E !important;
+            font-weight: 800 !important;
+            font-size: 12px !important;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            text-align: left !important;
+            padding: 9px 14px !important;
+            border-top: 2px solid #F59E0B !important;
+            border-bottom: 2px solid #F59E0B !important;
+        }
         .highlight-total-box {
             background-color: rgba(234, 179, 8, 0.2);
             border: 1.5px solid rgba(234, 179, 8, 0.55);
@@ -342,19 +354,50 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame, df_stores: Optional[pd.
     df["_sort_num"] = df["store_code"].apply(lambda x: _store_sort_key(x)[0])
     df["_sort_str"] = df["store_code"].astype(str).str.strip()
 
-    row_idx_col = "row_idx" if "row_idx" in df.columns else "_sort_str"
+    df["_sort_giro"] = df["giro"].apply(_giro_sort_key)
 
-    # Exclude all Barra 9 / 'B' stores from Spunta Arrivi (per Negozio)
-    # The arrival checklist is strictly for base stores arriving at the platform
-    df = df[~df["_is_b"]].copy()
+    # Sort & Filter Controls
+    col_ctrl1, col_ctrl2 = st.columns([2.8, 2.2])
+    with col_ctrl1:
+        sort_mode = st.radio(
+            "Ordina Elenco per:",
+            ["🔢 Numero Negozio (Crescente)", "🚚 Giro di Consegna (ZA1, ZA2...)"],
+            horizontal=True,
+            key="spunta_sort_mode_radio"
+        )
+    with col_ctrl2:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        show_b9_in_coda = st.checkbox(
+            "Mostra Negozi B (Barra 9 / Seconda Consegna) in Coda",
+            value=True,
+            key="spunta_show_b9_chk"
+        )
 
-    # 3 Groups:
-    # 1. Active Standard Stores
-    df_std = df[df["_is_active"] & ~df["_is_new"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
-    # 2. Inactive / Standby Stores
-    df_inactive = df[~df["_is_active"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
-    # 3. New Stores Unmapped
-    df_new = df[df["_is_active"] & df["_is_new"]].sort_values(by=["_sort_num", row_idx_col], ascending=[True, True])
+    # Separate standard base stores and B9 stores
+    df_base = df[~df["_is_b"]].copy()
+    df_b9 = df[df["_is_b"] & df["_is_active"]].copy()
+
+    # Groups for base stores:
+    df_std = df_base[df_base["_is_active"] & ~df_base["_is_new"]].copy()
+    df_inactive = df_base[~df_base["_is_active"]].copy()
+    df_new = df_base[df_base["_is_active"] & df_base["_is_new"]].copy()
+
+    if "Giro" in sort_mode:
+        df_std = df_std.sort_values(by=["_sort_giro", "_sort_num"], ascending=[True, True])
+        if not df_b9.empty:
+            df_b9 = df_b9.sort_values(by=["_sort_giro", "_sort_num"], ascending=[True, True])
+        if not df_inactive.empty:
+            df_inactive = df_inactive.sort_values(by=["_sort_giro", "_sort_num"], ascending=[True, True])
+        if not df_new.empty:
+            df_new = df_new.sort_values(by=["_sort_giro", "_sort_num"], ascending=[True, True])
+    else:
+        df_std = df_std.sort_values(by=["_sort_num", "_sort_str"], ascending=[True, True])
+        if not df_b9.empty:
+            df_b9 = df_b9.sort_values(by=["_sort_num", "_sort_str"], ascending=[True, True])
+        if not df_inactive.empty:
+            df_inactive = df_inactive.sort_values(by=["_sort_num", "_sort_str"], ascending=[True, True])
+        if not df_new.empty:
+            df_new = df_new.sort_values(by=["_sort_num", "_sort_str"], ascending=[True, True])
 
     rows_html = []
 
@@ -420,7 +463,17 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame, df_stores: Optional[pd.
     for _, r in df_std.iterrows():
         rows_html.append(_build_row(r, row_type="std"))
 
-    # 2. Inactive / Standby stores
+    # 2. Barra 9 ('B') stores in coda
+    if show_b9_in_coda and not df_b9.empty:
+        rows_html.append(
+            '<tr class="section-divider-b9">'
+            '<td colspan="11">🚚 SECONDE CONSEGNE / GIRI DOPPI (BARRA 9) IN CODA — VOLUMI DEDICATI 2° MEZZO</td>'
+            '</tr>'
+        )
+        for _, r in df_b9.iterrows():
+            rows_html.append(_build_row(r, row_type="b9"))
+
+    # 3. Inactive / Standby stores
     if not df_inactive.empty:
         rows_html.append(
             '<tr class="section-divider-standby">'
@@ -441,7 +494,7 @@ def render_spunta_arrivi_modern(df_spunta: pd.DataFrame, df_stores: Optional[pd.
             rows_html.append(_build_row(r, row_type="new"))
 
     # Totals row: transported volumes and pedane (exclude inactive stores from pedane!)
-    df_transported = df[df["_is_active"]].copy()
+    df_transported = pd.concat([df_std, df_b9]) if (show_b9_in_coda and not df_b9.empty) else df_std
     tot_mc = float(df_transported["mc"].sum())
     tot_tex = int(df_transported["textile_attesi"].sum())
     tot_oth = int(df_transported["other_attesi"].sum())

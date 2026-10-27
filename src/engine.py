@@ -233,9 +233,6 @@ def compute_spunta_arrivi(
         factor = row.get("factor", 1.0)
 
         colli_factor = row.get("colli_factor", 1.0)
-        if ridx in [68, 69, 70]:
-            factor = 1.0 / 3.0
-            colli_factor = 1.0 / 3.0
 
         if not is_store:
             # Section Header row
@@ -267,10 +264,7 @@ def compute_spunta_arrivi(
         # Note: in Spunta Arrivi, Barra 0 splits MC by 0.7 (and Barra 9 by 0.3),
         # while physical Colli (textile, other, shoes, ecom) remain 100% on Barra 0!
         base_sid = sid[:-1] if sid.endswith("B") else sid
-        if ridx in [68, 69, 70]:
-            factor = 1.0 / 3.0
-            colli_factor = 1.0 / 3.0
-        elif base_sid in map_sdoppia:
+        if base_sid in map_sdoppia:
             is_sdop = (map_sdoppia[base_sid] == "SI")
             if is_b9:
                 factor = 0.3 if is_sdop else 0.0
@@ -291,16 +285,6 @@ def compute_spunta_arrivi(
             other_attesi = 0
             shoes_attesi = 0
             ecom_attesi = 0
-        elif ridx in [68, 69, 70]:
-            # Castel Giubileo (15733) 3 uscite: split integer colli across the 3 rows without decimals
-            u_idx = ridx - 68  # 0, 1, 2
-            def _split3(v: float) -> int:
-                iv = int(round(float(v)))
-                return (iv // 3) + (1 if (iv % 3) > u_idx else 0)
-            textile_attesi = _split3(a_data.get("planned_textile", 0.0))
-            other_attesi = _split3(a_data.get("planned_others", 0.0))
-            shoes_attesi = _split3(a_data.get("planned_shoes", 0.0))
-            ecom_attesi = _split3(a_data.get("planned_ecom", 0.0))
         else:
             textile_attesi = int(round(float(a_data.get("planned_textile", 0.0)) * colli_factor))
             other_attesi = int(round(float(a_data.get("planned_others", 0.0)) * colli_factor))
