@@ -263,6 +263,21 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
         return {"status": "error", "message": data.get("message", "Risposta non valida da Google Sheets.")}
 
     tables_dict = data["tables"]
+
+    # Google Apps Script default doGet only returns primary tables.
+    # Explicitly fetch secondary and metadata tables if missing from the response.
+    for extra_t in ["app_settings", "deleted_runs", "deleted_bolle", "deleted_stores"]:
+        if extra_t not in tables_dict:
+            try:
+                sep = "&" if "?" in url else "?"
+                req_extra = urllib.request.Request(f"{url}{sep}table={extra_t}", method="GET")
+                with urllib.request.urlopen(req_extra, timeout=10) as resp_extra:
+                    d_extra = json.loads(resp_extra.read().decode("utf-8"))
+                    if d_extra.get("status") == "ok" and "tables" in d_extra and extra_t in d_extra["tables"]:
+                        tables_dict[extra_t] = d_extra["tables"][extra_t]
+            except Exception:
+                pass
+
     restored_counts = {}
 
     conn = sqlite3.connect(DB_PATH)
@@ -371,6 +386,18 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
                 records,
             )
             restored_counts[t_name] = len(records)
+
+            if t_name == "app_settings":
+                for rec in records:
+                    try:
+                        k_idx = common_cols.index("setting_key")
+                        v_idx = common_cols.index("setting_value")
+                        if rec[k_idx] == "email_config_json" and rec[v_idx]:
+                            em_file = DATA_DIR / "email_config.json"
+                            em_file.parent.mkdir(parents=True, exist_ok=True)
+                            em_file.write_text(str(rec[v_idx]), encoding="utf-8")
+                    except Exception:
+                        pass
 
         # Enforce blacklists so deleted items are permanently purged
         try:

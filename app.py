@@ -161,11 +161,13 @@ def _initialize_system():
     except Exception:
         pass
 
-    # Ripristino automatico dallo storico Cloud (Google Sheets) se SQLite non contiene run
+    # Ripristino automatico dallo storico Cloud (Google Sheets) se SQLite non contiene run o se mancano le impostazioni email
     # (es. dopo un riavvio del container o un nuovo deploy su Streamlit Cloud)
     try:
-        from src.db import get_all_runs
-        if get_all_runs().empty:
+        from src.db import get_all_runs, get_app_setting
+        has_runs = not get_all_runs().empty
+        has_email = bool(get_app_setting("email_config_json"))
+        if not has_runs or not has_email:
             pull_all_from_cloud()
     except Exception:
         pass
