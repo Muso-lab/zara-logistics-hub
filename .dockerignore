@@ -1,0 +1,36 @@
+# Git
+.git/
+.gitignore
+
+# Python cache & artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local virtual environment
+.venv/
+venv/
+env/
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test files & temporary run outputs
+tests/
+output/
+data/downloads/
+*.tmp
+*.log
+
+# Sensitive local files / secrets
+.env
+.env.*
+*.pem
+*.key

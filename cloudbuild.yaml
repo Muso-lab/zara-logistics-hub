@@ -1,0 +1,50 @@
+# ==============================================================================
+# Cloud Build Pipeline: Build, Push to Artifact Registry & Deploy to Cloud Run
+# ==============================================================================
+steps:
+  # 1. Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'europe-west8-docker.pkg.dev/$PROJECT_ID/zara-hub/zara-logistics-hub:$COMMIT_SHA'
+      - '-t'
+      - 'europe-west8-docker.pkg.dev/$PROJECT_ID/zara-hub/zara-logistics-hub:latest'
+      - '.'
+
+  # 2. Push image to Google Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'europe-west8-docker.pkg.dev/$PROJECT_ID/zara-hub/zara-logistics-hub:$COMMIT_SHA'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'europe-west8-docker.pkg.dev/$PROJECT_ID/zara-hub/zara-logistics-hub:latest'
+
+  # 3. Deploy container to Google Cloud Run (Europe-West8 Milano / Europe-West1 Belgium)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'zara-logistics-hub'
+      - '--image=europe-west8-docker.pkg.dev/$PROJECT_ID/zara-hub/zara-logistics-hub:latest'
+      - '--region=europe-west8'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8080'
+      - '--memory=1Gi'
+      - '--cpu=1'
+      - '--min-instances=0'
+      - '--max-instances=3'
+      - '--timeout=3600'
+      - '--session-affinity'
+
+images:
+  - 'europe-west8-docker.pkg.dev/$PROJECT_ID/zara-hub/zara-logistics-hub:$COMMIT_SHA'
+  - 'europe-west8-docker.pkg.dev/$PROJECT_ID/zara-hub/zara-logistics-hub:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

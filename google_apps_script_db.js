@@ -20,15 +20,20 @@
 
 const TABLES = [
   "stores",
+  "vehicles",
   "store_delivery_profiles",
+  "deleted_stores",
   "bolle",
+  "deleted_bolle",
   "runs",
+  "deleted_runs",
   "forecast_raw",
   "other_items",
   "actual_deliveries",
   "planning_results",
   "spunta_arrivi",
-  "sga_flows"
+  "sga_flows",
+  "app_settings"
 ];
 
 /**
