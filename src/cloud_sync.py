@@ -265,8 +265,8 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
     tables_dict = data["tables"]
 
     # Google Apps Script default doGet only returns primary tables.
-    # Explicitly fetch secondary and metadata tables if missing from the response.
-    for extra_t in ["app_settings", "deleted_runs", "deleted_bolle", "deleted_stores"]:
+    # Explicitly fetch any table from ALL_SYNC_TABLES that is missing from the initial response.
+    for extra_t in ALL_SYNC_TABLES:
         if extra_t not in tables_dict:
             try:
                 sep = "&" if "?" in url else "?"
