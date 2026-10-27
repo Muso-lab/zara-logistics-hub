@@ -364,8 +364,8 @@ def render_operativa_files_and_email_section(
     key_prefix: str = "op"
 ):
     """
-    Renders the Operative Files download buttons (Sintesi Operativa, SGA 0, SGA 9, ZIP)
-    and the Email sending form directly in the UI.
+    Renders the unified Operative Files download toolbar (Sintesi Operativa, SGA 0, SGA 9, ZARA, ZIP)
+    and an expandable Email sending form without duplicating buttons or cluttering the dashboard.
     """
     if not run_data or not isinstance(run_data, dict):
         return
@@ -380,6 +380,11 @@ def render_operativa_files_and_email_section(
     p_sga0_csv = out_dir / "barrazero_Sga.csv"
     p_sga9_csv = out_dir / "barranove_Sga.csv"
     p_zip = out_dir / f"File_Operativa_{rid}_{r_date}.zip"
+    p_zara = out_dir / "ZARA.xlsx"
+    if not p_zara.exists():
+        exp_f = run_data.get("exported_files", {})
+        if "zara" in exp_f and Path(exp_f["zara"]).exists():
+            p_zara = Path(exp_f["zara"])
 
     # Export Sintesi Operativa
     export_sintesi_operativa(
@@ -404,21 +409,25 @@ def render_operativa_files_and_email_section(
     if s9_df is not None and not s9_df.empty:
         export_sga_file(s9_df, p_sga9)
 
-    build_operativa_zip({
+    zip_items = {
         "Sintesi_Operativa.xlsx": p_sintesi,
         "barrazero_Sga.xlsx": p_sga0,
         "barranove_Sga.xlsx": p_sga9,
         "barrazero_Sga.csv": p_sga0_csv,
         "barranove_Sga.csv": p_sga9_csv,
-    }, p_zip)
+    }
+    if p_zara.exists():
+        zip_items["ZARA.xlsx"] = p_zara
 
-    st.markdown('<div class="modern-card" style="border-left: 5px solid #0284C7; margin-bottom: 24px; padding: 20px;">', unsafe_allow_html=True)
-    st.markdown('<div class="modern-section-title">📦 File Operativa Generati & Invio Email</div>', unsafe_allow_html=True)
-    st.caption("I 3 file fondamentali per l'operativa (Sintesi Operativa potenziata, SGA Barra 0 e SGA Barra 9 conformi al tracciato rigido) sono pronti per il download o per la spedizione email:")
+    build_operativa_zip(zip_items, p_zip)
 
-    dl_c1, dl_c2, dl_c3, dl_c4 = st.columns(4)
-    if p_sintesi.exists():
-        with dl_c1:
+    st.markdown('<div class="modern-card" style="border-left: 5px solid #0284C7; margin-bottom: 20px; padding: 18px 20px;">', unsafe_allow_html=True)
+    st.markdown('<div class="modern-section-title">📦 Download Documenti Ufficiali & Spedizione Email</div>', unsafe_allow_html=True)
+    st.caption("Scarica i documenti operativi ufficiali generati per questa spedizione (Sintesi Operativa, SGA Barra 0, SGA Barra 9, Spunta ZARA) oppure espandi la sezione email per la trasmissione:")
+
+    dl_cols = st.columns(5)
+    with dl_cols[0]:
+        if p_sintesi.exists():
             with open(p_sintesi, "rb") as f_s:
                 st.download_button(
                     "📊 Sintesi Operativa (.xlsx)",
@@ -428,8 +437,8 @@ def render_operativa_files_and_email_section(
                     use_container_width=True,
                     key=f"dl_box_sintesi_{key_prefix}_{rid}"
                 )
-    if p_sga0.exists():
-        with dl_c2:
+    with dl_cols[1]:
+        if p_sga0.exists():
             with open(p_sga0, "rb") as f_0:
                 st.download_button(
                     "🚛 SGA Barra 0 (.xlsx)",
@@ -439,8 +448,8 @@ def render_operativa_files_and_email_section(
                     use_container_width=True,
                     key=f"dl_box_sga0_{key_prefix}_{rid}"
                 )
-    if p_sga9.exists():
-        with dl_c3:
+    with dl_cols[2]:
+        if p_sga9.exists():
             with open(p_sga9, "rb") as f_9:
                 st.download_button(
                     "🚚 SGA Barra 9 (.xlsx)",
@@ -450,8 +459,21 @@ def render_operativa_files_and_email_section(
                     use_container_width=True,
                     key=f"dl_box_sga9_{key_prefix}_{rid}"
                 )
-    if p_zip.exists():
-        with dl_c4:
+    with dl_cols[3]:
+        if p_zara.exists():
+            with open(p_zara, "rb") as f_zara:
+                st.download_button(
+                    "📄 Spunta ZARA (.xlsx)",
+                    data=f_zara.read(),
+                    file_name=p_zara.name,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key=f"dl_box_zara_{key_prefix}_{rid}"
+                )
+        else:
+            st.button("📄 Spunta ZARA (N.D.)", disabled=True, use_container_width=True, key=f"dl_box_zara_nd_{key_prefix}_{rid}")
+    with dl_cols[4]:
+        if p_zip.exists():
             with open(p_zip, "rb") as f_z:
                 st.download_button(
                     "🗂️ Tutto in ZIP (.zip)",
@@ -467,110 +489,112 @@ def render_operativa_files_and_email_section(
     def_cc = email_cfg.get("default_cc", "")
     has_smtp = bool(email_cfg.get("smtp_host") and email_cfg.get("smtp_user"))
 
-    st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
-    col_em_head1, col_em_head2 = st.columns([3, 1.2])
-    with col_em_head1:
-        st.markdown("#### ✉️ Invio Email File Operativa")
-        if has_smtp:
-            st.markdown(f"<div style='font-size:12.5px; margin-top:-6px; color:#10B981; font-weight:600;'>🟢 Connessione SMTP Attiva: <code>{email_cfg.get('smtp_host')}:{email_cfg.get('smtp_port')}</code> (Mittente: {email_cfg.get('smtp_user')})</div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<div style='font-size:12.5px; margin-top:-6px; color:#F59E0B; font-weight:600;'>🟡 Modalità Simulazione / SMTP non configurato. Configura i parametri nella scheda ⚙️ Impostazioni.</div>", unsafe_allow_html=True)
-    with col_em_head2:
-        with st.popover("⚙️ Destinatari Standard", use_container_width=True):
-            st.markdown("##### ✉️ Indirizzi Standard")
-            p_to = st.text_input("Destinatari Standard (TO)", value=def_to, key=f"pop_to_{key_prefix}_{rid}")
-            p_cc = st.text_input("Destinatari in Copia (CC)", value=def_cc, key=f"pop_cc_{key_prefix}_{rid}")
-            if st.button("💾 Salva come Predefiniti", key=f"btn_save_pop_email_{key_prefix}_{rid}", use_container_width=True):
-                email_cfg["default_to"] = p_to
-                email_cfg["default_cc"] = p_cc
-                save_email_config(email_cfg)
-                st.success("Indirizzi standard aggiornati!")
-                st.rerun()
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+    with st.expander("✉️ Spedisci File Operativa via Email (Sintesi & Flussi SGA)", expanded=False):
+        col_em_head1, col_em_head2 = st.columns([3, 1.2])
+        with col_em_head1:
+            if has_smtp:
+                st.markdown(f"<div style='font-size:12.5px; color:#10B981; font-weight:600;'>🟢 Connessione SMTP Attiva: <code>{email_cfg.get('smtp_host')}:{email_cfg.get('smtp_port')}</code> (Mittente: {email_cfg.get('smtp_user')})</div>", unsafe_allow_html=True)
+            else:
+                st.markdown("<div style='font-size:12.5px; color:#F59E0B; font-weight:600;'>🟡 Modalità Simulazione / SMTP non configurato. Configura i parametri nella scheda ⚙️ Impostazioni.</div>", unsafe_allow_html=True)
+        with col_em_head2:
+            with st.popover("⚙️ Destinatari Standard", use_container_width=True):
+                st.markdown("##### ✉️ Indirizzi Standard")
+                p_to = st.text_input("Destinatari Standard (TO)", value=def_to, key=f"pop_to_{key_prefix}_{rid}")
+                p_cc = st.text_input("Destinatari in Copia (CC)", value=def_cc, key=f"pop_cc_{key_prefix}_{rid}")
+                if st.button("💾 Salva come Predefiniti", key=f"btn_save_pop_email_{key_prefix}_{rid}", use_container_width=True):
+                    email_cfg["default_to"] = p_to
+                    email_cfg["default_cc"] = p_cc
+                    save_email_config(email_cfg)
+                    st.success("Indirizzi standard aggiornati!")
+                    st.rerun()
 
-    em_col1, em_col2 = st.columns([1.5, 1.5])
-    with em_col1:
-        em_to = st.text_input("Destinatari (separati da virgola)", value=def_to, key=f"em_to_in_{key_prefix}_{rid}")
-    with em_col2:
-        em_cc = st.text_input("In Copia (CC - opzionale)", value=def_cc, key=f"em_cc_in_{key_prefix}_{rid}")
+        em_col1, em_col2 = st.columns([1.5, 1.5])
+        with em_col1:
+            em_to = st.text_input("Destinatari (separati da virgola)", value=def_to, key=f"em_to_in_{key_prefix}_{rid}")
+        with em_col2:
+            em_cc = st.text_input("In Copia (CC - opzionale)", value=def_cc, key=f"em_cc_in_{key_prefix}_{rid}")
 
-    tmpl_subj = email_cfg.get("subject_template") or "[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {date}"
-    default_subj = tmpl_subj.replace("{date}", str(r_date))
-    em_subj = st.text_input(
-        "Oggetto Email",
-        value=default_subj,
-        key=f"em_subj_in_{key_prefix}_{rid}"
-    )
-
-    totals = run_data.get("totals", {})
-    spec_bd = run_data.get("special_breakdowns", {})
-    lav_lines = []
-    if spec_bd:
-        spec_stores = spec_bd.get("special_stores", {})
-        zh_stores = spec_bd.get("zara_home", {})
-        tot_pezzi_lav = spec_bd.get("totale_pezzi_lavorati", 0)
-
-        lav_lines.append("Sintesi Lavorazioni di Piattaforma del Giorno:")
-        if spec_stores:
-            lav_lines.append("- Lavorazione Speciale Tessile:")
-            for sid, sdata in spec_stores.items():
-                sname = sdata.get("store_name", sid)
-                app = int(sdata.get("appesi", 0))
-                stnd = int(sdata.get("stender", sdata.get("stander", 0)))
-                ste = int(sdata.get("stesi", 0))
-                plt = int(sdata.get("bancali", sdata.get("bancali_stesi", 0)))
-                prf = int(sdata.get("correzione_profumi", 0))
-                tot_s = int(sdata.get("totale_pezzi", app + ste))
-                lav_lines.append(f"  • {sid} {sname}: {format_number_it(tot_s, 0)} capi tot | {format_number_it(app, 0)} appesi ({format_number_it(stnd, 0)} stender) | {format_number_it(ste, 0)} stesi ({format_number_it(plt, 0)} bancali) | profumi: {format_number_it(prf, 0)}")
-
-        if zh_stores:
-            lav_lines.append("- Lavorazione Zara Home (50% /0 e 50% /8):")
-            for sid, zdata in zh_stores.items():
-                zsname = zdata.get("store_name", sid)
-                paq = int(zdata.get("totale_paqueteria", zdata.get("totale", 0)))
-                q0 = int(zdata.get("quota_barra0", zdata.get("barra0", 0)))
-                q8 = int(zdata.get("quota_barra8", zdata.get("barra8", 0)))
-                lav_lines.append(f"  • {sid} {zsname}: {format_number_it(paq, 0)} pz totali (50% /0: {format_number_it(q0, 0)} pz — 50% /8: {format_number_it(q8, 0)} pz)")
-
-        if tot_pezzi_lav:
-            lav_lines.append(f"- Totale Pezzi Lavorati in Piattaforma: {format_number_it(tot_pezzi_lav, 0)} pz")
-
-    lav_section = ("\n" + "\n".join(lav_lines) + "\n") if lav_lines else ""
-
-    default_body = (
-        f"Gentili Colleghi,\n\n"
-        f"in allegato trasmettiamo i file operativi relativi alla spedizione del {format_date_it(r_date)}:\n\n"
-        f"- Sintesi Operativa Giri & Lavorazioni (Sintesi_Operativa.xlsx)\n"
-        f"- Flusso Viaggi TMS Barra 0 (barrazero_Sga.xlsx / .csv)\n"
-        f"- Flusso Viaggi TMS Barra 9 Sdoppiati (barranove_Sga.xlsx / .csv)\n\n"
-        f"Riepilogo Totali Spedizione:\n"
-        f"- Totale Colli: {format_number_it(totals.get('total_bultos', 0), 0)}\n"
-        f"- Volume Complessivo: {format_number_it(totals.get('total_volume', 0.0), 2)} m³\n"
-        f"- Peso Complessivo: {format_number_it(totals.get('total_weight', 0.0), 0)} kg\n"
-        f"- Pedane Stimate: {format_number_it(totals.get('total_pedane', 0), 0)} PLT\n"
-        f"{lav_section}\n"
-        f"Restiamo a disposizione per qualsiasi chiarimento operativo.\n\n"
-        f"Cordiali saluti,\n"
-        f"Ufficio Logistica & Traffico Zara Hub"
-    )
-
-    em_body = st.text_area("Testo del Messaggio", value=default_body, height=220, key=f"em_body_in_{key_prefix}_{rid}")
-
-    if st.button("🚀 INVIA EMAIL ORA", type="primary", use_container_width=True, key=f"btn_send_now_{key_prefix}_{rid}"):
-        to_list = [x.strip() for x in em_to.split(",") if x.strip()]
-        cc_list = [x.strip() for x in em_cc.split(",") if x.strip()]
-        att_files = [p_sintesi, p_sga0, p_sga9]
-        success, msg = send_operativa_email(
-            recipients=to_list,
-            subject=em_subj,
-            body_text=em_body,
-            attachment_paths=att_files,
-            cc_recipients=cc_list,
-            smtp_config=email_cfg
+        tmpl_subj = email_cfg.get("subject_template") or "[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {date}"
+        default_subj = tmpl_subj.replace("{date}", str(r_date))
+        em_subj = st.text_input(
+            "Oggetto Email",
+            value=default_subj,
+            key=f"em_subj_in_{key_prefix}_{rid}"
         )
-        if success:
-            st.success(f"🎉 **{msg}**")
-        else:
-            st.error(f"❌ {msg}")
+
+        totals = run_data.get("totals", {})
+        spec_bd = run_data.get("special_breakdowns", {})
+        lav_lines = []
+        if spec_bd:
+            spec_stores = spec_bd.get("special_stores", {})
+            zh_stores = spec_bd.get("zara_home", {})
+            tot_pezzi_lav = spec_bd.get("totale_pezzi_lavorati", 0)
+
+            lav_lines.append("Sintesi Lavorazioni di Piattaforma del Giorno:")
+            if spec_stores:
+                lav_lines.append("- Lavorazione Speciale Tessile:")
+                for sid, sdata in spec_stores.items():
+                    sname = sdata.get("store_name", sid)
+                    app = int(sdata.get("appesi", 0))
+                    stnd = int(sdata.get("stender", sdata.get("stander", 0)))
+                    ste = int(sdata.get("stesi", 0))
+                    plt = int(sdata.get("bancali", sdata.get("bancali_stesi", 0)))
+                    prf = int(sdata.get("correzione_profumi", 0))
+                    tot_s = int(sdata.get("totale_pezzi", app + ste))
+                    lav_lines.append(f"  • {sid} {sname}: {format_number_it(tot_s, 0)} capi tot | {format_number_it(app, 0)} appesi ({format_number_it(stnd, 0)} stender) | {format_number_it(ste, 0)} stesi ({format_number_it(plt, 0)} bancali) | profumi: {format_number_it(prf, 0)}")
+
+            if zh_stores:
+                lav_lines.append("- Lavorazione Zara Home (50% /0 e 50% /8):")
+                for sid, zdata in zh_stores.items():
+                    zsname = zdata.get("store_name", sid)
+                    paq = int(zdata.get("totale_paqueteria", zdata.get("totale", 0)))
+                    q0 = int(zdata.get("quota_barra0", zdata.get("barra0", 0)))
+                    q8 = int(zdata.get("quota_barra8", zdata.get("barra8", 0)))
+                    lav_lines.append(f"  • {sid} {zsname}: {format_number_it(paq, 0)} pz totali (50% /0: {format_number_it(q0, 0)} pz — 50% /8: {format_number_it(q8, 0)} pz)")
+
+            if tot_pezzi_lav:
+                lav_lines.append(f"- Totale Pezzi Lavorati in Piattaforma: {format_number_it(tot_pezzi_lav, 0)} pz")
+
+        lav_section = ("\n" + "\n".join(lav_lines) + "\n") if lav_lines else ""
+
+        default_body = (
+            f"Gentili Colleghi,\n\n"
+            f"in allegato trasmettiamo i file operativi relativi alla spedizione del {format_date_it(r_date)}:\n\n"
+            f"- Sintesi Operativa Giri & Lavorazioni (Sintesi_Operativa.xlsx)\n"
+            f"- Flusso Viaggi TMS Barra 0 (barrazero_Sga.xlsx / .csv)\n"
+            f"- Flusso Viaggi TMS Barra 9 Sdoppiati (barranove_Sga.xlsx / .csv)\n\n"
+            f"Riepilogo Totali Spedizione:\n"
+            f"- Totale Colli: {format_number_it(totals.get('total_bultos', 0), 0)}\n"
+            f"- Volume Complessivo: {format_number_it(totals.get('total_volume', 0.0), 2)} m³\n"
+            f"- Peso Complessivo: {format_number_it(totals.get('total_weight', 0.0), 0)} kg\n"
+            f"- Pedane Stimate: {format_number_it(totals.get('total_pedane', 0), 0)} PLT\n"
+            f"{lav_section}\n"
+            f"Restiamo a disposizione per qualsiasi chiarimento operativo.\n\n"
+            f"Cordiali saluti,\n"
+            f"Ufficio Logistica & Traffico Zara Hub"
+        )
+
+        em_body = st.text_area("Testo del Messaggio", value=default_body, height=180, key=f"em_body_in_{key_prefix}_{rid}")
+
+        if st.button("🚀 INVIA EMAIL ORA", type="primary", use_container_width=True, key=f"btn_send_now_{key_prefix}_{rid}"):
+            to_list = [x.strip() for x in em_to.split(",") if x.strip()]
+            cc_list = [x.strip() for x in em_cc.split(",") if x.strip()]
+            att_files = [p_sintesi, p_sga0, p_sga9]
+            if p_zara.exists():
+                att_files.append(p_zara)
+            success, msg = send_operativa_email(
+                recipients=to_list,
+                subject=em_subj,
+                body_text=em_body,
+                attachment_paths=att_files,
+                cc_recipients=cc_list,
+                smtp_config=email_cfg
+            )
+            if success:
+                st.success(f"🎉 **{msg}**")
+            else:
+                st.error(f"❌ {msg}")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -656,17 +680,7 @@ if menu == "📥 1. Previsione & Arrivi":
                     )
 
             st.markdown("---")
-            col_hdr_l, col_hdr_r = st.columns([2.5, 2.5])
-            with col_hdr_l:
-                st.markdown("### 📊 Riepilogo Previsione Attiva")
-            with col_hdr_r:
-                show_op_box = st.button("📦 File Operativa & Invio Email ✉️ (Nascondi / Mostra)", type="secondary", use_container_width=True, key=f"btn_prod_op_{curr_rid}")
-                if show_op_box:
-                    st.session_state[f"show_op_panel_{curr_rid}"] = not st.session_state.get(f"show_op_panel_{curr_rid}", True)
-
-            # File Operativa & Invio Email (Aperto di default!)
-            if st.session_state.get(f"show_op_panel_{curr_rid}", True):
-                render_operativa_files_and_email_section(active_run_data, df_stores_side, key_prefix=f"vis_{curr_rid}")
+            st.markdown("### 📊 Riepilogo Previsione Attiva")
 
             kpi1, kpi2, kpi3, kpi4 = st.columns(4)
             kpi1.metric("Totale Colli", format_number_it(totals["total_bultos"], 0))
@@ -674,29 +688,7 @@ if menu == "📥 1. Previsione & Arrivi":
             kpi3.metric("Peso Complessivo", format_number_it(totals["total_weight"], 0) + " kg")
             kpi4.metric("Pedane Stimate", format_number_it(totals["total_pedane"], 0))
 
-            # Pulsanti Download File Generati
-            exp_files = active_run_data.get("exported_files", {})
-            if exp_files:
-                col_d1, col_d2, col_d3, col_d4 = st.columns(4)
-                labels_map = {
-                    "sintesi": ("📊 Scarica Sintesi (.xlsx)", col_d1),
-                    "sga0": ("🚛 Scarica SGA Barra 0 (.xlsx)", col_d2),
-                    "sga9": ("🚚 Scarica SGA Barra 9 (.xlsx)", col_d3),
-                    "zara": ("📄 Scarica Spunta (ZARA.xlsx)", col_d4),
-                }
-                for k, (lbl, col_obj) in labels_map.items():
-                    p = exp_files.get(k)
-                    if p and Path(p).exists():
-                        with col_obj:
-                            with open(p, "rb") as f:
-                                st.download_button(
-                                    lbl,
-                                    data=f.read(),
-                                    file_name=Path(p).name,
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    use_container_width=True,
-                                    key=f"dl_{k}_{curr_rid}",
-                                )
+            render_operativa_files_and_email_section(active_run_data, df_stores_side, key_prefix=f"vis_{curr_rid}")
 
             tab_spunta, tab_giri, tab_lav = st.tabs([
                 "📋 Spunta Arrivi (Per Negozio)",
@@ -808,134 +800,120 @@ if menu == "📥 1. Previsione & Arrivi":
                         st.success("Credenziali Extranet aggiornate!")
                         st.rerun()
 
-            if st.button("🌐 SCARICA DA EXTRANET ED ELABORA", type="primary", use_container_width=True, key="btn_ask_scrape"):
-                st.session_state["confirm_perfume_mode"] = "extranet"
+            prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno (0 pz)"
+            st.caption(f"🧴 Scorporo profumi attivo per questa elaborazione: {prof_summary_str}")
+            btn_scrape_go = st.button("🌐 SCARICA DA EXTRANET ED AVVIA ESTRAZIONE", type="primary", use_container_width=True, key="btn_ask_scrape")
 
-            if st.session_state.get("confirm_perfume_mode") == "extranet":
-                prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno"
-                st.warning(
-                    f"🧴 **Hai aggiornato correttamente i profumi?**\n\n"
-                    f"Valori impostati: {prof_summary_str}"
-                )
-                c_cf1, c_cf2 = st.columns(2)
-                with c_cf1:
-                    confirm_extranet_go = st.button("✅ SÌ, HO AGGIORNATO I PROFUMI — AVVIA ESTRAZIONE ED ELABORAZIONE", type="primary", use_container_width=True, key="btn_go_extranet_confirmed")
-                with c_cf2:
-                    if st.button("✏️ No, annulla e modifica i profumi sopra", use_container_width=True, key="btn_cancel_extranet_confirm"):
-                        st.session_state.pop("confirm_perfume_mode", None)
-                        st.rerun()
+            if btn_scrape_go:
+                status_banner = st.empty()
+                prog_bar = st.progress(5)
+                status_banner.markdown("""
+                <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+                            border: 2px solid #38BDF8; border-radius: 12px;
+                            padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="font-size: 28px;">⚙️</div>
+                            <div>
+                                <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
+                                    🚀 ESTRAZIONE ED ELABORAZIONE AVVIATA — ATTENDERE PREGO
+                                </div>
+                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                    Connessione a Inditex Extranet in corso e download automatico file...
+                                </div>
+                            </div>
+                        </div>
+                        <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">5%</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
-                if confirm_extranet_go:
-                    st.session_state.pop("confirm_perfume_mode", None)
-                    status_banner = st.empty()
-                    prog_bar = st.progress(5)
-                    status_banner.markdown("""
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                temp_extract_dir = DATA_DIR / "downloads" / f"extranet_{ts}"
+                temp_extract_dir.mkdir(parents=True, exist_ok=True)
+
+                def update_progress(msg: str, pct: int):
+                    prog_bar.progress(pct)
+                    status_banner.markdown(f"""
                     <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
                                 border: 2px solid #38BDF8; border-radius: 12px;
                                 padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
                         <div style="display: flex; align-items: center; justify-content: space-between;">
                             <div style="display: flex; align-items: center; gap: 14px;">
-                                <div style="font-size: 28px;">⚙️</div>
+                                <div style="font-size: 28px;">🔄</div>
                                 <div>
                                     <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
-                                        🚀 ESTRAZIONE ED ELABORAZIONE AVVIATA — ATTENDERE PREGO
+                                        ESTRAZIONE ED ELABORAZIONE IN CORSO...
                                     </div>
                                     <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                        Connessione a Inditex Extranet in corso e download automatico file...
+                                        {html.escape(msg)}
                                     </div>
                                 </div>
                             </div>
-                            <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">5%</div>
+                            <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">{pct}%</div>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
 
-                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    temp_extract_dir = DATA_DIR / "downloads" / f"extranet_{ts}"
-                    temp_extract_dir.mkdir(parents=True, exist_ok=True)
-
-                    def update_progress(msg: str, pct: int):
-                        prog_bar.progress(pct)
-                        status_banner.markdown(f"""
-                        <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
-                                    border: 2px solid #38BDF8; border-radius: 12px;
-                                    padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
-                            <div style="display: flex; align-items: center; justify-content: space-between;">
-                                <div style="display: flex; align-items: center; gap: 14px;">
-                                    <div style="font-size: 28px;">🔄</div>
-                                    <div>
-                                        <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
-                                            ESTRAZIONE ED ELABORAZIONE IN CORSO...
-                                        </div>
-                                        <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                            {html.escape(msg)}
-                                        </div>
-                                    </div>
+                try:
+                    scraper = InditexExtranetScraper(
+                        username=ex_user,
+                        password=ex_pass,
+                        headless=True,
+                        progress_callback=update_progress,
+                    )
+                    scrape_res = scraper.scrape_all(
+                        desde_date=sc_desde,
+                        hasta_date=sc_hasta,
+                        output_dir=temp_extract_dir,
+                    )
+                    update_progress("Elaborazione Spunta Arrivi e Flussi SGA...", 95)
+                    res = run_pipeline(
+                        total_source=temp_extract_dir / "TOTAL.xls",
+                        shoes_source=(temp_extract_dir / "SHOES.xls") if (temp_extract_dir / "SHOES.xls").exists() else None,
+                        texile_source=(temp_extract_dir / "TEXILE.xls") if (temp_extract_dir / "TEXILE.xls").exists() else None,
+                        ecom_source=(temp_extract_dir / "ECOM.xls") if (temp_extract_dir / "ECOM.xls").exists() else None,
+                        other_source=(temp_extract_dir / "OTHER"),
+                        esportazione_source=None,
+                        run_date=str(run_date),
+                        cycle_type=cycle_type,
+                        notes=f"{notes} [Extranet {format_date_it(sc_desde)}-{format_date_it(sc_hasta)}]",
+                        perfume_corrections=perfume_corrections,
+                        save_to_network=False,
+                    )
+                    prog_bar.progress(100)
+                    status_banner.markdown("""
+                    <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
+                                border: 2px solid #10B981; border-radius: 12px;
+                                padding: 18px 24px; margin: 12px 0 16px 0;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="font-size: 28px;">✅</div>
+                            <div>
+                                <div style="font-size: 16px; font-weight: 800; color: #34D399;">
+                                    ELABORAZIONE COMPLETATA CON SUCCESSO!
                                 </div>
-                                <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">{pct}%</div>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    try:
-                        scraper = InditexExtranetScraper(
-                            username=ex_user,
-                            password=ex_pass,
-                            headless=True,
-                            progress_callback=update_progress,
-                        )
-                        scrape_res = scraper.scrape_all(
-                            desde_date=sc_desde,
-                            hasta_date=sc_hasta,
-                            output_dir=temp_extract_dir,
-                        )
-                        update_progress("Elaborazione Spunta Arrivi e Flussi SGA...", 95)
-                        res = run_pipeline(
-                            total_source=temp_extract_dir / "TOTAL.xls",
-                            shoes_source=(temp_extract_dir / "SHOES.xls") if (temp_extract_dir / "SHOES.xls").exists() else None,
-                            texile_source=(temp_extract_dir / "TEXILE.xls") if (temp_extract_dir / "TEXILE.xls").exists() else None,
-                            ecom_source=(temp_extract_dir / "ECOM.xls") if (temp_extract_dir / "ECOM.xls").exists() else None,
-                            other_source=(temp_extract_dir / "OTHER"),
-                            esportazione_source=None,
-                            run_date=str(run_date),
-                            cycle_type=cycle_type,
-                            notes=f"{notes} [Extranet {format_date_it(sc_desde)}-{format_date_it(sc_hasta)}]",
-                            perfume_corrections=perfume_corrections,
-                            save_to_network=False,
-                        )
-                        prog_bar.progress(100)
-                        status_banner.markdown("""
-                        <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
-                                    border: 2px solid #10B981; border-radius: 12px;
-                                    padding: 18px 24px; margin: 12px 0 16px 0;">
-                            <div style="display: flex; align-items: center; gap: 14px;">
-                                <div style="font-size: 28px;">✅</div>
-                                <div>
-                                    <div style="font-size: 16px; font-weight: 800; color: #34D399;">
-                                        ELABORAZIONE COMPLETATA CON SUCCESSO!
-                                    </div>
-                                    <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                        File TOTAL, SHOES, TEXILE, ECOM e OTHER estratti e calcolati con successo. Dati archiviati nel DB.
-                                    </div>
+                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                    File TOTAL, SHOES, TEXILE, ECOM e OTHER estratti e calcolati con successo. Dati archiviati nel DB.
                                 </div>
                             </div>
                         </div>
-                        """, unsafe_allow_html=True)
-                        st.session_state["last_run"] = res
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.session_state["last_run"] = res
+                    st.session_state["active_view_run_id"] = res["run_id"]
+                    st.session_state[f"show_op_panel_{res['run_id']}"] = True
+
+                    # Mostra subito i file operativi generati e l'invio email
+                    render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"extranet_{res['run_id']}")
+
+                    if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_extranet"):
                         st.session_state["active_view_run_id"] = res["run_id"]
-                        st.session_state[f"show_op_panel_{res['run_id']}"] = True
+                        st.session_state["last_run"] = res
+                        st.rerun()
 
-                        # Mostra subito i file operativi generati e l'invio email
-                        render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"extranet_{res['run_id']}")
-
-                        if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_extranet"):
-                            st.session_state["active_view_run_id"] = res["run_id"]
-                            st.session_state["last_run"] = res
-                            st.rerun()
-
-                    except Exception as e:
-                        status_banner.empty()
-                        st.error(f"Errore durante l'estrazione da Extranet: {e}")
+                except Exception as e:
+                    status_banner.empty()
+                    st.error(f"Errore durante l'estrazione da Extranet: {e}")
 
         with tab_src_upload:
             st.caption("Modalità di emergenza: seleziona o trascina qui **tutti insieme** i file scaricati manualmente (`TOTAL`, `SHOES`, `TEXILE`, `ECOM` ed eventuali file di dettaglio `OTHER`, oppure un file `.zip`). Il sistema li riconosce e smista in automatico:")
@@ -956,95 +934,81 @@ if menu == "📥 1. Previsione & Arrivi":
                 c_s4.success(f"E-COMMERCE: {s_info['ecom']}") if s_info["ecom"] else c_s4.info("E-COMMERCE: Assente (0)")
                 c_s5.success(f"ALTRI (OTHER): {s_info['other_count']} file") if s_info["other_count"] > 0 else c_s5.info("ALTRI (OTHER): 0 file")
 
-            if st.button("🚀 ELABORA FILE CARICATI", type="primary", use_container_width=True, disabled=not bool(classified and (classified["total"] or classified["texile"])), key="btn_ask_upload"):
-                st.session_state["confirm_perfume_mode"] = "upload"
+            prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno (0 pz)"
+            st.caption(f"🧴 Scorporo profumi attivo per questa elaborazione: {prof_summary_str}")
+            btn_upload_go = st.button("🚀 ELABORA FILE CARICATI ORA", type="primary", use_container_width=True, disabled=not bool(classified and (classified["total"] or classified["texile"])), key="btn_ask_upload")
 
-            if st.session_state.get("confirm_perfume_mode") == "upload":
-                prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno"
-                st.warning(
-                    f"🧴 **Hai aggiornato correttamente i profumi?**\n\n"
-                    f"Valori impostati: {prof_summary_str}"
-                )
-                c_cu1, c_cu2 = st.columns(2)
-                with c_cu1:
-                    confirm_upload_go = st.button("✅ SÌ, HO AGGIORNATO I PROFUMI — AVVIA ELABORAZIONE", type="primary", use_container_width=True, key="btn_go_upload_confirmed")
-                with c_cu2:
-                    if st.button("✏️ No, annulla e modifica i profumi sopra", use_container_width=True, key="btn_cancel_upload_confirm"):
-                        st.session_state.pop("confirm_perfume_mode", None)
-                        st.rerun()
-
-                if confirm_upload_go:
-                    st.session_state.pop("confirm_perfume_mode", None)
-                    status_banner_up = st.empty()
-                    prog_bar_up = st.progress(25)
-                    status_banner_up.markdown("""
-                    <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
-                                border: 2px solid #38BDF8; border-radius: 12px;
-                                padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
-                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <div style="display: flex; align-items: center; gap: 14px;">
-                                <div style="font-size: 28px;">⚙️</div>
-                                <div>
-                                    <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
-                                        🚀 ELABORAZIONE FILE AVVIATA — ATTENDERE PREGO
-                                    </div>
-                                    <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                        Calcolo Spunta Arrivi, suddivisione Sdoppiamenti /0-/9 e salvataggio storico...
-                                    </div>
+            if btn_upload_go:
+                status_banner_up = st.empty()
+                prog_bar_up = st.progress(25)
+                status_banner_up.markdown("""
+                <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+                            border: 2px solid #38BDF8; border-radius: 12px;
+                            padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="font-size: 28px;">⚙️</div>
+                            <div>
+                                <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
+                                    🚀 ELABORAZIONE FILE AVVIATA — ATTENDERE PREGO
+                                </div>
+                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                    Calcolo Spunta Arrivi, suddivisione Sdoppiamenti /0-/9 e salvataggio storico...
                                 </div>
                             </div>
-                            <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">25%</div>
+                        </div>
+                        <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">25%</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                try:
+                    res = run_pipeline(
+                        total_source=classified["total"],
+                        shoes_source=classified["shoes"],
+                        texile_source=classified["texile"],
+                        ecom_source=classified["ecom"],
+                        other_source=classified["other"],
+                        esportazione_source=None,
+                        run_date=str(run_date),
+                        cycle_type=cycle_type,
+                        notes=notes,
+                        perfume_corrections=perfume_corrections,
+                        save_to_network=False,
+                    )
+                    prog_bar_up.progress(100)
+                    status_banner_up.markdown("""
+                    <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
+                                border: 2px solid #10B981; border-radius: 12px;
+                                padding: 18px 24px; margin: 12px 0 16px 0;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="font-size: 28px;">✅</div>
+                            <div>
+                                <div style="font-size: 16px; font-weight: 800; color: #34D399;">
+                                    ELABORAZIONE COMPLETATA CON SUCCESSO!
+                                </div>
+                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                    Spunta Arrivi, Flussi SGA e Riepilogo Giri calcolati con successo.
+                                </div>
+                            </div>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
+                    st.session_state["last_run"] = res
+                    st.session_state["active_view_run_id"] = res["run_id"]
+                    st.session_state[f"show_op_panel_{res['run_id']}"] = True
 
-                    try:
-                        res = run_pipeline(
-                            total_source=classified["total"],
-                            shoes_source=classified["shoes"],
-                            texile_source=classified["texile"],
-                            ecom_source=classified["ecom"],
-                            other_source=classified["other"],
-                            esportazione_source=None,
-                            run_date=str(run_date),
-                            cycle_type=cycle_type,
-                            notes=notes,
-                            perfume_corrections=perfume_corrections,
-                            save_to_network=False,
-                        )
-                        prog_bar_up.progress(100)
-                        status_banner_up.markdown("""
-                        <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
-                                    border: 2px solid #10B981; border-radius: 12px;
-                                    padding: 18px 24px; margin: 12px 0 16px 0;">
-                            <div style="display: flex; align-items: center; gap: 14px;">
-                                <div style="font-size: 28px;">✅</div>
-                                <div>
-                                    <div style="font-size: 16px; font-weight: 800; color: #34D399;">
-                                        ELABORAZIONE COMPLETATA CON SUCCESSO!
-                                    </div>
-                                    <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                        Spunta Arrivi, Flussi SGA e Riepilogo Giri calcolati con successo.
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        st.session_state["last_run"] = res
+                    # Mostra subito i file operativi generati e l'invio email
+                    render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"upload_{res['run_id']}")
+
+                    if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_upload"):
                         st.session_state["active_view_run_id"] = res["run_id"]
-                        st.session_state[f"show_op_panel_{res['run_id']}"] = True
+                        st.session_state["last_run"] = res
+                        st.rerun()
 
-                        # Mostra subito i file operativi generati e l'invio email
-                        render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"upload_{res['run_id']}")
-
-                        if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_upload"):
-                            st.session_state["active_view_run_id"] = res["run_id"]
-                            st.session_state["last_run"] = res
-                            st.rerun()
-
-                    except Exception as e:
-                        status_banner_up.empty()
-                        st.error(f"Errore durante l'elaborazione: {e}")
+                except Exception as e:
+                    status_banner_up.empty()
+                    st.error(f"Errore durante l'elaborazione: {e}")
 
 
 elif menu == "🚚 2. Bolle di Consegna":
@@ -1736,44 +1700,39 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
         st.markdown(kpi_anag_html, unsafe_allow_html=True)
 
         # --- 2. TOOL AGGIORNAMENTO MASSIVO PER GIRO ---
-        st.markdown('<div class="modern-card">', unsafe_allow_html=True)
-        st.markdown('<div class="modern-section-title">⚡ Aggiornamento Massivo per Giro (Vettore & Tipo Mezzo)</div>', unsafe_allow_html=True)
-        st.caption("Assegna o modifica contemporaneamente Vettore e Tipo Mezzo per tutti i punti vendita del giro selezionato:")
+        with st.expander("⚡ Aggiornamento Massivo per Giro (Vettore & Tipo Mezzo)", expanded=False):
+            st.caption("Assegna o modifica contemporaneamente Vettore e Tipo Mezzo per tutti i punti vendita del giro selezionato:")
 
-        df_giro_sum = get_giro_summary()
-        giri_avail = sorted([g for g in df_stores["giro"].dropna().unique().tolist() if str(g).strip() != ""], key=_giro_sort_key) if not df_stores.empty else []
+            df_giro_sum = get_giro_summary()
+            giri_avail = sorted([g for g in df_stores["giro"].dropna().unique().tolist() if str(g).strip() != ""], key=_giro_sort_key) if not df_stores.empty else []
 
-        col_bm1, col_bm2, col_bm3, col_bm4, col_bm5 = st.columns([1.1, 1.8, 1.8, 1.8, 1.6])
-        with col_bm1:
-            sel_g = st.selectbox("Seleziona Giro", giri_avail, key="mass_sel_giro") if giri_avail else "ZA1"
-            g_row = df_giro_sum[df_giro_sum["giro"] == sel_g].iloc[0] if not df_giro_sum.empty and not df_giro_sum[df_giro_sum["giro"] == sel_g].empty else {}
-        with col_bm2:
-            curr_g_vet = "" if str(g_row.get("vettore", "")) in ["Non Assegnato", "—", "None", "nan", None] else str(g_row.get("vettore", "LACCHI SPA"))
-            g_vet = st.text_input("Vettore Assegnato", value=curr_g_vet or "LACCHI SPA", placeholder="Es. LACCHI SPA", key=f"mass_vet_{sel_g}")
-        with col_bm3:
-            curr_m = str(g_row.get("tipo_mezzo", "MOTRICE 18 PLT") or "MOTRICE 18 PLT").strip()
-            idx_m = mezzi_list_full.index(curr_m) if curr_m in mezzi_list_full else 0
-            g_mez = st.selectbox("Mezzo Standard (/0)", options=mezzi_list_full, index=idx_m, key=f"mass_mez_{sel_g}")
-        with col_bm4:
-            curr_md = str(g_row.get("tipo_mezzo_doppia", "FURGONE 8") or "FURGONE 8").strip()
-            idx_md = mezzi_list_full.index(curr_md) if curr_md in mezzi_list_full else 0
-            g_mez_d = st.selectbox("Mezzo Giri Doppi (/9)", options=mezzi_list_full, index=idx_md, key=f"mass_mez_d_{sel_g}")
-        with col_bm5:
-            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            if st.button(f"💾 APPLICA AL GIRO {sel_g}", type="primary", use_container_width=True, key=f"btn_apply_giro_{sel_g}"):
-                n_up = update_giro_driver(sel_g, autista="", cell_autista="", tipo_mezzo=g_mez, tipo_mezzo_doppia=g_mez_d, vettore=g_vet)
-                st.success(f"✅ Aggiornati tutti i **{n_up}** negozi del giro **{sel_g}** (Standard: {g_mez}, Doppia: {g_mez_d})!")
-                st.rerun()
+            col_bm1, col_bm2, col_bm3, col_bm4, col_bm5 = st.columns([1.1, 1.8, 1.8, 1.8, 1.6])
+            with col_bm1:
+                sel_g = st.selectbox("Seleziona Giro", giri_avail, key="mass_sel_giro") if giri_avail else "ZA1"
+                g_row = df_giro_sum[df_giro_sum["giro"] == sel_g].iloc[0] if not df_giro_sum.empty and not df_giro_sum[df_giro_sum["giro"] == sel_g].empty else {}
+            with col_bm2:
+                curr_g_vet = "" if str(g_row.get("vettore", "")) in ["Non Assegnato", "—", "None", "nan", None] else str(g_row.get("vettore", "LACCHI SPA"))
+                g_vet = st.text_input("Vettore Assegnato", value=curr_g_vet or "LACCHI SPA", placeholder="Es. LACCHI SPA", key=f"mass_vet_{sel_g}")
+            with col_bm3:
+                curr_m = str(g_row.get("tipo_mezzo", "MOTRICE 18 PLT") or "MOTRICE 18 PLT").strip()
+                idx_m = mezzi_list_full.index(curr_m) if curr_m in mezzi_list_full else 0
+                g_mez = st.selectbox("Mezzo Standard (/0)", options=mezzi_list_full, index=idx_m, key=f"mass_mez_{sel_g}")
+            with col_bm4:
+                curr_md = str(g_row.get("tipo_mezzo_doppia", "FURGONE 8") or "FURGONE 8").strip()
+                idx_md = mezzi_list_full.index(curr_md) if curr_md in mezzi_list_full else 0
+                g_mez_d = st.selectbox("Mezzo Giri Doppi (/9)", options=mezzi_list_full, index=idx_md, key=f"mass_mez_d_{sel_g}")
+            with col_bm5:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                if st.button(f"💾 APPLICA AL GIRO {sel_g}", type="primary", use_container_width=True, key=f"btn_apply_giro_{sel_g}"):
+                    n_up = update_giro_driver(sel_g, autista="", cell_autista="", tipo_mezzo=g_mez, tipo_mezzo_doppia=g_mez_d, vettore=g_vet)
+                    st.success(f"✅ Aggiornati tutti i **{n_up}** negozi del giro **{sel_g}** (Standard: {g_mez}, Doppia: {g_mez_d})!")
+                    st.rerun()
 
-        with st.expander("📋 Riepilogo Giri Mappati (Standard /0 e Giri Doppi /9)", expanded=False):
             if not df_giro_sum.empty:
+                st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
                 df_g_disp = df_giro_sum[["giro", "n_stores", "vettore", "tipo_mezzo", "tipo_mezzo_doppia", "elenco_negozi"]].copy()
                 df_g_disp.columns = ["Giro", "N. Negozi", "Vettore Assegnato", "Mezzo Standard (/0)", "Mezzo Giri Doppi (/9)", "Negozi Mappati"]
                 st.dataframe(df_g_disp, use_container_width=True, hide_index=True)
-            else:
-                st.info("Nessun giro presente in anagrafica.")
-
-        st.markdown('</div>', unsafe_allow_html=True)
 
         FORMULA_OPTIONS = [
             "MC/1,9",
@@ -1784,18 +1743,10 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
             "(MC/1,5 )* 0,7",
         ]
 
-        # --- 3. SELETTORE MODALITÀ & TABELLA PUNTI VENDITA ---
+        # --- 3. ELENCO & CONFIGURAZIONE PUNTI VENDITA (UNIFICATO) ---
         st.markdown('<div class="modern-card">', unsafe_allow_html=True)
-        col_vm_l, col_vm_r = st.columns([2.5, 2.5])
-        with col_vm_l:
-            st.markdown('<div class="modern-section-title">🏢 Elenco & Configurazione Punti Vendita</div>', unsafe_allow_html=True)
-        with col_vm_r:
-            anag_view_mode = st.radio(
-                "Modalità Vista",
-                ["🎨 Tabella Grafica con Scheda Modifica", "✏️ Griglia Modifica Dinamica (Excel)"],
-                horizontal=True,
-                key="anag_view_mode_toggle"
-            )
+        st.markdown('<div class="modern-section-title">🏢 Elenco & Configurazione Punti Vendita</div>', unsafe_allow_html=True)
+        st.caption("Visualizza l'elenco completo dei punti vendita e modifica direttamente i dati nelle celle della tabella. Clicca su **Salva Modifiche** per aggiornare:")
 
         cf1, cf2, cf3, cf4, cf5, cf6 = st.columns([1.5, 1.1, 1.1, 1.1, 1.1, 1.1])
         with cf1:
@@ -1811,7 +1762,6 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
             f_sdop = st.selectbox("Giri Doppi (/9)", ["TUTTI", "SOLO GIRI DOPPI (B /9)", "SOLO STANDARD (/0)"], key="anag_f_sdop")
         with cf6:
             f_att = st.selectbox("Stato Negozio", ["TUTTI", "SI (Operativo)", "NO (Standby)"], key="anag_f_att")
-        st.markdown('</div>', unsafe_allow_html=True)
 
         df_filtered = df_stores.copy() if not df_stores.empty else pd.DataFrame()
         if not df_filtered.empty:
@@ -1838,14 +1788,58 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
             elif f_att == "NO (Standby)":
                 df_filtered = df_filtered[df_filtered["attivo"].fillna("SI").str.upper() == "NO"]
 
-        if anag_view_mode == "🎨 Tabella Grafica con Scheda Modifica":
-            # 1. TABELLA GRAFICA MODERNA
-            render_anagrafica_negozi_modern(df_filtered)
+        col_save_s_top, col_cnt_s = st.columns([2.5, 3.5])
+        with col_save_s_top:
+            save_s = st.button("💾 SALVA MODIFICHE PUNTI VENDITA", type="primary", use_container_width=True, key="btn_save_stores_main")
+        with col_cnt_s:
+            st.markdown(f"<div style='margin-top:8px; font-size:13px; color:#64748B;'>Negozi visualizzati: <strong>{len(df_filtered)}</strong> / {len(df_stores)} ({att_st} operativi)</div>", unsafe_allow_html=True)
 
-            # 2. SCHEDA MODIFICA RAPIDA CON SELETTORE FORMULE
-            st.markdown('<div class="modern-card">', unsafe_allow_html=True)
-            st.markdown('<div class="modern-section-title">✏️ Scheda Modifica Rapida Negozio</div>', unsafe_allow_html=True)
-            st.caption("Seleziona qualsiasi negozio per modificarne i parametri e scegliere la formula da elenco. Il salvataggio aggiorna istantaneamente il database:")
+        cols_order = [
+            "store_id", "store_name", "brand", "giro", "attivo", "vettore", "lavorazione",
+            "scorporo_profumi", "formula", "tipo_mezzo",
+            "sdoppiamento_b9", "tipo_mezzo_doppia",
+            "indirizzo", "provincia", "cod_sga", "cc"
+        ]
+        df_grid_edit = df_filtered[[c for c in cols_order if c in df_filtered.columns]].copy() if not df_filtered.empty else pd.DataFrame(columns=cols_order)
+
+        f_opts_grid = list(FORMULA_OPTIONS)
+        for f_val in df_grid_edit["formula"].dropna().unique():
+            if f_val and f_val not in f_opts_grid:
+                f_opts_grid.append(str(f_val))
+
+        edited_df = st.data_editor(
+            df_grid_edit,
+            column_config={
+                "store_id": st.column_config.TextColumn("Store ID", disabled=True, width="small"),
+                "store_name": st.column_config.TextColumn("Nome Negozio / Insegna", required=True, width="medium"),
+                "brand": st.column_config.SelectboxColumn("Brand", options=["ZARA", "BERSHKA", "PULL&BEAR", "MASSIMO DUTTI", "OYSHO", "STRADIVARIUS", "ZARA HOME", "ALTRO"], required=True, width="small"),
+                "giro": st.column_config.TextColumn("Giro", required=True, width="small"),
+                "attivo": st.column_config.SelectboxColumn("Stato", options=["SI", "NO"], required=True, width="small"),
+                "vettore": st.column_config.TextColumn("Vettore", width="medium"),
+                "lavorazione": st.column_config.SelectboxColumn("Lavorazione Piattaforma", options=["NO", "SI TESSILE", "SI HOME"], required=True, width="medium"),
+                "scorporo_profumi": st.column_config.SelectboxColumn("Scorporo Profumi", options=["NO", "SI"], required=True, width="small"),
+                "formula": st.column_config.SelectboxColumn("Formula Pedane", options=f_opts_grid, required=True, width="medium"),
+                "tipo_mezzo": st.column_config.SelectboxColumn("Mezzo STD", options=mezzi_list_full, width="medium"),
+                "sdoppiamento_b9": st.column_config.SelectboxColumn("Sdopp. /9", options=["NO", "SI"], required=True, width="small"),
+                "tipo_mezzo_doppia": st.column_config.SelectboxColumn("Mezzo /9", options=mezzi_list_full, width="medium"),
+                "indirizzo": st.column_config.TextColumn("Indirizzo Scarico", width="large"),
+                "provincia": st.column_config.TextColumn("Prov.", width="small"),
+                "cod_sga": st.column_config.NumberColumn("Cod. SGA", format="%d", width="small"),
+                "cc": st.column_config.TextColumn("Centro Comm.", width="medium"),
+            },
+            use_container_width=True,
+            height=520,
+            key="anagrafica_editor_main",
+        )
+
+        if save_s:
+            n_up = bulk_update_stores(edited_df)
+            st.success(f"✅ Aggiornati con successo **{n_up}** punti vendita nel Database!")
+            st.rerun()
+
+        # SCHEDA DETTAGLIO / MODIFICA SINGOLO NEGOZIO
+        with st.expander("🔍 Scheda Dettaglio / Modifica Singolo Negozio", expanded=False):
+            st.caption("Seleziona qualsiasi negozio per visualizzarne la scheda completa, modificarne i parametri o scegliere la formula:")
 
             store_opts = [f"{r['store_id']} - {r['store_name']} ({r.get('brand', '')})" for _, r in df_stores.iterrows()] if not df_stores.empty else []
             sel_st_card = st.selectbox("Seleziona Punto Vendita da Modificare", store_opts, key="sel_st_card_edit")
@@ -1930,62 +1924,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                         st.success(f"🎉 Negozio **{target_sid}** ({e_sn}) aggiornato con successo nel Database!")
                         st.rerun()
 
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        else:
-            # INTERACTIVE GRID WITH FORMULA OPTIONS AS SELECTBOX COLUMN
-            st.markdown('<div class="modern-card">', unsafe_allow_html=True)
-            col_save_s_top, col_cnt_s = st.columns([2.5, 3.5])
-            with col_save_s_top:
-                save_s_top = st.button("💾 SALVA MODIFICHE PUNTI VENDITA", type="primary", use_container_width=True, key="btn_save_stores_top")
-            with col_cnt_s:
-                st.markdown(f"<div style='margin-top:8px; font-size:13px; color:#64748B;'>Negozi visualizzati: <strong>{len(df_filtered)}</strong> / {len(df_stores)}</div>", unsafe_allow_html=True)
-
-            cols_order = [
-                "store_id", "store_name", "brand", "giro", "attivo", "vettore", "lavorazione",
-                "scorporo_profumi", "formula", "tipo_mezzo",
-                "sdoppiamento_b9", "tipo_mezzo_doppia",
-                "indirizzo", "provincia", "cod_sga", "cc"
-            ]
-            df_grid_edit = df_filtered[[c for c in cols_order if c in df_filtered.columns]].copy() if not df_filtered.empty else pd.DataFrame(columns=cols_order)
-
-            # Ensure all formulas in grid are valid selectbox options
-            f_opts_grid = list(FORMULA_OPTIONS)
-            for f_val in df_grid_edit["formula"].dropna().unique():
-                if f_val and f_val not in f_opts_grid:
-                    f_opts_grid.append(str(f_val))
-
-            edited_df = st.data_editor(
-                df_grid_edit,
-                column_config={
-                    "store_id": st.column_config.TextColumn("Store ID", disabled=True, width="small"),
-                    "store_name": st.column_config.TextColumn("Nome Negozio / Insegna", required=True, width="medium"),
-                    "brand": st.column_config.SelectboxColumn("Brand", options=["ZARA", "BERSHKA", "PULL&BEAR", "MASSIMO DUTTI", "OYSHO", "STRADIVARIUS", "ZARA HOME", "ALTRO"], required=True, width="small"),
-                    "giro": st.column_config.TextColumn("Giro", required=True, width="small"),
-                    "attivo": st.column_config.SelectboxColumn("Stato", options=["SI", "NO"], required=True, width="small"),
-                    "vettore": st.column_config.TextColumn("Vettore", width="medium"),
-                    "lavorazione": st.column_config.SelectboxColumn("Lavorazione Piattaforma", options=["NO", "SI TESSILE", "SI HOME"], required=True, width="medium"),
-                    "scorporo_profumi": st.column_config.SelectboxColumn("Scorporo Profumi", options=["NO", "SI"], required=True, width="small"),
-                    "formula": st.column_config.SelectboxColumn("Formula Pedane", options=f_opts_grid, required=True, width="medium"),
-                    "tipo_mezzo": st.column_config.SelectboxColumn("Mezzo STD", options=mezzi_list_full, width="medium"),
-                    "sdoppiamento_b9": st.column_config.SelectboxColumn("Sdopp. /9", options=["NO", "SI"], required=True, width="small"),
-                    "tipo_mezzo_doppia": st.column_config.SelectboxColumn("Mezzo /9", options=mezzi_list_full, width="medium"),
-                    "indirizzo": st.column_config.TextColumn("Indirizzo Scarico", width="large"),
-                    "provincia": st.column_config.TextColumn("Prov.", width="small"),
-                    "cod_sga": st.column_config.NumberColumn("Cod. SGA", format="%d", width="small"),
-                    "cc": st.column_config.TextColumn("Centro Comm.", width="medium"),
-                },
-                use_container_width=True,
-                height=520,
-                key="anagrafica_editor_main",
-            )
-
-            if save_s_top:
-                n_up = bulk_update_stores(edited_df)
-                st.success(f"✅ Aggiornati con successo **{n_up}** punti vendita nel Database!")
-                st.rerun()
-
-            st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # --- 4. GESTIONE AGGIUNTA & ELIMINAZIONE NEGOZI ---
         st.markdown('<div class="modern-card">', unsafe_allow_html=True)
@@ -2093,28 +2032,40 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
         """
         st.markdown(kpi_mezzi_html, unsafe_allow_html=True)
 
-        # --- 2. SELETTORE VISTA PARCO MEZZI ---
+        # --- 2. ELENCO & CONFIGURAZIONE PARCO MEZZI (UNIFICATO) ---
         st.markdown('<div class="modern-card">', unsafe_allow_html=True)
-        col_vm_l, col_vm_r = st.columns([2.5, 2.5])
-        with col_vm_l:
-            st.markdown('<div class="modern-section-title">🚛 Parco Mezzi & Capienze Operative</div>', unsafe_allow_html=True)
-        with col_vm_r:
-            mezzi_view_mode = st.radio(
-                "Modalità Mezzi",
-                ["🎨 Tabella Grafica con Modifica Completa", "✏️ Griglia Modifica Dinamica (Excel)"],
-                horizontal=True,
-                key="mezzi_view_mode_toggle"
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('<div class="modern-section-title">🚛 Parco Mezzi & Capienze Operative</div>', unsafe_allow_html=True)
+        st.caption("Visualizza i veicoli della flotta e modifica direttamente tipologia, allestimento, capienza e stato operativo nelle celle. Clicca su **Salva Modifiche** per aggiornare:")
 
-        if mezzi_view_mode == "🎨 Tabella Grafica con Modifica Completa":
-            # 1. TABELLA GRAFICA MODERNA PARCO MEZZI
-            render_parco_mezzi_modern(df_vehicles)
+        col_save_v, col_cnt_v = st.columns([2.5, 3.5])
+        with col_save_v:
+            save_v = st.button("💾 SALVA MODIFICHE PARCO MEZZI", type="primary", use_container_width=True, key="btn_save_veh_main")
+        with col_cnt_v:
+            st.markdown(f"<div style='margin-top:8px; font-size:13px; color:#64748B;'>Veicoli registrati: <strong>{len(df_vehicles)}</strong> ({att_m} operativi) • Flotta totale: <strong>{tot_cap} PLT</strong></div>", unsafe_allow_html=True)
 
-            # 2. SCHEDA MODIFICA MEZZO CON RINOMINA CODICE
-            st.markdown('<div class="modern-card">', unsafe_allow_html=True)
-            st.markdown('<div class="modern-section-title">✏️ Modifica / Rinomina Veicolo del Parco</div>', unsafe_allow_html=True)
-            st.caption("Seleziona qualsiasi veicolo: puoi modificarne la denominazione/codice, la capienza pedane, la tipologia e lo stato. Se ridenomini il mezzo, l'anagrafica negozi aggiorna automaticamente i collegamenti:")
+        edited_mezzi_df = st.data_editor(
+            df_vehicles,
+            column_config={
+                "cod_mezzo": st.column_config.TextColumn("Codice Mezzo / Denominazione", disabled=True, width="medium"),
+                "tipo_mezzo": st.column_config.SelectboxColumn("Tipologia", options=["BILICO", "MOTRICE", "EUROCARGO", "FURGONE", "ALTRO"], required=True, width="small"),
+                "descrizione": st.column_config.TextColumn("Descrizione / Allestimento", width="large"),
+                "capienza_pedane": st.column_config.NumberColumn("Capienza Pedane (PLT)", min_value=1, max_value=150, format="%d", required=True, width="small"),
+                "attivo": st.column_config.SelectboxColumn("Stato", options=["SI", "NO"], required=True, width="small"),
+                "note": st.column_config.TextColumn("Note Operative", width="medium"),
+            },
+            use_container_width=True,
+            height=340,
+            key="vehicles_editor_main",
+        )
+
+        if save_v:
+            bulk_update_vehicles(edited_mezzi_df)
+            st.success("✅ Parco Mezzi aggiornato con successo nel Database!")
+            st.rerun()
+
+        # SCHEDA MODIFICA / RINOMINA VEICOLO
+        with st.expander("✏️ Rinomina Codice Mezzo / Dettaglio Singolo Veicolo", expanded=False):
+            st.caption("Seleziona qualsiasi veicolo per modificarne la denominazione/codice identificativo. Se ridenomini il mezzo, l'anagrafica negozi aggiorna automaticamente i collegamenti:")
 
             veh_opts = df_vehicles["cod_mezzo"].tolist() if not df_vehicles.empty else []
             sel_veh_card = st.selectbox("Seleziona Veicolo da Modificare", veh_opts, key="sel_veh_card_edit")
@@ -2158,42 +2109,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                             st.success(f"🎉 Veicolo **{e_v_cod}** salvato con successo nel Parco Mezzi!")
                             st.rerun()
 
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        else:
-            # INTERACTIVE GRID FOR VEHICLES
-            st.markdown('<div class="modern-card">', unsafe_allow_html=True)
-            col_save_v_top, col_cnt_v = st.columns([2.5, 3.5])
-            with col_save_v_top:
-                save_v_top = st.button("💾 SALVA MODIFICHE PARCO MEZZI", type="primary", use_container_width=True, key="btn_save_veh_top")
-            with col_cnt_v:
-                st.markdown(f"<div style='margin-top:8px; font-size:13px; color:#64748B;'>Veicoli registrati: <strong>{len(df_vehicles)}</strong> ({att_m} operativi)</div>", unsafe_allow_html=True)
-
-            edited_mezzi_df = st.data_editor(
-                df_vehicles,
-                column_config={
-                    "cod_mezzo": st.column_config.TextColumn("Codice Mezzo / Denominazione", disabled=True, width="medium"),
-                    "tipo_mezzo": st.column_config.SelectboxColumn("Tipologia", options=["BILICO", "MOTRICE", "EUROCARGO", "FURGONE", "ALTRO"], required=True, width="small"),
-                    "descrizione": st.column_config.TextColumn("Descrizione / Allestimento", width="large"),
-                    "capienza_pedane": st.column_config.NumberColumn("Capienza Pedane (PLT)", min_value=1, max_value=150, format="%d", required=True, width="small"),
-                    "attivo": st.column_config.SelectboxColumn("Stato", options=["SI", "NO"], required=True, width="small"),
-                    "note": st.column_config.TextColumn("Note Operative", width="medium"),
-                },
-                use_container_width=True,
-                height=340,
-                key="vehicles_editor_main",
-            )
-
-            col_save_v_bot, _ = st.columns([2.5, 3.5])
-            with col_save_v_bot:
-                save_v_bot = st.button("💾 SALVA MODIFICHE PARCO MEZZI (IN BASSO)", type="primary", use_container_width=True, key="btn_save_veh_bot")
-
-            if save_v_top or save_v_bot:
-                bulk_update_vehicles(edited_mezzi_df)
-                st.success("✅ Parco Mezzi aggiornato con successo nel Database!")
-                st.rerun()
-
-            st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # --- 3. GESTIONE DIRETTA: AGGIUNGI & ELIMINA MEZZI (SEMPRE VISIBILE E IMMEDIATA) ---
         st.markdown('<div class="modern-card">', unsafe_allow_html=True)
