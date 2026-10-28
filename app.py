@@ -811,37 +811,88 @@ with c_head_user:
             st.query_params.clear()
             st.rerun()
 
-# Gestione automatica Scroll-to-Top dopo salvataggio o passaggio a prossimo negozio
-if st.session_state.pop("_scroll_to_top", False):
-    st.markdown("""
-    <script>
-        try {
-            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-            if (window.parent) {
-                window.parent.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-                const doc = window.parent.document;
-                const c1 = doc.querySelector('.main');
-                const c2 = doc.querySelector('[data-testid="stAppViewContainer"]');
-                const c3 = doc.documentElement;
-                if (c1) c1.scrollTop = 0;
-                if (c2) c2.scrollTop = 0;
-                if (c3) c3.scrollTop = 0;
-            }
-        } catch(e) {}
-    </script>
+
+def render_scroll_top_trigger(target_id="top-page-anchor"):
+    """Injects resilient multi-target instant scroll-to-top scripts for mobile and desktop."""
+    st.markdown(f"""
+    <a id="auto-scroll-jump" href="#{target_id}" style="display:none;"></a>
+    <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'></svg>" onload="
+    (function(){{
+        function triggerScroll() {{
+            try {{ window.scrollTo(0, 0); }} catch(e) {{}}
+            try {{ document.documentElement.scrollTop = 0; }} catch(e) {{}}
+            try {{ document.body.scrollTop = 0; }} catch(e) {{}}
+            try {{
+                var a = document.getElementById('auto-scroll-jump');
+                if (a) a.click();
+            }} catch(e) {{}}
+            try {{
+                var el = document.getElementById('{target_id}');
+                if (el) el.scrollIntoView({{ behavior: 'instant', block: 'start' }});
+            }} catch(e) {{}}
+            try {{
+                var containers = [
+                    document.querySelector('[data-testid=\"stAppViewContainer\"]'),
+                    document.querySelector('.main'),
+                    document.querySelector('section.main'),
+                    document.querySelector('[data-testid=\"stMain\"]'),
+                    document.querySelector('[data-testid=\"stMainBlockContainer\"]')
+                ];
+                containers.forEach(function(c) {{ if (c) c.scrollTop = 0; }});
+            }} catch(e) {{}}
+            try {{
+                if (window.parent && window.parent !== window) {{
+                    window.parent.scrollTo(0, 0);
+                    var pdoc = window.parent.document;
+                    var pel = pdoc.getElementById('{target_id}');
+                    if (pel) pel.scrollIntoView({{ behavior: 'instant', block: 'start' }});
+                    var pc1 = pdoc.querySelector('[data-testid=\"stAppViewContainer\"]');
+                    if (pc1) pc1.scrollTop = 0;
+                    var pc2 = pdoc.querySelector('.main');
+                    if (pc2) pc2.scrollTop = 0;
+                }}
+            }} catch(e) {{}}
+        }}
+        triggerScroll();
+        if (window.requestAnimationFrame) window.requestAnimationFrame(triggerScroll);
+        setTimeout(triggerScroll, 20);
+        setTimeout(triggerScroll, 60);
+        setTimeout(triggerScroll, 140);
+        setTimeout(triggerScroll, 280);
+        setTimeout(triggerScroll, 500);
+        setTimeout(triggerScroll, 850);
+        setTimeout(triggerScroll, 1200);
+    }})();
+    this.remove();
+    " style="display:none;" />
     """, unsafe_allow_html=True)
-    st.components.v1.html("""
+    st.components.v1.html(f"""
     <script>
-        try {
-            window.parent.scrollTo(0, 0);
-            const doc = window.parent.document;
-            const c1 = doc.querySelector('.main');
-            const c2 = doc.querySelector('[data-testid="stAppViewContainer"]');
-            if (c1) c1.scrollTop = 0;
-            if (c2) c2.scrollTop = 0;
-        } catch(e) {}
+        function doParentScroll() {{
+            try {{
+                window.parent.scrollTo(0, 0);
+                var doc = window.parent.document;
+                var el = doc.getElementById('{target_id}');
+                if (el) el.scrollIntoView({{ behavior: 'instant', block: 'start' }});
+                var c1 = doc.querySelector('[data-testid="stAppViewContainer"]');
+                if (c1) c1.scrollTop = 0;
+                var c2 = doc.querySelector('.main');
+                if (c2) c2.scrollTop = 0;
+            }} catch(e) {{}}
+        }}
+        doParentScroll();
+        setTimeout(doParentScroll, 30);
+        setTimeout(doParentScroll, 100);
+        setTimeout(doParentScroll, 250);
+        setTimeout(doParentScroll, 550);
+        setTimeout(doParentScroll, 900);
     </script>
     """, height=0, width=0)
+
+st.markdown('<div id="top-page-anchor"></div>', unsafe_allow_html=True)
+if st.session_state.get("_scroll_to_top"):
+    render_scroll_top_trigger("top-page-anchor")
+
 
 # ==============================================================================
 # STRISCIA STATISTICHE PIATTAFORMA
@@ -1765,6 +1816,9 @@ elif "Bolle di Consegna" in menu:
             if "form_store_sel" not in st.session_state or st.session_state["form_store_sel"] not in store_choices:
                 st.session_state["form_store_sel"] = store_choices[0]
 
+            st.markdown('<div id="bolla-store-header"></div>', unsafe_allow_html=True)
+            if st.session_state.pop("_scroll_to_top", False):
+                render_scroll_top_trigger("bolla-store-header")
             with c_head_s1:
                 sel_store_str = st.selectbox(
                     f"Punto Vendita con Bolla del {format_date_it(target_date)} ({len(store_choices)} disponibili)",
@@ -2469,6 +2523,25 @@ elif "Spunta Banchina" in menu:
             prev_eco_m = int(round(float(b_curr.get("prev_ecom", 0) or 0)))
             prev_oth_m = int(round(float(b_curr.get("prev_others", 0) or 0)))
 
+            st.markdown('<div id="spunta-store-header"></div>', unsafe_allow_html=True)
+            if st.session_state.pop("_scroll_to_top", False):
+                render_scroll_top_trigger("spunta-store-header")
+
+            # Banner evidente del prossimo negozio attivo
+            st.markdown(f'''
+            <div style="background: #F0FDF4; border: 2px solid #16A34A; border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; box-shadow: 0 4px 14px rgba(22, 163, 74, 0.12);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 11px; font-weight: 800; color: #15803D; text-transform: uppercase; letter-spacing: 0.5px;">📍 PUNTO VENDITA IN CONTEGGIO ORA:</span>
+                    <span style="background: #DCFCE7; color: #166534; font-size: 11.5px; font-weight: 800; padding: 2px 10px; border-radius: 9999px;">Giro {curr_giro}</span>
+                </div>
+                <div style="font-size: 22px; font-weight: 900; color: #0F172A; margin-top: 4px;">
+                    Store {curr_sid} <span style="font-size: 18px; font-weight: 700; color: #334155;">— {curr_sname}</span>
+                </div>
+                <div style="font-size: 12.5px; color: #475569; margin-top: 2px;">
+                    Insegna: <strong>{curr_pv}</strong> | Consegna: <strong>{curr_tipo}</strong> | Mezzo: <strong>{curr_mezzo}</strong>
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
             # Scheda Negozio Touch
             st.markdown(f"""
             <div class="modern-card" style="padding: 14px 18px; margin-top: 8px; margin-bottom: 12px; border-left: 5px solid #0284C7;">
