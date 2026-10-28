@@ -1,3 +1,4 @@
+from typing import Dict, Any, List, Optional, Tuple, Union
 import sys
 import importlib
 import streamlit as st
@@ -131,6 +132,15 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    
+    /* Hide Streamlit Default UI elements for full custom branding */
+    #MainMenu {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    header {visibility: hidden !important;}
+    [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+    [data-testid="stDecoration"] {visibility: hidden !important; display: none !important;}
+    [data-testid="stStatusWidget"] {visibility: hidden !important;}
+
     .main-header {
         font-size: 25px;
         font-weight: 700;
