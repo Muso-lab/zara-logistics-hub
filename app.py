@@ -176,12 +176,19 @@ st.markdown("""
         }
 
         // Register Service Worker for genuine PWA Installability on Mobile & Desktop Chrome
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/app/static/sw.js', { scope: '/' }).catch(() => {});
-        }
-        if (window.parent && 'serviceWorker' in window.parent.navigator) {
-            window.parent.navigator.serviceWorker.register('/app/static/sw.js', { scope: '/' }).catch(() => {});
-        }
+        const registerSW = (swPath) => {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register(swPath).catch(() => {
+                    navigator.serviceWorker.register('/app/static/sw.js').catch(() => {});
+                });
+            }
+            if (window.parent && 'serviceWorker' in window.parent.navigator) {
+                window.parent.navigator.serviceWorker.register(swPath).catch(() => {
+                    window.parent.navigator.serviceWorker.register('/app/static/sw.js').catch(() => {});
+                });
+            }
+        };
+        registerSW('/sw.js');
     } catch(e) {}
 </script>
 """, unsafe_allow_html=True)
@@ -1688,65 +1695,122 @@ elif "Bolle di Consegna" in menu:
     # --------------------------------------------------------------------------
     if tab_b_form is not None:
         with tab_b_form:
-            store_choices = [
-                f"{r['store_id']} - {r['store_name']} ({r['brand']}) [{r['giro']}]"
-                for _, r in df_stores_side.iterrows()
-            ] if not df_stores_side.empty else []
+            target_dt_obj = parse_date_obj(target_date)
+            # Inditex: Giovedì (3) e Domenica (6) sono date di consegna per /9 (DOPPIA)
+            is_dop_date = (target_dt_obj.weekday() in (3, 6))
+
+            # Query delle bolle precompilate per questa specifica data di consegna
+            df_bolle_date = get_bolle(data_consegna=str(target_date))
+
+            store_giro_map = df_stores_side.set_index("store_id")["giro"].fillna("").to_dict() if not df_stores_side.empty else {}
+            store_sdoppia_map = {str(r["store_id"]).strip(): (str(r.get("sdoppiamento_b9", "NO")).strip().upper() == "SI") for _, r in df_stores_side.iterrows()} if not df_stores_side.empty else {}
+
+            has_precompiled = not df_bolle_date.empty
+
+            # Modalità selezione: di default visualizza SOLO le bolle precompilate in questa data
+            c_head_s1, c_head_s2 = st.columns([3, 1.2])
+            with c_head_s2:
+                st.markdown("<div style='height: 25px;'></div>", unsafe_allow_html=True)
+                show_all_stores = st.checkbox(
+                    "Mostra tutti i negozi",
+                    value=not has_precompiled,
+                    key=f"chk_all_{target_date}",
+                    help="Se attivo, mostra tutti i punti vendita dell'anagrafica anziché solo quelli con bolla già precompilata per questa data."
+                )
+
+            store_choices = []
+            store_meta_map = {}
+
+            if has_precompiled and not show_all_stores:
+                for _, b_row in df_bolle_date.iterrows():
+                    sid = str(b_row["id_store"]).strip()
+                    t_cons = str(b_row.get("tipo_cons", "STD")).strip().upper()
+                    spunt = "✅" if int(b_row.get("spuntato", 0) or 0) == 1 else "⏳"
+                    tot_c = int(round(float(b_row.get("TOT_COLLI", 0) or 0)))
+                    s_name = str(b_row.get("store_name", "")).strip() or sid
+                    s_giro = store_giro_map.get(sid, "")
+                    t_tag = "🔁 /9 DOPPIA" if t_cons == "DOPPIA" else "🚚 /0 STD"
+                    lbl = f"{spunt} Store {sid} - {s_name} ({t_tag}) [Giro {s_giro}] — {tot_c} colli"
+                    store_choices.append(lbl)
+                    store_meta_map[lbl] = {
+                        "id_store": sid,
+                        "tipo_cons": t_cons,
+                        "raw_sid": sid
+                    }
+            else:
+                for _, r in df_stores_side.iterrows():
+                    sid = str(r["store_id"]).strip()
+                    s_name = str(r.get("store_name", "")).strip()
+                    s_giro = str(r.get("giro", "")).strip()
+                    is_sd = store_sdoppia_map.get(sid, False)
+                    t_cons = "DOPPIA" if is_dop_date and is_sd else "STD"
+                    t_tag = "🔁 /9 DOPPIA" if t_cons == "DOPPIA" else "🚚 /0 STD"
+                    lbl = f"Store {sid} - {s_name} ({t_tag}) [Giro {s_giro}]"
+                    store_choices.append(lbl)
+                    store_meta_map[lbl] = {
+                        "id_store": sid,
+                        "tipo_cons": t_cons,
+                        "raw_sid": sid
+                    }
+
+            if not store_choices:
+                st.warning(f"Nessun negozio disponibile per la data {format_date_it(target_date)}.")
+                st.stop()
 
             if "_next_store_override" in st.session_state:
-                st.session_state["form_store_sel"] = st.session_state.pop("_next_store_override")
+                cand_next = st.session_state.pop("_next_store_override")
+                if cand_next in store_choices:
+                    st.session_state["form_store_sel"] = cand_next
 
-            target_dt_obj = parse_date_obj(target_date)
-            if st.session_state.get("_prev_target_date_for_form") != target_date:
-                st.session_state["_prev_target_date_for_form"] = target_date
-                st.session_state["form_dt_cons"] = target_dt_obj
+            if "form_store_sel" not in st.session_state or st.session_state["form_store_sel"] not in store_choices:
+                st.session_state["form_store_sel"] = store_choices[0]
 
-            col_t1, col_t2, col_t3 = st.columns([2.5, 1.2, 1.3])
-            with col_t1:
+            with c_head_s1:
                 sel_store_str = st.selectbox(
-                    "Punto Vendita (Store)",
+                    f"Punto Vendita con Bolla del {format_date_it(target_date)} ({len(store_choices)} disponibili)",
                     store_choices,
                     key="form_store_sel",
-                    help="Seleziona il punto vendita. Se per la data indicata esiste già una bolla registrata, verrà aperta automaticamente per la modifica rapida."
+                    help="Seleziona il punto vendita per la data di consegna attiva."
                 )
-                raw_sid = sel_store_str.split(" - ")[0].strip() if sel_store_str else "3680"
-                is_b_store = raw_sid.endswith("B")
-                base_sid = raw_sid[:-1] if is_b_store else raw_sid
-                current_sid = base_sid
 
-            # Verifica flag sdoppiamento_b9 in anagrafica per consentire o bloccare DOPPIA
-            is_sdoppia = False
-            if not df_stores_side.empty:
-                m_row = df_stores_side[df_stores_side["store_id"].astype(str) == base_sid]
-                if not m_row.empty:
-                    is_sdoppia = str(m_row.iloc[0].get("sdoppiamento_b9", "NO")).strip().upper() == "SI"
+            curr_meta = store_meta_map.get(sel_store_str, {})
+            current_sid = curr_meta.get("id_store", "3680")
+            raw_sid = curr_meta.get("raw_sid", current_sid)
+            is_b_store = raw_sid.endswith("B")
+            base_sid = raw_sid[:-1] if is_b_store else raw_sid
 
-            if is_b_store:
-                tipo_options = ["DOPPIA"]
-                if st.session_state.get("form_tipo_cons") != "DOPPIA":
-                    st.session_state["form_tipo_cons"] = "DOPPIA"
-            elif is_sdoppia:
-                tipo_options = ["STD", "DOPPIA"]
+            is_sdoppia = store_sdoppia_map.get(base_sid, False)
+
+            # Tipologia automatica: determinata dalla bolla precompilata o dalla data/sdoppiamento
+            if "tipo_cons" in curr_meta:
+                form_tipo_cons = curr_meta["tipo_cons"]
+            elif is_b_store:
+                form_tipo_cons = "DOPPIA"
+            elif is_dop_date:
+                form_tipo_cons = "DOPPIA" if is_sdoppia else "STD"
             else:
-                tipo_options = ["STD"]
-                if st.session_state.get("form_tipo_cons") != "STD":
-                    st.session_state["form_tipo_cons"] = "STD"
+                form_tipo_cons = "STD"
 
-            with col_t2:
-                form_tipo_cons = st.selectbox(
-                    "Tipologia Consegna",
-                    tipo_options,
-                    key="form_tipo_cons",
-                    help="STD: consegna standard (/0). DOPPIA: sdoppiamento (/9 'B') attivo per i negozi abilitati in Anagrafica.",
-                )
+            form_data_cons = target_date
 
-            with col_t3:
-                form_data_cons = st.date_input(
-                    "Data Consegna",
-                    value=target_dt_obj,
-                    format="DD/MM/YYYY",
-                    key="form_dt_cons"
-                )
+            # Striscia informativa su Data Consegna e Tipologia (senza filtri ridondanti)
+            tipo_badge_color = "#FEF3C7" if form_tipo_cons == "DOPPIA" else "#E0F2FE"
+            tipo_text_color = "#92400E" if form_tipo_cons == "DOPPIA" else "#0369A1"
+            tipo_label = "🔁 Barra 9 (/9 DOPPIA)" if form_tipo_cons == "DOPPIA" else "🚚 Barra 0 (/0 STD)"
+            sdoppia_label = "SI (/9 Attivo)" if is_sdoppia else "NO (Solo STD)"
+            sdoppia_color = "#15803D" if is_sdoppia else "#64748B"
+
+            st.markdown(f"""
+            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 8px 14px; margin-top: -4px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 13px; color: #475569;">📅 Data Consegna: <strong style="color: #0F172A;">{format_date_it(target_date)}</strong></span>
+                    <span style="font-size: 12px; background: {tipo_badge_color}; color: {tipo_text_color}; padding: 3px 10px; border-radius: 6px; font-weight: 800;">{tipo_label}</span>
+                </div>
+                <div style="font-size: 12px; color: #475569;">
+                    Sdoppiamento Negozio: <strong style="color: {sdoppia_color};">{sdoppia_label}</strong>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
             # Rilevamento automatico se la bolla esiste già
             df_existing = get_bolle(
@@ -1765,11 +1829,11 @@ elif "Bolle di Consegna" in menu:
             if existing_bolla:
                 st.markdown(
                     f"""
-                    <div style="background: rgba(30, 142, 62, 0.10); border-left: 4px solid #1e8e3e; padding: 9px 14px; border-radius: 6px; margin: 8px 0 14px 0;">
+                    <div style="background: rgba(30, 142, 62, 0.10); border-left: 4px solid #1e8e3e; padding: 9px 14px; border-radius: 6px; margin: 6px 0 12px 0;">
                         <div style="font-weight: 600; color: #137333;">🟢 Bolla #{existing_bolla['id']} Registrata</div>
                         <div style="font-size: 0.88rem; color: #202124;">
-                            Bolla esistente per <b>{current_sid}</b> con consegna <b>{format_date_it(str(form_data_cons))}</b> ({form_tipo_cons}). 
-                            I quantitativi e le informazioni registrate sono caricati nei campi sottostanti per la modifica immediata.
+                            Bolla precompilata per <b>{current_sid}</b> con consegna <b>{format_date_it(str(form_data_cons))}</b> ({form_tipo_cons}). 
+                            I quantitativi e le informazioni registrate sono caricati nei campi sottostanti per la verifica o modifica.
                         </div>
                     </div>
                     """,
@@ -1778,7 +1842,7 @@ elif "Bolle di Consegna" in menu:
             else:
                 st.markdown(
                     f"""
-                    <div style="background: rgba(26, 115, 232, 0.08); border-left: 4px solid #1a73e8; padding: 9px 14px; border-radius: 6px; margin: 8px 0 14px 0;">
+                    <div style="background: rgba(26, 115, 232, 0.08); border-left: 4px solid #1a73e8; padding: 9px 14px; border-radius: 6px; margin: 6px 0 12px 0;">
                         <div style="font-weight: 600; color: #1a73e8;">✨ Nuova Bolla in Compilazione</div>
                         <div style="font-size: 0.88rem; color: #202124;">
                             Nessuna bolla presente per <b>{current_sid}</b> con consegna <b>{format_date_it(str(form_data_cons))}</b> ({form_tipo_cons}). 
@@ -1789,7 +1853,40 @@ elif "Bolle di Consegna" in menu:
                     unsafe_allow_html=True
                 )
 
-            # Cache key per inizializzazione e sincronizzazione campi form
+            # Calcolo dati previsionali con rigorosa regola /9 (zero se negozio non sdoppiato)
+            p_tot = int(round(float(existing_bolla.get("prev_totale", 0) or 0))) if existing_bolla else 0
+            p_abb = int(round(float(existing_bolla.get("prev_abbigl", 0) or 0))) if existing_bolla else 0
+            p_calz = int(round(float(existing_bolla.get("prev_calzat", 0) or 0))) if existing_bolla else 0
+            p_eco = int(round(float(existing_bolla.get("prev_ecom", 0) or 0))) if existing_bolla else 0
+            p_oth = int(round(float(existing_bolla.get("prev_others", 0) or 0))) if existing_bolla else 0
+
+            is_b9_mode = (form_tipo_cons == "DOPPIA" or is_dop_date)
+            has_no_b9 = (not is_sdoppia and not is_b_store)
+
+            if is_b9_mode and has_no_b9:
+                p_tot = p_abb = p_calz = p_eco = p_oth = 0
+            elif p_tot == 0:
+                pl_data = get_store_latest_planned_data(current_sid)
+                if pl_data.get("has_data"):
+                    if form_tipo_cons == "DOPPIA":
+                        if is_sdoppia or is_b_store:
+                            sdop_f = 0.3
+                            p_abb = int(round(float(pl_data.get("textile", 0) or 0) * sdop_f))
+                            p_calz = int(round(float(pl_data.get("shoes", 0) or 0) * sdop_f))
+                            p_eco = int(round(float(pl_data.get("ecom", 0) or 0) * sdop_f))
+                            p_oth = int(round(float(pl_data.get("others", 0) or 0) * sdop_f))
+                            p_tot = p_abb + p_calz + p_eco + p_oth
+                        else:
+                            p_tot = p_abb = p_calz = p_eco = p_oth = 0
+                    else:
+                        sdop_f = 0.7 if is_sdoppia else 1.0
+                        p_abb = int(round(float(pl_data.get("textile", 0) or 0) * sdop_f))
+                        p_calz = int(round(float(pl_data.get("shoes", 0) or 0) * sdop_f))
+                        p_eco = int(round(float(pl_data.get("ecom", 0) or 0) * sdop_f))
+                        p_oth = int(round(float(pl_data.get("others", 0) or 0) * sdop_f))
+                        p_tot = p_abb + p_calz + p_eco + p_oth
+
+            # Cache key per sincronizzazione campi form
             active_cache_key = f"{form_data_cons}_{current_sid}_{form_tipo_cons}_{existing_bolla['id'] if existing_bolla else 'new'}"
             if st.session_state.get("_last_active_bolla_key") != active_cache_key:
                 st.session_state["_last_active_bolla_key"] = active_cache_key
@@ -1844,50 +1941,47 @@ elif "Bolle di Consegna" in menu:
             form_indirizzo = st.text_input("Indirizzo di Destino", key="form_indirizzo")
 
             # ------------------------------------------------------------------
-            # CARD DATI PREVISIONALI (SEMPRE VISIBILE)
+            # CARD DATI PREVISIONALI
             # ------------------------------------------------------------------
-            p_tot = int(round(float(existing_bolla.get("prev_totale", 0) or 0))) if existing_bolla else 0
-            p_abb = int(round(float(existing_bolla.get("prev_abbigl", 0) or 0))) if existing_bolla else 0
-            p_calz = int(round(float(existing_bolla.get("prev_calzat", 0) or 0))) if existing_bolla else 0
-            p_eco = int(round(float(existing_bolla.get("prev_ecom", 0) or 0))) if existing_bolla else 0
-            p_oth = int(round(float(existing_bolla.get("prev_others", 0) or 0))) if existing_bolla else 0
-
-            if p_tot == 0:
-                pl_data = get_store_latest_planned_data(current_sid)
-                if pl_data.get("has_data"):
-                    sdop_f = 0.3 if form_tipo_cons == "DOPPIA" else (0.7 if is_sdoppia else 1.0)
-                    p_abb = int(round(float(pl_data.get("textile", 0) or 0) * sdop_f))
-                    p_calz = int(round(float(pl_data.get("shoes", 0) or 0) * sdop_f))
-                    p_eco = int(round(float(pl_data.get("ecom", 0) or 0) * sdop_f))
-                    p_oth = int(round(float(pl_data.get("others", 0) or 0) * sdop_f))
-                    p_tot = p_abb + p_calz + p_eco + p_oth
-
-            st.markdown(f"""
-            <div class="modern-card" style="padding: 12px 18px; margin-top: 10px; margin-bottom: 14px; border-left: 5px solid #1E3A8A; background-color: #F8FAFC;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                    <span style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;">📊 DATI PREVISIONALI ATTESI (DALLA PREVISIONE ARRIVI)</span>
-                    <span style="font-size: 13.5px; font-weight: 800; color: #1E3A8A;">TOTALE PREVISTO: {format_number_it(p_tot, 0)} COLLI</span>
-                </div>
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 4px;">
-                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
-                        <div style="font-size: 10px; font-weight: 600; color: #64748B;">👗 TESSILE</div>
-                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_abb, 0)}</div>
+            if is_b9_mode and has_no_b9:
+                st.markdown(f"""
+                <div class="modern-card" style="padding: 12px 18px; margin-top: 10px; margin-bottom: 14px; border-left: 5px solid #DC2626; background-color: #FEF2F2;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <span style="font-size: 11px; font-weight: 700; color: #991B1B; text-transform: uppercase; letter-spacing: 0.5px;">ℹ️ CONSEGNA /9 NON PREVISTA PER QUESTO NEGOZIO</span>
+                        <span style="font-size: 13.5px; font-weight: 800; color: #DC2626;">PREVISIONE: 0 COLLI</span>
                     </div>
-                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
-                        <div style="font-size: 10px; font-weight: 600; color: #64748B;">👟 SCARPE</div>
-                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_calz, 0)}</div>
-                    </div>
-                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
-                        <div style="font-size: 10px; font-weight: 600; color: #64748B;">📦 E-COMMERCE</div>
-                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_eco, 0)}</div>
-                    </div>
-                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
-                        <div style="font-size: 10px; font-weight: 600; color: #64748B;">📦 ALTRI</div>
-                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_oth, 0)}</div>
+                    <div style="font-size: 12px; color: #7F1D1D;">
+                        Il punto vendita <b>{current_sid}</b> non ha lo sdoppiamento (/9 DOPPIA) abilitato in Anagrafica Negozi. Per le date /9 non è atteso alcun collo.
                     </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="modern-card" style="padding: 12px 18px; margin-top: 10px; margin-bottom: 14px; border-left: 5px solid #1E3A8A; background-color: #F8FAFC;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;">📊 DATI PREVISIONALI ATTESI (DALLA PREVISIONE ARRIVI)</span>
+                        <span style="font-size: 13.5px; font-weight: 800; color: #1E3A8A;">TOTALE PREVISTO: {format_number_it(p_tot, 0)} COLLI</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 4px;">
+                        <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
+                            <div style="font-size: 10px; font-weight: 600; color: #64748B;">👗 TESSILE</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_abb, 0)}</div>
+                        </div>
+                        <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
+                            <div style="font-size: 10px; font-weight: 600; color: #64748B;">👟 SCARPE</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_calz, 0)}</div>
+                        </div>
+                        <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
+                            <div style="font-size: 10px; font-weight: 600; color: #64748B;">📦 E-COMMERCE</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_eco, 0)}</div>
+                        </div>
+                        <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
+                            <div style="font-size: 10px; font-weight: 600; color: #64748B;">📦 ALTRI</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_oth, 0)}</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
             # Controllo Sdoppiamento /0 & /9 (il totale deve matchare tra le 2 bolle)
             if is_sdoppia or is_b_store:
@@ -1933,27 +2027,35 @@ elif "Bolle di Consegna" in menu:
                 else:
                     st.error(f"🔴 **SPUNTA CONFERMATA — MANCANZA: {delta_eff_prev} colli rispetto al previsto di {p_tot} ({tot_operativa_calc} colli)**")
 
-            # Intershops & Note
-            with st.expander("🔄 Trasferimenti tra Negozi (Intershops / Stand / Ceste)", expanded=False):
-                inter_rows_data = []
-                existing_inter = []
-                try:
-                    if existing_bolla and existing_bolla.get("intershops_json"):
-                        existing_inter = json.loads(existing_bolla["intershops_json"])
-                except Exception:
-                    existing_inter = []
+            # ------------------------------------------------------------------
+            # TRASFERIMENTI TRA NEGOZI (INTERSHOPS) — SEMPRE VISIBILI (SENZA EXPANDER)
+            # ------------------------------------------------------------------
+            st.markdown("""
+            <div style="background: #F1F5F9; border-left: 4px solid #0284C7; padding: 10px 14px; border-radius: 6px; margin: 18px 0 12px 0;">
+                <div style="font-size: 13px; font-weight: 800; color: #0369A1; text-transform: uppercase;">🔄 TRASFERIMENTI TRA NEGOZI (INTERSHOPS / STAND / CESTE)</div>
+                <div style="font-size: 11.5px; color: #475569;">Inserisci i colli e la tipologia di merce o stand/ceste trasferiti da altri negozi (sempre visibili).</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-                for row_i in range(3):
-                    cur_item = existing_inter[row_i] if row_i < len(existing_inter) else {}
-                    ci1, ci2, ci3 = st.columns([1, 1, 2])
-                    with ci1:
-                        m_val = st.text_input(f"Negozio Mittente #{row_i+1}", value=str(cur_item.get("mittente", "")), key=f"inter_m_{row_i}")
-                    with ci2:
-                        c_val = st.number_input(f"Colli #{row_i+1}", min_value=0, value=int(round(float(cur_item.get("colli", 0) or 0))), step=1, key=f"inter_c_{row_i}")
-                    with ci3:
-                        t_val = st.text_input(f"Tipologia #{row_i+1}", value=str(cur_item.get("tipo", "")), placeholder="es. MERCE, CESTE, STAND", key=f"inter_t_{row_i}")
-                    if c_val > 0:
-                        inter_rows_data.append({"mittente": m_val, "colli": int(c_val), "tipo": t_val})
+            inter_rows_data = []
+            existing_inter = []
+            try:
+                if existing_bolla and existing_bolla.get("intershops_json"):
+                    existing_inter = json.loads(existing_bolla["intershops_json"])
+            except Exception:
+                existing_inter = []
+
+            for row_i in range(3):
+                cur_item = existing_inter[row_i] if row_i < len(existing_inter) else {}
+                ci1, ci2, ci3 = st.columns([1.2, 1, 1.8])
+                with ci1:
+                    m_val = st.text_input(f"Negozio Mittente #{row_i+1}", value=str(cur_item.get("mittente", "")), key=f"inter_m_{row_i}")
+                with ci2:
+                    c_val = st.number_input(f"Colli #{row_i+1}", min_value=0, value=int(round(float(cur_item.get("colli", 0) or 0))), step=1, key=f"inter_c_{row_i}")
+                with ci3:
+                    t_val = st.text_input(f"Tipologia #{row_i+1}", value=str(cur_item.get("tipo", "")), placeholder="es. MERCE, CESTE, STAND", key=f"inter_t_{row_i}")
+                if c_val > 0:
+                    inter_rows_data.append({"mittente": m_val, "colli": int(c_val), "tipo": t_val})
 
             curr_note_val = str(existing_bolla.get("note") or existing_bolla.get("stringa") or "") if existing_bolla else ""
             form_note = st.text_area("📝 Note Generiche di Consegna / Banchina", value=curr_note_val, key="form_note_input", placeholder="Inserisci eventuali note operative, anomalie o indicazioni per la consegna...")
@@ -1974,6 +2076,7 @@ elif "Bolle di Consegna" in menu:
                             delete_bolla(existing_bolla["id"])
                             st.session_state["flash_bolle_msg"] = f"🗑️ Bolla #{existing_bolla['id']} eliminata con successo."
                             st.rerun()
+
 
             if save_clicked or save_next_clicked:
                 computed_stringa = format_intershops_string(inter_rows_data) if inter_rows_data else ""
@@ -2046,7 +2149,7 @@ elif "Bolle di Consegna" in menu:
             f_search = st.text_input("🔍 Cerca Store ID o Nome", "", key="bolle_f_search")
 
         df_bolle = get_bolle(
-            data=target_date,
+            data_consegna=target_date,
             vettore=f_carrier if f_carrier != "TUTTI" else None,
             tipo_cons=f_tipo if f_tipo != "TUTTI" else None,
             search=f_search if f_search else None,

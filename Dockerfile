@@ -43,6 +43,23 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application source code and reference data
 COPY . .
 
+# Patch Streamlit's default index.html and static folder with PWA manifest and icons
+RUN python -c "\
+import streamlit, os, re;\
+st_dir = os.path.dirname(streamlit.__file__);\
+idx_path = os.path.join(st_dir, 'static', 'index.html');\
+html = open(idx_path, 'r', encoding='utf-8').read();\
+pwa_tags = '''<title>Zara Logistics Hub</title>\\n    <link rel=\"manifest\" href=\"/app/static/manifest.json\">\\n    <meta name=\"theme-color\" content=\"#1E3A8A\">\\n    <meta name=\"mobile-web-app-capable\" content=\"yes\">\\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\">\\n    <meta name=\"apple-mobile-web-app-title\" content=\"Zara Logistics\">\\n    <link rel=\"apple-touch-icon\" href=\"/app/static/icon-192.png\">''';\
+html = re.sub(r'<title>.*?</title>', pwa_tags, html, count=1);\
+open(idx_path, 'w', encoding='utf-8').write(html);\
+import shutil;\
+shutil.copy('static/manifest.json', os.path.join(st_dir, 'static', 'manifest.json'));\
+shutil.copy('static/sw.js', os.path.join(st_dir, 'static', 'sw.js'));\
+shutil.copy('static/icon-192.png', os.path.join(st_dir, 'static', 'icon-192.png'));\
+shutil.copy('static/icon-512.png', os.path.join(st_dir, 'static', 'icon-512.png'));\
+print('PWA patched in Streamlit successfully!')"
+
+
 # Create persistent/data directories and set permissions
 RUN mkdir -p data data/templates data/downloads output \
     && chown -R 10001:10001 /app
