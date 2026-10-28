@@ -264,19 +264,29 @@ st.markdown("""
             letter-spacing: 0.3px !important;
         }
 
-        /* Number Inputs: large, bold, centered numerals for carton counts */
+        /* Number Inputs: EXTRA LARGE, bold, centered numerals for warehouse gloves */
         input[type="number"], input[type="text"], [data-baseweb="input"] input {
-            min-height: 50px !important;
-            font-size: 20px !important;
-            font-weight: 800 !important;
-            border-radius: 8px !important;
+            min-height: 56px !important;
+            font-size: 26px !important;
+            font-weight: 900 !important;
+            border-radius: 10px !important;
             text-align: center !important;
+            color: #0F172A !important;
         }
 
         [data-testid="stNumberInput"] button {
-            min-width: 48px !important;
-            min-height: 48px !important;
-            font-size: 22px !important;
+            min-width: 56px !important;
+            min-height: 56px !important;
+            font-size: 26px !important;
+            font-weight: 900 !important;
+        }
+
+        /* Large touch buttons on mobile */
+        .stButton > button {
+            min-height: 56px !important;
+            font-size: 17px !important;
+            font-weight: 800 !important;
+            border-radius: 12px !important;
         }
 
         [data-baseweb="select"] {
@@ -632,7 +642,10 @@ def is_ufficio() -> bool:
     return st.session_state.get("auth_role") in ("admin", "ufficio")
 
 def is_magazzino() -> bool:
-    return st.session_state.get("auth_role") == "magazzino"
+    return st.session_state.get("auth_role") in ("magazzino", "banchina")
+
+def is_banchina() -> bool:
+    return st.session_state.get("auth_role") == "banchina" or st.session_state.get("force_banchina_terminal", False)
 
 def _get_auth_users() -> dict:
     """
@@ -665,7 +678,8 @@ def _get_auth_users() -> dict:
         "ufficio": {"password": ufficio_pwd, "role": "ufficio", "label": "Ufficio Traffico & Logistica"},
         "traffico": {"password": ufficio_pwd, "role": "ufficio", "label": "Ufficio Traffico & Logistica"},
         "magazzino": {"password": magazzino_pwd, "role": "magazzino", "label": "Banchina & Magazzino"},
-        "banchina": {"password": magazzino_pwd, "role": "magazzino", "label": "Banchina & Magazzino"},
+        "banchina": {"password": magazzino_pwd, "role": "banchina", "label": "Terminale Spunta Mobile"},
+        "mobile": {"password": magazzino_pwd, "role": "banchina", "label": "Terminale Spunta Mobile"},
         "ospite": {"password": magazzino_pwd, "role": "magazzino", "label": "Ospite (Consultazione)"},
         "viewer": {"password": magazzino_pwd, "role": "magazzino", "label": "Consultazione Banchina"},
     }
@@ -814,58 +828,6 @@ with c_head_user:
 
 def render_scroll_top_trigger(target_id="top-page-anchor"):
     """Injects resilient multi-target instant scroll-to-top scripts for mobile and desktop."""
-    st.markdown(f"""
-    <a id="auto-scroll-jump" href="#{target_id}" style="display:none;"></a>
-    <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'></svg>" onload="
-    (function(){{
-        function triggerScroll() {{
-            try {{ window.scrollTo(0, 0); }} catch(e) {{}}
-            try {{ document.documentElement.scrollTop = 0; }} catch(e) {{}}
-            try {{ document.body.scrollTop = 0; }} catch(e) {{}}
-            try {{
-                var a = document.getElementById('auto-scroll-jump');
-                if (a) a.click();
-            }} catch(e) {{}}
-            try {{
-                var el = document.getElementById('{target_id}');
-                if (el) el.scrollIntoView({{ behavior: 'instant', block: 'start' }});
-            }} catch(e) {{}}
-            try {{
-                var containers = [
-                    document.querySelector('[data-testid=\"stAppViewContainer\"]'),
-                    document.querySelector('.main'),
-                    document.querySelector('section.main'),
-                    document.querySelector('[data-testid=\"stMain\"]'),
-                    document.querySelector('[data-testid=\"stMainBlockContainer\"]')
-                ];
-                containers.forEach(function(c) {{ if (c) c.scrollTop = 0; }});
-            }} catch(e) {{}}
-            try {{
-                if (window.parent && window.parent !== window) {{
-                    window.parent.scrollTo(0, 0);
-                    var pdoc = window.parent.document;
-                    var pel = pdoc.getElementById('{target_id}');
-                    if (pel) pel.scrollIntoView({{ behavior: 'instant', block: 'start' }});
-                    var pc1 = pdoc.querySelector('[data-testid=\"stAppViewContainer\"]');
-                    if (pc1) pc1.scrollTop = 0;
-                    var pc2 = pdoc.querySelector('.main');
-                    if (pc2) pc2.scrollTop = 0;
-                }}
-            }} catch(e) {{}}
-        }}
-        triggerScroll();
-        if (window.requestAnimationFrame) window.requestAnimationFrame(triggerScroll);
-        setTimeout(triggerScroll, 20);
-        setTimeout(triggerScroll, 60);
-        setTimeout(triggerScroll, 140);
-        setTimeout(triggerScroll, 280);
-        setTimeout(triggerScroll, 500);
-        setTimeout(triggerScroll, 850);
-        setTimeout(triggerScroll, 1200);
-    }})();
-    this.remove();
-    " style="display:none;" />
-    """, unsafe_allow_html=True)
     st.components.v1.html(f"""
     <script>
         function doParentScroll() {{
@@ -874,18 +836,25 @@ def render_scroll_top_trigger(target_id="top-page-anchor"):
                 var doc = window.parent.document;
                 var el = doc.getElementById('{target_id}');
                 if (el) el.scrollIntoView({{ behavior: 'instant', block: 'start' }});
-                var c1 = doc.querySelector('[data-testid="stAppViewContainer"]');
-                if (c1) c1.scrollTop = 0;
-                var c2 = doc.querySelector('.main');
-                if (c2) c2.scrollTop = 0;
+                var containers = [
+                    doc.querySelector('[data-testid="stAppViewContainer"]'),
+                    doc.querySelector('.main'),
+                    doc.querySelector('section.main'),
+                    doc.documentElement,
+                    doc.body
+                ];
+                containers.forEach(function(c) {{ if (c) c.scrollTop = 0; }});
             }} catch(e) {{}}
         }}
         doParentScroll();
-        setTimeout(doParentScroll, 30);
-        setTimeout(doParentScroll, 100);
-        setTimeout(doParentScroll, 250);
-        setTimeout(doParentScroll, 550);
-        setTimeout(doParentScroll, 900);
+        if (window.parent && window.parent.requestAnimationFrame) {{
+            window.parent.requestAnimationFrame(doParentScroll);
+        }}
+        setTimeout(doParentScroll, 25);
+        setTimeout(doParentScroll, 80);
+        setTimeout(doParentScroll, 180);
+        setTimeout(doParentScroll, 350);
+        setTimeout(doParentScroll, 700);
     </script>
     """, height=0, width=0)
 
@@ -2562,15 +2531,57 @@ elif "Spunta Banchina" in menu:
                     tag = "⏳ [DA CONTARE]"
                 b_options[bid] = f"{tag} {sid} - {sname} ({tipo}) [{giro_st}] — Contati: {tot_c} | Prev: {prev_c}"
 
-            if "_next_spunta_bid" in st.session_state and st.session_state["_next_spunta_bid"] in b_options:
+            b_id_list = list(b_options.keys())
+            if "_next_spunta_bid" in st.session_state and st.session_state["_next_spunta_bid"] in b_id_list:
                 st.session_state["mob_selected_bid"] = st.session_state.pop("_next_spunta_bid")
 
-            sel_bid = st.selectbox(
-                "🏪 Seleziona Punto Vendita da Spuntare:",
-                options=list(b_options.keys()),
-                format_func=lambda bid: b_options[bid],
-                key="mob_selected_bid"
-            )
+            if "mob_selected_bid" not in st.session_state or st.session_state["mob_selected_bid"] not in b_id_list:
+                st.session_state["mob_selected_bid"] = b_id_list[0]
+
+            sel_bid = st.session_state["mob_selected_bid"]
+            curr_idx = b_id_list.index(sel_bid) if sel_bid in b_id_list else 0
+
+            # ------------------------------------------------------------------
+            # SELETTORE TOUCH ZERO-KEYBOARD (NESSUNA TASTIERA SOFTWARE SU SMARTPHONE)
+            # ------------------------------------------------------------------
+            st.markdown('<div id="spunta-store-header"></div>', unsafe_allow_html=True)
+            if st.session_state.pop("_scroll_to_top", False):
+                render_scroll_top_trigger("spunta-store-header")
+
+            col_p, col_c, col_n = st.columns([1.1, 2.6, 1.1])
+            with col_p:
+                prev_dis = (curr_idx <= 0)
+                if st.button("◀️ PREV", disabled=prev_dis, use_container_width=True, key="btn_touch_prev"):
+                    st.session_state["mob_selected_bid"] = b_id_list[curr_idx - 1]
+                    st.session_state["_scroll_to_top"] = True
+                    st.rerun()
+
+            with col_c:
+                with st.popover(f"🏪 Negozio {curr_idx + 1} di {len(b_id_list)} ▾", use_container_width=True):
+                    st.markdown("##### 📋 Seleziona Negozio da Spuntare (1-Tocco)")
+                    st.caption("Tocca un negozio per aprirlo immediatamente senza aprire la tastiera:")
+                    for cand_bid in b_id_list:
+                        b_r = df_b_date[df_b_date["id"] == cand_bid].iloc[0]
+                        cand_sid = str(b_r["id_store"])
+                        cand_sname = str(b_r.get("store_name", cand_sid))
+                        cand_tot = int(round(float(b_r.get("TOT_COLLI", 0) or 0)))
+                        cand_prev = int(round(float(b_r.get("prev_totale", 0) or 0)))
+                        cand_done = int(b_r.get("spuntato", 0) or 0) == 1
+                        cand_tipo = str(b_r.get("tipo_cons", "STD"))
+                        cand_giro = str(b_r.get("giro", ""))
+                        tag_icon = "🟢 [OK]" if cand_done else "⏳ [DA CONTARE]"
+                        card_lbl = f"{tag_icon} Store {cand_sid} - {cand_sname} ({cand_tipo}) [{cand_giro}] — {cand_tot}/{cand_prev} colli"
+                        if st.button(card_lbl, key=f"pop_sel_{cand_bid}", use_container_width=True, type="primary" if cand_bid == sel_bid else "secondary"):
+                            st.session_state["mob_selected_bid"] = cand_bid
+                            st.session_state["_scroll_to_top"] = True
+                            st.rerun()
+
+            with col_n:
+                next_dis = (curr_idx >= len(b_id_list) - 1)
+                if st.button("NEXT ▶️", disabled=next_dis, use_container_width=True, key="btn_touch_next"):
+                    st.session_state["mob_selected_bid"] = b_id_list[curr_idx + 1]
+                    st.session_state["_scroll_to_top"] = True
+                    st.rerun()
 
             b_curr = df_b_date[df_b_date["id"] == sel_bid].iloc[0].to_dict()
             curr_sid = str(b_curr.get("id_store", ""))
@@ -2592,37 +2603,39 @@ elif "Spunta Banchina" in menu:
             if st.session_state.pop("_scroll_to_top", False):
                 render_scroll_top_trigger("spunta-store-header")
 
-            # Banner evidente del prossimo negozio attivo
-            st.markdown(f'''
-            <div style="background: #F0FDF4; border: 2px solid #16A34A; border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; box-shadow: 0 4px 14px rgba(22, 163, 74, 0.12);">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-size: 11px; font-weight: 800; color: #15803D; text-transform: uppercase; letter-spacing: 0.5px;">📍 PUNTO VENDITA IN CONTEGGIO ORA:</span>
-                    <span style="background: #DCFCE7; color: #166534; font-size: 11.5px; font-weight: 800; padding: 2px 10px; border-radius: 9999px;">Giro {curr_giro}</span>
-                </div>
-                <div style="font-size: 22px; font-weight: 900; color: #0F172A; margin-top: 4px;">
-                    Store {curr_sid} <span style="font-size: 18px; font-weight: 700; color: #334155;">— {curr_sname}</span>
-                </div>
-                <div style="font-size: 12.5px; color: #475569; margin-top: 2px;">
-                    Insegna: <strong>{curr_pv}</strong> | Consegna: <strong>{curr_tipo}</strong> | Mezzo: <strong>{curr_mezzo}</strong>
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
-            # Scheda Negozio Touch
+            # Scheda Negozio Touch Gigante ad Altissima Visibilità (32px)
+            tipo_badge_bg = "#FEF3C7" if curr_tipo == "DOPPIA" else "#E0F2FE"
+            tipo_badge_color = "#92400E" if curr_tipo == "DOPPIA" else "#0369A1"
             st.markdown(f"""
-            <div class="modern-card" style="padding: 14px 18px; margin-top: 8px; margin-bottom: 12px; border-left: 5px solid #0284C7;">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                    <div>
-                        <span style="font-size: 18px; font-weight: 800; color: #0F172A;">Store {curr_sid}</span>
-                        <span style="font-size: 15px; font-weight: 600; color: #334155; margin-left: 8px;">{curr_sname}</span>
-                        <span style="background: #E0F2FE; color: #0369A1; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 9999px; margin-left: 8px;">{curr_pv}</span>
-                        <span style="background: #FEF3C7; color: #B45309; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 9999px; margin-left: 4px;">{curr_tipo}</span>
+            <div style="background: #FFFFFF; border: 2.5px solid #0284C7; border-radius: 14px; padding: 14px 18px; margin-top: 6px; margin-bottom: 12px; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.12);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                    <span style="font-size: 12px; font-weight: 800; color: #0284C7; text-transform: uppercase; letter-spacing: 0.5px;">📍 NEGOZIO IN SPUNTA</span>
+                    <div style="display: flex; gap: 6px;">
+                        <span style="background: #E0F2FE; color: #0369A1; font-size: 13px; font-weight: 800; padding: 3px 10px; border-radius: 9999px;">Giro {curr_giro}</span>
+                        <span style="background: {tipo_badge_bg}; color: {tipo_badge_color}; font-size: 13px; font-weight: 800; padding: 3px 10px; border-radius: 9999px;">{curr_tipo}</span>
+                        <span style="background: #F1F5F9; color: #334155; font-size: 13px; font-weight: 800; padding: 3px 10px; border-radius: 9999px;">{curr_pv}</span>
                     </div>
-                    <div style="font-size: 13px; font-weight: 700; color: #64748B;">
-                        Giro: <strong style="color: #0F172A;">{curr_giro}</strong> | Mezzo: <strong style="color: #0F172A;">{curr_mezzo}</strong> | Vettore: <strong style="color: #0F172A;">{curr_vett}</strong>
-                    </div>
+                </div>
+                <div style="font-size: 32px; font-weight: 900; color: #0F172A; margin-top: 4px; letter-spacing: -0.5px;">
+                    STORE {curr_sid}
+                </div>
+                <div style="font-size: 20px; font-weight: 700; color: #334155; margin-top: 2px;">
+                    {curr_sname}
+                </div>
+                <div style="font-size: 13px; color: #64748B; margin-top: 4px;">
+                    Mezzo: <strong style="color: #0F172A;">{curr_mezzo}</strong> | Vettore: <strong style="color: #0F172A;">{curr_vett}</strong>
                 </div>
             </div>
             """, unsafe_allow_html=True)
+
+            # Pulsante Rapido 1-Tap Conforme al Previsto
+            if st.button(f"⚡ APPLICA CONTEGGIO PREVISTO: {prev_tot_m} COLLI (1-TAP)", type="secondary", use_container_width=True, key=f"btn_conforme_fast_{sel_bid}"):
+                st.session_state[f"m_in_abb_{sel_bid}"] = prev_abb_m
+                st.session_state[f"m_in_calz_{sel_bid}"] = prev_calz_m
+                st.session_state[f"m_in_eco_{sel_bid}"] = prev_eco_m
+                st.session_state[f"m_in_oth_{sel_bid}"] = prev_oth_m
+                st.session_state[f"m_in_var_{sel_bid}"] = 0
+                st.rerun()
 
             # Controllo Sdoppiamento /0 & /9 se presente seconda uscita
             df_sdop_check = get_bolle(id_store=curr_sid)
