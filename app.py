@@ -956,298 +956,298 @@ if menu == "📥 1. Previsione & Arrivi":
 
     if tab_new_exec is not None:
         with tab_new_exec:
-        # 1. Parametri Ciclo
-        col_meta1, col_meta2, col_meta3 = st.columns([1.2, 2, 1.8])
-        with col_meta1:
-            run_date = st.date_input("📅 Data Riferimento", value=date.today(), format="DD/MM/YYYY")
-        with col_meta2:
-            default_idx = 0 if run_date.weekday() <= 2 else 1
-            cycle_choice = st.selectbox(
-                "🔄 Ciclo Settimanale Operativo",
-                [
-                    "LUN-MER (Consegna Mercoledì — Spedizioni da Lunedì a Mercoledì)",
-                    "GIOV-DOM (Consegna Sabato — Spedizioni da Giovedì a Domenica)",
-                ],
-                index=default_idx,
-            )
-            cycle_type = "LUN-MER" if "LUN-MER" in cycle_choice else "GIOV-DOM"
-        with col_meta3:
-            notes = st.text_input("📝 Note / Riferimento", value=f"Elaborazione W{run_date.isocalendar()[1]} ({cycle_type})")
+            # 1. Parametri Ciclo
+            col_meta1, col_meta2, col_meta3 = st.columns([1.2, 2, 1.8])
+            with col_meta1:
+                run_date = st.date_input("📅 Data Riferimento", value=date.today(), format="DD/MM/YYYY")
+            with col_meta2:
+                default_idx = 0 if run_date.weekday() <= 2 else 1
+                cycle_choice = st.selectbox(
+                    "🔄 Ciclo Settimanale Operativo",
+                    [
+                        "LUN-MER (Consegna Mercoledì — Spedizioni da Lunedì a Mercoledì)",
+                        "GIOV-DOM (Consegna Sabato — Spedizioni da Giovedì a Domenica)",
+                    ],
+                    index=default_idx,
+                )
+                cycle_type = "LUN-MER" if "LUN-MER" in cycle_choice else "GIOV-DOM"
+            with col_meta3:
+                notes = st.text_input("📝 Note / Riferimento", value=f"Elaborazione W{run_date.isocalendar()[1]} ({cycle_type})")
 
-        cycle_desde, cycle_hasta = get_cycle_date_range(cycle_type, run_date)
+            cycle_desde, cycle_hasta = get_cycle_date_range(cycle_type, run_date)
 
-        # 2. Scorporo Profumi SEMPRE VISIBILE (letto dinamicamente dai negozi con Scorporo Profumi = 'SI' in Anagrafica)
-        df_all_stores = get_stores_df()
-        if "scorporo_profumi" in df_all_stores.columns:
-            df_prof_stores = df_all_stores[df_all_stores["scorporo_profumi"].fillna("NO").astype(str).str.upper() == "SI"].copy()
-        else:
-            df_prof_stores = df_all_stores[df_all_stores["store_id"].isin(["3680", "9226", "3591"])].copy()
+            # 2. Scorporo Profumi SEMPRE VISIBILE (letto dinamicamente dai negozi con Scorporo Profumi = 'SI' in Anagrafica)
+            df_all_stores = get_stores_df()
+            if "scorporo_profumi" in df_all_stores.columns:
+                df_prof_stores = df_all_stores[df_all_stores["scorporo_profumi"].fillna("NO").astype(str).str.upper() == "SI"].copy()
+            else:
+                df_prof_stores = df_all_stores[df_all_stores["store_id"].isin(["3680", "9226", "3591"])].copy()
 
-        st.markdown('<div class="quick-bar">', unsafe_allow_html=True)
-        st.markdown("##### 🧴 Scorporo Profumi (Dato Dinamico per questa Operativa)")
-        st.caption("I pezzi profumi sono un dato dinamico da inserire manualmente ad ogni specifica run per i negozi abilitati. Se non pervenuti o assenti per questo ciclo, lasciare a 0:")
+            st.markdown('<div class="quick-bar">', unsafe_allow_html=True)
+            st.markdown("##### 🧴 Scorporo Profumi (Dato Dinamico per questa Operativa)")
+            st.caption("I pezzi profumi sono un dato dinamico da inserire manualmente ad ogni specifica run per i negozi abilitati. Se non pervenuti o assenti per questo ciclo, lasciare a 0:")
 
-        perfume_corrections = {}
-        if not df_prof_stores.empty:
-            prof_cols = st.columns(min(len(df_prof_stores), 4))
-            for idx_p, (_, prow) in enumerate(df_prof_stores.iterrows()):
-                p_sid = str(prow["store_id"]).strip()
-                p_sname = str(prow.get("store_name", "")).strip()
-                with prof_cols[idx_p % len(prof_cols)]:
-                    val_pz = st.number_input(
-                        f"Negozio {p_sid} ({p_sname}) — Pezzi Profumi",
-                        value=0,
-                        min_value=0,
-                        step=1,
-                        key=f"perfume_{p_sid}",
-                        help="Dato dinamico per questa specifica run. Se mancante o assente, lasciare a 0."
-                    )
-                    perfume_corrections[p_sid] = float(val_pz)
-        else:
-            st.info("Nessun negozio ha l'opzione 'Scorporo Profumi = SI' attiva in Anagrafica Negozi.")
-        st.markdown('</div>', unsafe_allow_html=True)
+            perfume_corrections = {}
+            if not df_prof_stores.empty:
+                prof_cols = st.columns(min(len(df_prof_stores), 4))
+                for idx_p, (_, prow) in enumerate(df_prof_stores.iterrows()):
+                    p_sid = str(prow["store_id"]).strip()
+                    p_sname = str(prow.get("store_name", "")).strip()
+                    with prof_cols[idx_p % len(prof_cols)]:
+                        val_pz = st.number_input(
+                            f"Negozio {p_sid} ({p_sname}) — Pezzi Profumi",
+                            value=0,
+                            min_value=0,
+                            step=1,
+                            key=f"perfume_{p_sid}",
+                            help="Dato dinamico per questa specifica run. Se mancante o assente, lasciare a 0."
+                        )
+                        perfume_corrections[p_sid] = float(val_pz)
+            else:
+                st.info("Nessun negozio ha l'opzione 'Scorporo Profumi = SI' attiva in Anagrafica Negozi.")
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        # 3. Sorgente Dati: Default = Prelievo Automatico da Extranet | Secondario = Caricamento Manuale (Emergenza)
-        tab_src_extranet, tab_src_upload = st.tabs([
-            "🌐 Prelievo Automatico da Extranet Inditex (Default)",
-            "📤 Caricamento Manuale File (Emergenza)",
-        ])
+            # 3. Sorgente Dati: Default = Prelievo Automatico da Extranet | Secondario = Caricamento Manuale (Emergenza)
+            tab_src_extranet, tab_src_upload = st.tabs([
+                "🌐 Prelievo Automatico da Extranet Inditex (Default)",
+                "📤 Caricamento Manuale File (Emergenza)",
+            ])
 
-        with tab_src_extranet:
-            st.caption(
-                f"In base alla **Data Riferimento ({format_date_it(run_date)})** e al ciclo **{cycle_type}**, "
-                f"il sistema ricerca automaticamente su Extranet le spedizioni della settimana dal **{format_date_it(cycle_desde)}** al **{format_date_it(cycle_hasta)}** (modificabili qui sotto se necessario):"
-            )
-            col_ex1, col_ex2 = st.columns(2)
-            with col_ex1:
-                sc_desde = st.date_input("📅 Spedizioni Dal (Inizio)", value=cycle_desde, format="DD/MM/YYYY", key=f"sc_d_{cycle_type}_{run_date}")
-            with col_ex2:
-                sc_hasta = st.date_input("📅 Spedizioni Al (Fine)", value=cycle_hasta, format="DD/MM/YYYY", key=f"sc_h_{cycle_type}_{run_date}")
+            with tab_src_extranet:
+                st.caption(
+                    f"In base alla **Data Riferimento ({format_date_it(run_date)})** e al ciclo **{cycle_type}**, "
+                    f"il sistema ricerca automaticamente su Extranet le spedizioni della settimana dal **{format_date_it(cycle_desde)}** al **{format_date_it(cycle_hasta)}** (modificabili qui sotto se necessario):"
+                )
+                col_ex1, col_ex2 = st.columns(2)
+                with col_ex1:
+                    sc_desde = st.date_input("📅 Spedizioni Dal (Inizio)", value=cycle_desde, format="DD/MM/YYYY", key=f"sc_d_{cycle_type}_{run_date}")
+                with col_ex2:
+                    sc_hasta = st.date_input("📅 Spedizioni Al (Fine)", value=cycle_hasta, format="DD/MM/YYYY", key=f"sc_h_{cycle_type}_{run_date}")
 
-            ex_user, ex_pass = get_extranet_credentials()
+                ex_user, ex_pass = get_extranet_credentials()
 
-            col_cred1, col_cred2 = st.columns([2.5, 1.5])
-            with col_cred1:
-                st.markdown(f"<div style='font-size:13px; color:#475569; margin: 4px 0 10px 0;'>🔑 Accesso configurato: <strong><code>{ex_user}</code></strong></div>", unsafe_allow_html=True)
-            with col_cred2:
-                with st.popover("⚙️ Modifica Credenziali Inditex", use_container_width=True):
-                    st.markdown("##### 🔐 Credenziali Extranet Inditex")
-                    new_u = st.text_input("Utente", value=ex_user, key="pop_ext_u")
-                    new_p = st.text_input("Password", value=ex_pass, type="password", key="pop_ext_p")
-                    if st.button("💾 Salva Nuove Credenziali", use_container_width=True, key="btn_save_pop_ext_creds"):
-                        set_extranet_credentials(new_u, new_p)
-                        st.success("Credenziali Extranet aggiornate!")
-                        st.rerun()
+                col_cred1, col_cred2 = st.columns([2.5, 1.5])
+                with col_cred1:
+                    st.markdown(f"<div style='font-size:13px; color:#475569; margin: 4px 0 10px 0;'>🔑 Accesso configurato: <strong><code>{ex_user}</code></strong></div>", unsafe_allow_html=True)
+                with col_cred2:
+                    with st.popover("⚙️ Modifica Credenziali Inditex", use_container_width=True):
+                        st.markdown("##### 🔐 Credenziali Extranet Inditex")
+                        new_u = st.text_input("Utente", value=ex_user, key="pop_ext_u")
+                        new_p = st.text_input("Password", value=ex_pass, type="password", key="pop_ext_p")
+                        if st.button("💾 Salva Nuove Credenziali", use_container_width=True, key="btn_save_pop_ext_creds"):
+                            set_extranet_credentials(new_u, new_p)
+                            st.success("Credenziali Extranet aggiornate!")
+                            st.rerun()
 
-            prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno (0 pz)"
-            st.caption(f"🧴 Scorporo profumi attivo per questa elaborazione: {prof_summary_str}")
-            btn_scrape_go = st.button("🌐 SCARICA DA EXTRANET ED AVVIA ESTRAZIONE", type="primary", use_container_width=True, key="btn_ask_scrape")
+                prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno (0 pz)"
+                st.caption(f"🧴 Scorporo profumi attivo per questa elaborazione: {prof_summary_str}")
+                btn_scrape_go = st.button("🌐 SCARICA DA EXTRANET ED AVVIA ESTRAZIONE", type="primary", use_container_width=True, key="btn_ask_scrape")
 
-            if btn_scrape_go:
-                status_banner = st.empty()
-                prog_bar = st.progress(5)
-                status_banner.markdown("""
-                <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
-                            border: 2px solid #38BDF8; border-radius: 12px;
-                            padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
-                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                        <div style="display: flex; align-items: center; gap: 14px;">
-                            <div style="font-size: 28px;">⚙️</div>
-                            <div>
-                                <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
-                                    🚀 ESTRAZIONE ED ELABORAZIONE AVVIATA — ATTENDERE PREGO
-                                </div>
-                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                    Connessione a Inditex Extranet in corso e download automatico file...
-                                </div>
-                            </div>
-                        </div>
-                        <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">5%</div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                temp_extract_dir = DATA_DIR / "downloads" / f"extranet_{ts}"
-                temp_extract_dir.mkdir(parents=True, exist_ok=True)
-
-                def update_progress(msg: str, pct: int):
-                    prog_bar.progress(pct)
-                    status_banner.markdown(f"""
+                if btn_scrape_go:
+                    status_banner = st.empty()
+                    prog_bar = st.progress(5)
+                    status_banner.markdown("""
                     <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
                                 border: 2px solid #38BDF8; border-radius: 12px;
                                 padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
                         <div style="display: flex; align-items: center; justify-content: space-between;">
                             <div style="display: flex; align-items: center; gap: 14px;">
-                                <div style="font-size: 28px;">🔄</div>
+                                <div style="font-size: 28px;">⚙️</div>
                                 <div>
                                     <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
-                                        ESTRAZIONE ED ELABORAZIONE IN CORSO...
+                                        🚀 ESTRAZIONE ED ELABORAZIONE AVVIATA — ATTENDERE PREGO
                                     </div>
                                     <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                        {html.escape(msg)}
+                                        Connessione a Inditex Extranet in corso e download automatico file...
                                     </div>
                                 </div>
                             </div>
-                            <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">{pct}%</div>
+                            <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">5%</div>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
 
-                try:
-                    scraper = InditexExtranetScraper(
-                        username=ex_user,
-                        password=ex_pass,
-                        headless=True,
-                        progress_callback=update_progress,
-                    )
-                    scrape_res = scraper.scrape_all(
-                        desde_date=sc_desde,
-                        hasta_date=sc_hasta,
-                        output_dir=temp_extract_dir,
-                    )
-                    update_progress("Elaborazione Spunta Arrivi e Flussi SGA...", 95)
-                    res = run_pipeline(
-                        total_source=temp_extract_dir / "TOTAL.xls",
-                        shoes_source=(temp_extract_dir / "SHOES.xls") if (temp_extract_dir / "SHOES.xls").exists() else None,
-                        texile_source=(temp_extract_dir / "TEXILE.xls") if (temp_extract_dir / "TEXILE.xls").exists() else None,
-                        ecom_source=(temp_extract_dir / "ECOM.xls") if (temp_extract_dir / "ECOM.xls").exists() else None,
-                        other_source=(temp_extract_dir / "OTHER"),
-                        esportazione_source=None,
-                        run_date=str(run_date),
-                        cycle_type=cycle_type,
-                        notes=f"{notes} [Extranet {format_date_it(sc_desde)}-{format_date_it(sc_hasta)}]",
-                        perfume_corrections=perfume_corrections,
-                        save_to_network=False,
-                    )
-                    prog_bar.progress(100)
-                    status_banner.markdown("""
-                    <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
-                                border: 2px solid #10B981; border-radius: 12px;
-                                padding: 18px 24px; margin: 12px 0 16px 0;">
-                        <div style="display: flex; align-items: center; gap: 14px;">
-                            <div style="font-size: 28px;">✅</div>
-                            <div>
-                                <div style="font-size: 16px; font-weight: 800; color: #34D399;">
-                                    ELABORAZIONE COMPLETATA CON SUCCESSO!
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    temp_extract_dir = DATA_DIR / "downloads" / f"extranet_{ts}"
+                    temp_extract_dir.mkdir(parents=True, exist_ok=True)
+
+                    def update_progress(msg: str, pct: int):
+                        prog_bar.progress(pct)
+                        status_banner.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+                                    border: 2px solid #38BDF8; border-radius: 12px;
+                                    padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
+                            <div style="display: flex; align-items: center; justify-content: space-between;">
+                                <div style="display: flex; align-items: center; gap: 14px;">
+                                    <div style="font-size: 28px;">🔄</div>
+                                    <div>
+                                        <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
+                                            ESTRAZIONE ED ELABORAZIONE IN CORSO...
+                                        </div>
+                                        <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                            {html.escape(msg)}
+                                        </div>
+                                    </div>
                                 </div>
-                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                    File TOTAL, SHOES, TEXILE, ECOM e OTHER estratti e calcolati con successo. Dati archiviati nel DB.
+                                <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">{pct}%</div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    try:
+                        scraper = InditexExtranetScraper(
+                            username=ex_user,
+                            password=ex_pass,
+                            headless=True,
+                            progress_callback=update_progress,
+                        )
+                        scrape_res = scraper.scrape_all(
+                            desde_date=sc_desde,
+                            hasta_date=sc_hasta,
+                            output_dir=temp_extract_dir,
+                        )
+                        update_progress("Elaborazione Spunta Arrivi e Flussi SGA...", 95)
+                        res = run_pipeline(
+                            total_source=temp_extract_dir / "TOTAL.xls",
+                            shoes_source=(temp_extract_dir / "SHOES.xls") if (temp_extract_dir / "SHOES.xls").exists() else None,
+                            texile_source=(temp_extract_dir / "TEXILE.xls") if (temp_extract_dir / "TEXILE.xls").exists() else None,
+                            ecom_source=(temp_extract_dir / "ECOM.xls") if (temp_extract_dir / "ECOM.xls").exists() else None,
+                            other_source=(temp_extract_dir / "OTHER"),
+                            esportazione_source=None,
+                            run_date=str(run_date),
+                            cycle_type=cycle_type,
+                            notes=f"{notes} [Extranet {format_date_it(sc_desde)}-{format_date_it(sc_hasta)}]",
+                            perfume_corrections=perfume_corrections,
+                            save_to_network=False,
+                        )
+                        prog_bar.progress(100)
+                        status_banner.markdown("""
+                        <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
+                                    border: 2px solid #10B981; border-radius: 12px;
+                                    padding: 18px 24px; margin: 12px 0 16px 0;">
+                            <div style="display: flex; align-items: center; gap: 14px;">
+                                <div style="font-size: 28px;">✅</div>
+                                <div>
+                                    <div style="font-size: 16px; font-weight: 800; color: #34D399;">
+                                        ELABORAZIONE COMPLETATA CON SUCCESSO!
+                                    </div>
+                                    <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                        File TOTAL, SHOES, TEXILE, ECOM e OTHER estratti e calcolati con successo. Dati archiviati nel DB.
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    st.session_state["last_run"] = res
-                    st.session_state["active_view_run_id"] = res["run_id"]
-                    st.session_state[f"show_op_panel_{res['run_id']}"] = True
-
-                    # Mostra subito i file operativi generati e l'invio email
-                    render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"extranet_{res['run_id']}")
-
-                    if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_extranet"):
-                        st.session_state["active_view_run_id"] = res["run_id"]
+                        """, unsafe_allow_html=True)
                         st.session_state["last_run"] = res
-                        st.rerun()
+                        st.session_state["active_view_run_id"] = res["run_id"]
+                        st.session_state[f"show_op_panel_{res['run_id']}"] = True
 
-                except Exception as e:
-                    status_banner.empty()
-                    st.error(f"Errore durante l'estrazione da Extranet: {e}")
+                        # Mostra subito i file operativi generati e l'invio email
+                        render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"extranet_{res['run_id']}")
 
-        with tab_src_upload:
-            st.caption("Modalità di emergenza: seleziona o trascina qui **tutti insieme** i file scaricati manualmente (`TOTAL`, `SHOES`, `TEXILE`, `ECOM` ed eventuali file di dettaglio `OTHER`, oppure un file `.zip`). Il sistema li riconosce e smista in automatico:")
-            uploaded_batch = st.file_uploader(
-                "Trascina qui tutti i file (.xls, .xlsx, .csv, .zip)",
-                type=["xls", "xlsx", "csv", "zip"],
-                accept_multiple_files=True,
-                key="smart_batch_uploader",
-            )
+                        if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_extranet"):
+                            st.session_state["active_view_run_id"] = res["run_id"]
+                            st.session_state["last_run"] = res
+                            st.rerun()
 
-            classified = classify_uploaded_files(uploaded_batch) if uploaded_batch else None
-            if classified:
-                s_info = classified["summary"]
-                c_s1, c_s2, c_s3, c_s4, c_s5 = st.columns(5)
-                c_s1.success(f"TOTALE: {s_info['total']}") if s_info["total"] else c_s1.warning("TOTALE: Non caricato")
-                c_s2.success(f"CALZATURE: {s_info['shoes']}") if s_info["shoes"] else c_s2.info("CALZATURE: Assente (0)")
-                c_s3.success(f"TESSILE: {s_info['texile']}") if s_info["texile"] else c_s3.info("TESSILE: Assente (0)")
-                c_s4.success(f"E-COMMERCE: {s_info['ecom']}") if s_info["ecom"] else c_s4.info("E-COMMERCE: Assente (0)")
-                c_s5.success(f"ALTRI (OTHER): {s_info['other_count']} file") if s_info["other_count"] > 0 else c_s5.info("ALTRI (OTHER): 0 file")
+                    except Exception as e:
+                        status_banner.empty()
+                        st.error(f"Errore durante l'estrazione da Extranet: {e}")
 
-            prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno (0 pz)"
-            st.caption(f"🧴 Scorporo profumi attivo per questa elaborazione: {prof_summary_str}")
-            btn_upload_go = st.button("🚀 ELABORA FILE CARICATI ORA", type="primary", use_container_width=True, disabled=not bool(classified and (classified["total"] or classified["texile"])), key="btn_ask_upload")
+            with tab_src_upload:
+                st.caption("Modalità di emergenza: seleziona o trascina qui **tutti insieme** i file scaricati manualmente (`TOTAL`, `SHOES`, `TEXILE`, `ECOM` ed eventuali file di dettaglio `OTHER`, oppure un file `.zip`). Il sistema li riconosce e smista in automatico:")
+                uploaded_batch = st.file_uploader(
+                    "Trascina qui tutti i file (.xls, .xlsx, .csv, .zip)",
+                    type=["xls", "xlsx", "csv", "zip"],
+                    accept_multiple_files=True,
+                    key="smart_batch_uploader",
+                )
 
-            if btn_upload_go:
-                status_banner_up = st.empty()
-                prog_bar_up = st.progress(25)
-                status_banner_up.markdown("""
-                <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
-                            border: 2px solid #38BDF8; border-radius: 12px;
-                            padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
-                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                        <div style="display: flex; align-items: center; gap: 14px;">
-                            <div style="font-size: 28px;">⚙️</div>
-                            <div>
-                                <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
-                                    🚀 ELABORAZIONE FILE AVVIATA — ATTENDERE PREGO
-                                </div>
-                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                    Calcolo Spunta Arrivi, suddivisione Sdoppiamenti /0-/9 e salvataggio storico...
-                                </div>
-                            </div>
-                        </div>
-                        <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">25%</div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                classified = classify_uploaded_files(uploaded_batch) if uploaded_batch else None
+                if classified:
+                    s_info = classified["summary"]
+                    c_s1, c_s2, c_s3, c_s4, c_s5 = st.columns(5)
+                    c_s1.success(f"TOTALE: {s_info['total']}") if s_info["total"] else c_s1.warning("TOTALE: Non caricato")
+                    c_s2.success(f"CALZATURE: {s_info['shoes']}") if s_info["shoes"] else c_s2.info("CALZATURE: Assente (0)")
+                    c_s3.success(f"TESSILE: {s_info['texile']}") if s_info["texile"] else c_s3.info("TESSILE: Assente (0)")
+                    c_s4.success(f"E-COMMERCE: {s_info['ecom']}") if s_info["ecom"] else c_s4.info("E-COMMERCE: Assente (0)")
+                    c_s5.success(f"ALTRI (OTHER): {s_info['other_count']} file") if s_info["other_count"] > 0 else c_s5.info("ALTRI (OTHER): 0 file")
 
-                try:
-                    res = run_pipeline(
-                        total_source=classified["total"],
-                        shoes_source=classified["shoes"],
-                        texile_source=classified["texile"],
-                        ecom_source=classified["ecom"],
-                        other_source=classified["other"],
-                        esportazione_source=None,
-                        run_date=str(run_date),
-                        cycle_type=cycle_type,
-                        notes=notes,
-                        perfume_corrections=perfume_corrections,
-                        save_to_network=False,
-                    )
-                    prog_bar_up.progress(100)
+                prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno (0 pz)"
+                st.caption(f"🧴 Scorporo profumi attivo per questa elaborazione: {prof_summary_str}")
+                btn_upload_go = st.button("🚀 ELABORA FILE CARICATI ORA", type="primary", use_container_width=True, disabled=not bool(classified and (classified["total"] or classified["texile"])), key="btn_ask_upload")
+
+                if btn_upload_go:
+                    status_banner_up = st.empty()
+                    prog_bar_up = st.progress(25)
                     status_banner_up.markdown("""
-                    <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
-                                border: 2px solid #10B981; border-radius: 12px;
-                                padding: 18px 24px; margin: 12px 0 16px 0;">
-                        <div style="display: flex; align-items: center; gap: 14px;">
-                            <div style="font-size: 28px;">✅</div>
-                            <div>
-                                <div style="font-size: 16px; font-weight: 800; color: #34D399;">
-                                    ELABORAZIONE COMPLETATA CON SUCCESSO!
-                                </div>
-                                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                    Spunta Arrivi, Flussi SGA e Riepilogo Giri calcolati con successo.
+                    <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+                                border: 2px solid #38BDF8; border-radius: 12px;
+                                padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 14px;">
+                                <div style="font-size: 28px;">⚙️</div>
+                                <div>
+                                    <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
+                                        🚀 ELABORAZIONE FILE AVVIATA — ATTENDERE PREGO
+                                    </div>
+                                    <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                        Calcolo Spunta Arrivi, suddivisione Sdoppiamenti /0-/9 e salvataggio storico...
+                                    </div>
                                 </div>
                             </div>
+                            <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">25%</div>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-                    st.session_state["last_run"] = res
-                    st.session_state["active_view_run_id"] = res["run_id"]
-                    st.session_state[f"show_op_panel_{res['run_id']}"] = True
 
-                    # Mostra subito i file operativi generati e l'invio email
-                    render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"upload_{res['run_id']}")
-
-                    if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_upload"):
-                        st.session_state["active_view_run_id"] = res["run_id"]
+                    try:
+                        res = run_pipeline(
+                            total_source=classified["total"],
+                            shoes_source=classified["shoes"],
+                            texile_source=classified["texile"],
+                            ecom_source=classified["ecom"],
+                            other_source=classified["other"],
+                            esportazione_source=None,
+                            run_date=str(run_date),
+                            cycle_type=cycle_type,
+                            notes=notes,
+                            perfume_corrections=perfume_corrections,
+                            save_to_network=False,
+                        )
+                        prog_bar_up.progress(100)
+                        status_banner_up.markdown("""
+                        <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
+                                    border: 2px solid #10B981; border-radius: 12px;
+                                    padding: 18px 24px; margin: 12px 0 16px 0;">
+                            <div style="display: flex; align-items: center; gap: 14px;">
+                                <div style="font-size: 28px;">✅</div>
+                                <div>
+                                    <div style="font-size: 16px; font-weight: 800; color: #34D399;">
+                                        ELABORAZIONE COMPLETATA CON SUCCESSO!
+                                    </div>
+                                    <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                        Spunta Arrivi, Flussi SGA e Riepilogo Giri calcolati con successo.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
                         st.session_state["last_run"] = res
-                        st.rerun()
+                        st.session_state["active_view_run_id"] = res["run_id"]
+                        st.session_state[f"show_op_panel_{res['run_id']}"] = True
 
-                except Exception as e:
-                    status_banner_up.empty()
-                    st.error(f"Errore durante l'elaborazione: {e}")
+                        # Mostra subito i file operativi generati e l'invio email
+                        render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"upload_{res['run_id']}")
+
+                        if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_upload"):
+                            st.session_state["active_view_run_id"] = res["run_id"]
+                            st.session_state["last_run"] = res
+                            st.rerun()
+
+                    except Exception as e:
+                        status_banner_up.empty()
+                        st.error(f"Errore durante l'elaborazione: {e}")
 
 
 elif menu == "🚚 2. Bolle di Consegna":
@@ -1311,20 +1311,20 @@ elif menu == "🚚 2. Bolle di Consegna":
         st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
         if has_perm("can_execute_runs"):
             with st.popover("⚡ Genera Bolle da Previsione", use_container_width=True):
-            if runs_side.empty:
-                st.warning("Nessuna previsione salvata nello storico.")
-            else:
-                run_opts = {
-                    int(r["id"]): f"Run #{int(r['id'])} ({format_date_it(r['run_date'])}, {r['cycle_type']}) - {format_number_it(r['total_bultos'], 0)} colli"
-                    for _, r in runs_side.head(20).iterrows()
-                }
-                sel_gen_run = st.selectbox("Previsione (Run)", list(run_opts.keys()), format_func=lambda x: run_opts[x], key="pop_gen_run")
-                sel_gen_dt = st.date_input("Data Consegna Bolle", value=date.today() + timedelta(days=1), format="DD/MM/YYYY", key="pop_gen_dt")
-                ovw_gen = st.checkbox("Sovrascrivi bolle esistenti della data", value=False, key="pop_gen_ovw")
-                if st.button("🚀 Genera Tutte le Bolle Ora", type="primary", use_container_width=True, key="btn_exec_gen_bolle"):
-                    c_cnt, s_cnt = generate_bolle_from_forecast(sel_gen_run, delivery_date=str(sel_gen_dt), overwrite=ovw_gen)
-                    st.session_state["flash_bolle_msg"] = f"🎉 Generate **{c_cnt}** bolle per il **{format_date_it(sel_gen_dt)}** ({s_cnt} già esistenti)."
-                    st.rerun()
+                if runs_side.empty:
+                    st.warning("Nessuna previsione salvata nello storico.")
+                else:
+                    run_opts = {
+                        int(r["id"]): f"Run #{int(r['id'])} ({format_date_it(r['run_date'])}, {r['cycle_type']}) - {format_number_it(r['total_bultos'], 0)} colli"
+                        for _, r in runs_side.head(20).iterrows()
+                    }
+                    sel_gen_run = st.selectbox("Previsione (Run)", list(run_opts.keys()), format_func=lambda x: run_opts[x], key="pop_gen_run")
+                    sel_gen_dt = st.date_input("Data Consegna Bolle", value=date.today() + timedelta(days=1), format="DD/MM/YYYY", key="pop_gen_dt")
+                    ovw_gen = st.checkbox("Sovrascrivi bolle esistenti della data", value=False, key="pop_gen_ovw")
+                    if st.button("🚀 Genera Tutte le Bolle Ora", type="primary", use_container_width=True, key="btn_exec_gen_bolle"):
+                        c_cnt, s_cnt = generate_bolle_from_forecast(sel_gen_run, delivery_date=str(sel_gen_dt), overwrite=ovw_gen)
+                        st.session_state["flash_bolle_msg"] = f"🎉 Generate **{c_cnt}** bolle per il **{format_date_it(sel_gen_dt)}** ({s_cnt} già esistenti)."
+                        st.rerun()
 
     if has_perm("can_edit_bolle"):
         tab_b_form, tab_b_list = st.tabs([
@@ -1340,271 +1340,271 @@ elif menu == "🚚 2. Bolle di Consegna":
     # --------------------------------------------------------------------------
     if tab_b_form is not None:
         with tab_b_form:
-        store_choices = [
-            f"{r['store_id']} - {r['store_name']} ({r['brand']}) [{r['giro']}]"
-            for _, r in df_stores_side.iterrows()
-        ] if not df_stores_side.empty else []
+            store_choices = [
+                f"{r['store_id']} - {r['store_name']} ({r['brand']}) [{r['giro']}]"
+                for _, r in df_stores_side.iterrows()
+            ] if not df_stores_side.empty else []
 
-        if "_next_store_override" in st.session_state:
-            st.session_state["form_store_sel"] = st.session_state.pop("_next_store_override")
+            if "_next_store_override" in st.session_state:
+                st.session_state["form_store_sel"] = st.session_state.pop("_next_store_override")
 
-        target_dt_obj = parse_date_obj(target_date)
-        if st.session_state.get("_prev_target_date_for_form") != target_date:
-            st.session_state["_prev_target_date_for_form"] = target_date
-            st.session_state["form_dt_cons"] = target_dt_obj
+            target_dt_obj = parse_date_obj(target_date)
+            if st.session_state.get("_prev_target_date_for_form") != target_date:
+                st.session_state["_prev_target_date_for_form"] = target_date
+                st.session_state["form_dt_cons"] = target_dt_obj
 
-        col_t1, col_t2, col_t3 = st.columns([2.5, 1.2, 1.3])
-        with col_t1:
-            sel_store_str = st.selectbox(
-                "Punto Vendita (Store)",
-                store_choices,
-                key="form_store_sel",
-                help="Seleziona il punto vendita. Se per la data indicata esiste già una bolla registrata, verrà aperta automaticamente per la modifica rapida."
+            col_t1, col_t2, col_t3 = st.columns([2.5, 1.2, 1.3])
+            with col_t1:
+                sel_store_str = st.selectbox(
+                    "Punto Vendita (Store)",
+                    store_choices,
+                    key="form_store_sel",
+                    help="Seleziona il punto vendita. Se per la data indicata esiste già una bolla registrata, verrà aperta automaticamente per la modifica rapida."
+                )
+                current_sid = sel_store_str.split(" - ")[0].strip() if sel_store_str else "3680"
+
+            # Verifica flag sdoppiamento_b9 in anagrafica per consentire o bloccare DOPPIA
+            is_sdoppia = False
+            if not df_stores_side.empty:
+                m_row = df_stores_side[df_stores_side["store_id"].astype(str) == current_sid]
+                if not m_row.empty:
+                    is_sdoppia = str(m_row.iloc[0].get("sdoppiamento_b9", "NO")).strip().upper() == "SI"
+
+            tipo_options = ["STD", "DOPPIA"] if is_sdoppia else ["STD"]
+            with col_t2:
+                form_tipo_cons = st.selectbox(
+                    "Tipologia Consegna",
+                    tipo_options,
+                    key="form_tipo_cons",
+                    help="STD: consegna standard (/0). DOPPIA: sdoppiamento (/9 'B') attivo per i negozi abilitati in Anagrafica.",
+                )
+
+            with col_t3:
+                form_data_cons = st.date_input(
+                    "Data Consegna",
+                    value=target_dt_obj,
+                    format="DD/MM/YYYY",
+                    key="form_dt_cons"
+                )
+
+            # Rilevamento automatico se la bolla esiste già
+            df_existing = get_bolle(
+                data_consegna=str(form_data_cons),
+                id_store=current_sid,
+                tipo_cons=form_tipo_cons
             )
-            current_sid = sel_store_str.split(" - ")[0].strip() if sel_store_str else "3680"
-
-        # Verifica flag sdoppiamento_b9 in anagrafica per consentire o bloccare DOPPIA
-        is_sdoppia = False
-        if not df_stores_side.empty:
-            m_row = df_stores_side[df_stores_side["store_id"].astype(str) == current_sid]
-            if not m_row.empty:
-                is_sdoppia = str(m_row.iloc[0].get("sdoppiamento_b9", "NO")).strip().upper() == "SI"
-
-        tipo_options = ["STD", "DOPPIA"] if is_sdoppia else ["STD"]
-        with col_t2:
-            form_tipo_cons = st.selectbox(
-                "Tipologia Consegna",
-                tipo_options,
-                key="form_tipo_cons",
-                help="STD: consegna standard (/0). DOPPIA: sdoppiamento (/9 'B') attivo per i negozi abilitati in Anagrafica.",
-            )
-
-        with col_t3:
-            form_data_cons = st.date_input(
-                "Data Consegna",
-                value=target_dt_obj,
-                format="DD/MM/YYYY",
-                key="form_dt_cons"
-            )
-
-        # Rilevamento automatico se la bolla esiste già
-        df_existing = get_bolle(
-            data_consegna=str(form_data_cons),
-            id_store=current_sid,
-            tipo_cons=form_tipo_cons
-        )
-        existing_bolla = df_existing.iloc[0].to_dict() if not df_existing.empty else None
-
-        if existing_bolla:
-            st.markdown(
-                f"""
-                <div style="background: rgba(30, 142, 62, 0.10); border-left: 4px solid #1e8e3e; padding: 9px 14px; border-radius: 6px; margin: 8px 0 14px 0;">
-                    <div style="font-weight: 600; color: #137333;">🟢 Bolla #{existing_bolla['id']} Registrata</div>
-                    <div style="font-size: 0.88rem; color: #202124;">
-                        Bolla esistente per <b>{current_sid}</b> con consegna <b>{format_date_it(str(form_data_cons))}</b> ({form_tipo_cons}). 
-                        I quantitativi e le informazioni registrate sono caricati nei campi sottostanti per la modifica immediata.
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                f"""
-                <div style="background: rgba(26, 115, 232, 0.08); border-left: 4px solid #1a73e8; padding: 9px 14px; border-radius: 6px; margin: 8px 0 14px 0;">
-                    <div style="font-weight: 600; color: #1a73e8;">✨ Nuova Bolla in Compilazione</div>
-                    <div style="font-size: 0.88rem; color: #202124;">
-                        Nessuna bolla presente per <b>{current_sid}</b> con consegna <b>{format_date_it(str(form_data_cons))}</b> ({form_tipo_cons}). 
-                        I parametri del vettore e mezzo sono precompilati dall'Anagrafica. Inserisci i colli o precompila dalla previsione.
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-        # Cache key per inizializzazione e sincronizzazione campi form
-        active_cache_key = f"{form_data_cons}_{current_sid}_{form_tipo_cons}_{existing_bolla['id'] if existing_bolla else 'new'}"
-        if st.session_state.get("_last_active_bolla_key") != active_cache_key:
-            st.session_state["_last_active_bolla_key"] = active_cache_key
-            prof = get_store_delivery_profile(current_sid, form_tipo_cons)
+            existing_bolla = df_existing.iloc[0].to_dict() if not df_existing.empty else None
 
             if existing_bolla:
-                st.session_state["form_pv"] = str(existing_bolla.get("punto_vendita") or prof.get("punto_vendita") or "ZARA")
-                st.session_state["form_vettore"] = str(existing_bolla.get("vettore") or prof.get("vettore") or "LACCHI SPA")
-                st.session_state["form_autista"] = str(existing_bolla.get("autista") or "")
-                st.session_state["form_mezzo"] = str(existing_bolla.get("tipo_mezzo") or prof.get("tipo_mezzo") or "")
-                st.session_state["form_indirizzo"] = str(existing_bolla.get("indirizzo_destino") or prof.get("indirizzo") or "")
-                st.session_state["form_c_abb"] = int(round(float(existing_bolla.get("colli_abbigl", 0) or 0)))
-                st.session_state["form_c_calz"] = int(round(float(existing_bolla.get("colli_calzat", 0) or 0)))
-                st.session_state["form_c_eco"] = int(round(float(existing_bolla.get("colli_ecom", 0) or 0)))
-                st.session_state["form_c_oth"] = int(round(float(existing_bolla.get("colli_others", 0) or 0)))
-                st.session_state["form_c_var"] = int(round(float(existing_bolla.get("colli_vario", 0) or 0)))
-                st.session_state["form_c_cont"] = int(round(float(existing_bolla.get("colli_cont", 0) or 0)))
-                st.session_state["form_c_mat"] = int(round(float(existing_bolla.get("colli_mat_vario", 0) or 0)))
-                st.session_state["form_c_dann"] = int(round(float(existing_bolla.get("colli_dann", 0) or 0)))
-                st.session_state["form_c_nonconf"] = int(round(float(existing_bolla.get("colli_non_conf", 0) or 0)))
-                st.session_state["form_stringa_custom"] = str(existing_bolla.get("stringa", "") or "")
-                st.session_state["form_anomalie"] = str(existing_bolla.get("anomalie_scarico", "") or "")
+                st.markdown(
+                    f"""
+                    <div style="background: rgba(30, 142, 62, 0.10); border-left: 4px solid #1e8e3e; padding: 9px 14px; border-radius: 6px; margin: 8px 0 14px 0;">
+                        <div style="font-weight: 600; color: #137333;">🟢 Bolla #{existing_bolla['id']} Registrata</div>
+                        <div style="font-size: 0.88rem; color: #202124;">
+                            Bolla esistente per <b>{current_sid}</b> con consegna <b>{format_date_it(str(form_data_cons))}</b> ({form_tipo_cons}). 
+                            I quantitativi e le informazioni registrate sono caricati nei campi sottostanti per la modifica immediata.
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
             else:
-                st.session_state["form_pv"] = str(prof.get("punto_vendita") or "ZARA")
-                st.session_state["form_vettore"] = str(prof.get("vettore") or "LACCHI SPA")
-                st.session_state["form_autista"] = str(prof.get("autista", "") or "")
-                st.session_state["form_mezzo"] = str(prof.get("tipo_mezzo") or ("FURGONE 8" if form_tipo_cons == "DOPPIA" else "MOTRICE 18 PLT"))
-                st.session_state["form_indirizzo"] = str(prof.get("indirizzo") or "")
-                st.session_state["form_c_abb"] = 0
-                st.session_state["form_c_calz"] = 0
-                st.session_state["form_c_eco"] = 0
-                st.session_state["form_c_oth"] = 0
-                st.session_state["form_c_var"] = 0
-                st.session_state["form_c_cont"] = 0
-                st.session_state["form_c_mat"] = 0
-                st.session_state["form_c_dann"] = 0
-                st.session_state["form_c_nonconf"] = 0
-                st.session_state["form_stringa_custom"] = ""
-                st.session_state["form_anomalie"] = ""
+                st.markdown(
+                    f"""
+                    <div style="background: rgba(26, 115, 232, 0.08); border-left: 4px solid #1a73e8; padding: 9px 14px; border-radius: 6px; margin: 8px 0 14px 0;">
+                        <div style="font-weight: 600; color: #1a73e8;">✨ Nuova Bolla in Compilazione</div>
+                        <div style="font-size: 0.88rem; color: #202124;">
+                            Nessuna bolla presente per <b>{current_sid}</b> con consegna <b>{format_date_it(str(form_data_cons))}</b> ({form_tipo_cons}). 
+                            I parametri del vettore e mezzo sono precompilati dall'Anagrafica. Inserisci i colli o precompila dalla previsione.
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-        # Testata Bolla
-        col_v1, col_v2, col_v3, col_v4 = st.columns([1.2, 1.3, 1.5, 1.5])
-        with col_v1:
-            form_data_carico = st.date_input("Data Spedizione", value=date.today(), format="DD/MM/YYYY", key="form_dt_carico")
-        with col_v2:
-            form_pv = st.text_input("Insegna / Brand", key="form_pv")
-        with col_v3:
-            form_vettore = st.text_input("Vettore Assegnato", key="form_vettore")
-        with col_v4:
-            form_mezzo = st.text_input("Tipo Mezzo", key="form_mezzo")
+            # Cache key per inizializzazione e sincronizzazione campi form
+            active_cache_key = f"{form_data_cons}_{current_sid}_{form_tipo_cons}_{existing_bolla['id'] if existing_bolla else 'new'}"
+            if st.session_state.get("_last_active_bolla_key") != active_cache_key:
+                st.session_state["_last_active_bolla_key"] = active_cache_key
+                prof = get_store_delivery_profile(current_sid, form_tipo_cons)
 
-        col_ind1, col_ind2 = st.columns([3, 1.5])
-        with col_ind1:
-            form_indirizzo = st.text_input("Indirizzo di Destino", key="form_indirizzo")
-        with col_ind2:
-            form_autista = st.text_input("Autista (Opzionale)", key="form_autista")
-
-        # Quantità Colli
-        st.markdown("---")
-        col_q_title, col_q_prefill = st.columns([3, 2])
-        with col_q_title:
-            st.markdown("##### 📦 Quantità Colli (Numeri Interi)")
-        with col_q_prefill:
-            if st.button("📥 Precompila con Colli Previsti dalla Run", key="btn_prefill_planned", use_container_width=True):
-                pl_data = get_store_latest_planned_data(current_sid)
-                if pl_data.get("has_data"):
-                    sdop_factor = 0.3 if form_tipo_cons == "DOPPIA" else (0.7 if is_sdoppia else 1.0)
-                    st.session_state["form_c_abb"] = int(round(float(pl_data.get("textile", 0) or 0) * sdop_factor))
-                    st.session_state["form_c_calz"] = int(round(float(pl_data.get("shoes", 0) or 0) * sdop_factor))
-                    st.session_state["form_c_eco"] = int(round(float(pl_data.get("ecom", 0) or 0) * sdop_factor))
-                    st.session_state["form_c_oth"] = int(round(float(pl_data.get("others", 0) or 0) * sdop_factor))
-                    st.rerun()
+                if existing_bolla:
+                    st.session_state["form_pv"] = str(existing_bolla.get("punto_vendita") or prof.get("punto_vendita") or "ZARA")
+                    st.session_state["form_vettore"] = str(existing_bolla.get("vettore") or prof.get("vettore") or "LACCHI SPA")
+                    st.session_state["form_autista"] = str(existing_bolla.get("autista") or "")
+                    st.session_state["form_mezzo"] = str(existing_bolla.get("tipo_mezzo") or prof.get("tipo_mezzo") or "")
+                    st.session_state["form_indirizzo"] = str(existing_bolla.get("indirizzo_destino") or prof.get("indirizzo") or "")
+                    st.session_state["form_c_abb"] = int(round(float(existing_bolla.get("colli_abbigl", 0) or 0)))
+                    st.session_state["form_c_calz"] = int(round(float(existing_bolla.get("colli_calzat", 0) or 0)))
+                    st.session_state["form_c_eco"] = int(round(float(existing_bolla.get("colli_ecom", 0) or 0)))
+                    st.session_state["form_c_oth"] = int(round(float(existing_bolla.get("colli_others", 0) or 0)))
+                    st.session_state["form_c_var"] = int(round(float(existing_bolla.get("colli_vario", 0) or 0)))
+                    st.session_state["form_c_cont"] = int(round(float(existing_bolla.get("colli_cont", 0) or 0)))
+                    st.session_state["form_c_mat"] = int(round(float(existing_bolla.get("colli_mat_vario", 0) or 0)))
+                    st.session_state["form_c_dann"] = int(round(float(existing_bolla.get("colli_dann", 0) or 0)))
+                    st.session_state["form_c_nonconf"] = int(round(float(existing_bolla.get("colli_non_conf", 0) or 0)))
+                    st.session_state["form_stringa_custom"] = str(existing_bolla.get("stringa", "") or "")
+                    st.session_state["form_anomalie"] = str(existing_bolla.get("anomalie_scarico", "") or "")
                 else:
-                    st.warning("Nessun dato previsionale trovato per questo negozio nell'ultima run.")
+                    st.session_state["form_pv"] = str(prof.get("punto_vendita") or "ZARA")
+                    st.session_state["form_vettore"] = str(prof.get("vettore") or "LACCHI SPA")
+                    st.session_state["form_autista"] = str(prof.get("autista", "") or "")
+                    st.session_state["form_mezzo"] = str(prof.get("tipo_mezzo") or ("FURGONE 8" if form_tipo_cons == "DOPPIA" else "MOTRICE 18 PLT"))
+                    st.session_state["form_indirizzo"] = str(prof.get("indirizzo") or "")
+                    st.session_state["form_c_abb"] = 0
+                    st.session_state["form_c_calz"] = 0
+                    st.session_state["form_c_eco"] = 0
+                    st.session_state["form_c_oth"] = 0
+                    st.session_state["form_c_var"] = 0
+                    st.session_state["form_c_cont"] = 0
+                    st.session_state["form_c_mat"] = 0
+                    st.session_state["form_c_dann"] = 0
+                    st.session_state["form_c_nonconf"] = 0
+                    st.session_state["form_stringa_custom"] = ""
+                    st.session_state["form_anomalie"] = ""
 
-        col_q1, col_q2, col_q3, col_q4 = st.columns(4)
-        with col_q1:
-            c_abb = st.number_input("Abbigliamento + Profumi", min_value=0, step=1, key="form_c_abb")
-            c_var = st.number_input("Mat. Vario Piattaforma", min_value=0, step=1, key="form_c_var")
-        with col_q2:
-            c_calz = st.number_input("Calzature (Shoes)", min_value=0, step=1, key="form_c_calz")
-            c_mat = st.number_input("Mat. Vario", min_value=0, step=1, key="form_c_mat")
-        with col_q3:
-            c_oth = st.number_input("Others (Altri Bultos)", min_value=0, step=1, key="form_c_oth")
-            c_cont = st.number_input("Contenitori", min_value=0, step=1, key="form_c_cont")
-        with col_q4:
-            c_eco = st.number_input("E-Commerce", min_value=0, step=1, key="form_c_eco")
-            c_dann = st.number_input("Danneggiati", min_value=0, step=1, key="form_c_dann")
-            c_nonconf = st.number_input("Non Conformi", min_value=0, step=1, key="form_c_nonconf")
+            # Testata Bolla
+            col_v1, col_v2, col_v3, col_v4 = st.columns([1.2, 1.3, 1.5, 1.5])
+            with col_v1:
+                form_data_carico = st.date_input("Data Spedizione", value=date.today(), format="DD/MM/YYYY", key="form_dt_carico")
+            with col_v2:
+                form_pv = st.text_input("Insegna / Brand", key="form_pv")
+            with col_v3:
+                form_vettore = st.text_input("Vettore Assegnato", key="form_vettore")
+            with col_v4:
+                form_mezzo = st.text_input("Tipo Mezzo", key="form_mezzo")
 
-        tot_operativa_calc = int(c_abb + c_calz + c_eco + c_oth + c_var)
-        st.info(f"📦 **Totale Colli Operativa Consegna: {format_number_it(tot_operativa_calc, 0)} colli**")
+            col_ind1, col_ind2 = st.columns([3, 1.5])
+            with col_ind1:
+                form_indirizzo = st.text_input("Indirizzo di Destino", key="form_indirizzo")
+            with col_ind2:
+                form_autista = st.text_input("Autista (Opzionale)", key="form_autista")
 
-        # Intershops & Anomalie
-        with st.expander("🔄 Trasferimenti tra Negozi (Intershops / Stand / Ceste) & Note Scarico", expanded=False):
-            inter_rows_data = []
-            existing_inter = []
-            try:
-                if existing_bolla and existing_bolla.get("intershops_json"):
-                    existing_inter = json.loads(existing_bolla["intershops_json"])
-            except Exception:
-                existing_inter = []
-
-            for row_i in range(3):
-                cur_item = existing_inter[row_i] if row_i < len(existing_inter) else {}
-                ci1, ci2, ci3 = st.columns([1, 1, 2])
-                with ci1:
-                    m_val = st.text_input(f"Negozio Mittente #{row_i+1}", value=str(cur_item.get("mittente", "")), key=f"inter_m_{row_i}")
-                with ci2:
-                    c_val = st.number_input(f"Colli #{row_i+1}", min_value=0, value=int(round(float(cur_item.get("colli", 0) or 0))), step=1, key=f"inter_c_{row_i}")
-                with ci3:
-                    t_val = st.text_input(f"Tipologia #{row_i+1}", value=str(cur_item.get("tipo", "")), placeholder="es. MERCE, CESTE, STAND", key=f"inter_t_{row_i}")
-                if c_val > 0:
-                    inter_rows_data.append({"mittente": m_val, "colli": int(c_val), "tipo": t_val})
-
-            form_stringa_custom = st.text_input("Note / Intershops libere sulla bolla", key="form_stringa_custom")
-            form_anomalie = st.text_area("Anomalie allo Scarico", key="form_anomalie")
-
-        # Pulsanti di Azione
-        col_sv1, col_sv2, col_sv3 = st.columns([2, 2, 1.2])
-        with col_sv1:
-            btn_save_text = "💾 AGGIORNA BOLLA" if existing_bolla else "💾 SALVA BOLLA"
-            save_clicked = st.button(btn_save_text, type="primary", use_container_width=True, key="btn_save_bolla")
-        with col_sv2:
-            btn_next_text = "💾 Aggiorna e Passa al Prossimo ➡️" if existing_bolla else "💾 Salva e Passa al Prossimo ➡️"
-            save_next_clicked = st.button(btn_next_text, use_container_width=True, key="btn_save_next_bolla")
-        with col_sv3:
-            if existing_bolla:
-                with st.popover("🗑️ Elimina Bolla", use_container_width=True):
-                    st.warning(f"Eliminare la bolla #{existing_bolla['id']} per {current_sid}?")
-                    if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key="btn_del_curr_bolla"):
-                        delete_bolla(existing_bolla["id"])
-                        st.session_state["flash_bolle_msg"] = f"🗑️ Bolla #{existing_bolla['id']} eliminata con successo."
+            # Quantità Colli
+            st.markdown("---")
+            col_q_title, col_q_prefill = st.columns([3, 2])
+            with col_q_title:
+                st.markdown("##### 📦 Quantità Colli (Numeri Interi)")
+            with col_q_prefill:
+                if st.button("📥 Precompila con Colli Previsti dalla Run", key="btn_prefill_planned", use_container_width=True):
+                    pl_data = get_store_latest_planned_data(current_sid)
+                    if pl_data.get("has_data"):
+                        sdop_factor = 0.3 if form_tipo_cons == "DOPPIA" else (0.7 if is_sdoppia else 1.0)
+                        st.session_state["form_c_abb"] = int(round(float(pl_data.get("textile", 0) or 0) * sdop_factor))
+                        st.session_state["form_c_calz"] = int(round(float(pl_data.get("shoes", 0) or 0) * sdop_factor))
+                        st.session_state["form_c_eco"] = int(round(float(pl_data.get("ecom", 0) or 0) * sdop_factor))
+                        st.session_state["form_c_oth"] = int(round(float(pl_data.get("others", 0) or 0) * sdop_factor))
                         st.rerun()
+                    else:
+                        st.warning("Nessun dato previsionale trovato per questo negozio nell'ultima run.")
 
-        if save_clicked or save_next_clicked:
-            if inter_rows_data:
-                computed_stringa = format_intershops_string(inter_rows_data)
-                if form_stringa_custom and form_stringa_custom not in computed_stringa:
-                    computed_stringa += f" {form_stringa_custom}"
-            else:
-                computed_stringa = form_stringa_custom
+            col_q1, col_q2, col_q3, col_q4 = st.columns(4)
+            with col_q1:
+                c_abb = st.number_input("Abbigliamento + Profumi", min_value=0, step=1, key="form_c_abb")
+                c_var = st.number_input("Mat. Vario Piattaforma", min_value=0, step=1, key="form_c_var")
+            with col_q2:
+                c_calz = st.number_input("Calzature (Shoes)", min_value=0, step=1, key="form_c_calz")
+                c_mat = st.number_input("Mat. Vario", min_value=0, step=1, key="form_c_mat")
+            with col_q3:
+                c_oth = st.number_input("Others (Altri Bultos)", min_value=0, step=1, key="form_c_oth")
+                c_cont = st.number_input("Contenitori", min_value=0, step=1, key="form_c_cont")
+            with col_q4:
+                c_eco = st.number_input("E-Commerce", min_value=0, step=1, key="form_c_eco")
+                c_dann = st.number_input("Danneggiati", min_value=0, step=1, key="form_c_dann")
+                c_nonconf = st.number_input("Non Conformi", min_value=0, step=1, key="form_c_nonconf")
 
-            bolla_save_payload = {
-                "id": existing_bolla.get("id") if existing_bolla else None,
-                "data": str(form_data_carico),
-                "data_consegna": str(form_data_cons),
-                "id_store": current_sid,
-                "punto_vendita": form_pv,
-                "store_name": sel_store_str.split(" - ")[1].split(" (")[0] if " - " in sel_store_str else "",
-                "tipo_cons": form_tipo_cons,
-                "vettore": form_vettore,
-                "cell_autista": "",
-                "autista": form_autista,
-                "tipo_mezzo": form_mezzo,
-                "indirizzo_destino": form_indirizzo,
-                "colli_abbigl": int(c_abb),
-                "colli_calzat": int(c_calz),
-                "colli_ecom": int(c_eco),
-                "colli_others": int(c_oth),
-                "colli_vario": int(c_var),
-                "colli_cont": int(c_cont),
-                "colli_mat_vario": int(c_mat),
-                "colli_dann": int(c_dann),
-                "colli_non_conf": int(c_nonconf),
-                "anomalie_scarico": form_anomalie,
-                "intershops_list": inter_rows_data,
-                "stringa": computed_stringa,
-            }
-            new_id = save_or_update_bolla(bolla_save_payload)
-            if save_next_clicked and store_choices:
+            tot_operativa_calc = int(c_abb + c_calz + c_eco + c_oth + c_var)
+            st.info(f"📦 **Totale Colli Operativa Consegna: {format_number_it(tot_operativa_calc, 0)} colli**")
+
+            # Intershops & Anomalie
+            with st.expander("🔄 Trasferimenti tra Negozi (Intershops / Stand / Ceste) & Note Scarico", expanded=False):
+                inter_rows_data = []
+                existing_inter = []
                 try:
-                    curr_idx = store_choices.index(sel_store_str)
-                    if curr_idx + 1 < len(store_choices):
-                        st.session_state["_next_store_override"] = store_choices[curr_idx + 1]
+                    if existing_bolla and existing_bolla.get("intershops_json"):
+                        existing_inter = json.loads(existing_bolla["intershops_json"])
                 except Exception:
-                    pass
-            act_word = "aggiornata" if existing_bolla else "salvata"
-            st.session_state["flash_bolle_msg"] = f"🎉 Bolla #{new_id} per Store **{current_sid}** {act_word} con successo!"
-            st.rerun()
+                    existing_inter = []
 
-    # --------------------------------------------------------------------------
+                for row_i in range(3):
+                    cur_item = existing_inter[row_i] if row_i < len(existing_inter) else {}
+                    ci1, ci2, ci3 = st.columns([1, 1, 2])
+                    with ci1:
+                        m_val = st.text_input(f"Negozio Mittente #{row_i+1}", value=str(cur_item.get("mittente", "")), key=f"inter_m_{row_i}")
+                    with ci2:
+                        c_val = st.number_input(f"Colli #{row_i+1}", min_value=0, value=int(round(float(cur_item.get("colli", 0) or 0))), step=1, key=f"inter_c_{row_i}")
+                    with ci3:
+                        t_val = st.text_input(f"Tipologia #{row_i+1}", value=str(cur_item.get("tipo", "")), placeholder="es. MERCE, CESTE, STAND", key=f"inter_t_{row_i}")
+                    if c_val > 0:
+                        inter_rows_data.append({"mittente": m_val, "colli": int(c_val), "tipo": t_val})
+
+                form_stringa_custom = st.text_input("Note / Intershops libere sulla bolla", key="form_stringa_custom")
+                form_anomalie = st.text_area("Anomalie allo Scarico", key="form_anomalie")
+
+            # Pulsanti di Azione
+            col_sv1, col_sv2, col_sv3 = st.columns([2, 2, 1.2])
+            with col_sv1:
+                btn_save_text = "💾 AGGIORNA BOLLA" if existing_bolla else "💾 SALVA BOLLA"
+                save_clicked = st.button(btn_save_text, type="primary", use_container_width=True, key="btn_save_bolla")
+            with col_sv2:
+                btn_next_text = "💾 Aggiorna e Passa al Prossimo ➡️" if existing_bolla else "💾 Salva e Passa al Prossimo ➡️"
+                save_next_clicked = st.button(btn_next_text, use_container_width=True, key="btn_save_next_bolla")
+            with col_sv3:
+                if existing_bolla:
+                    with st.popover("🗑️ Elimina Bolla", use_container_width=True):
+                        st.warning(f"Eliminare la bolla #{existing_bolla['id']} per {current_sid}?")
+                        if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key="btn_del_curr_bolla"):
+                            delete_bolla(existing_bolla["id"])
+                            st.session_state["flash_bolle_msg"] = f"🗑️ Bolla #{existing_bolla['id']} eliminata con successo."
+                            st.rerun()
+
+            if save_clicked or save_next_clicked:
+                if inter_rows_data:
+                    computed_stringa = format_intershops_string(inter_rows_data)
+                    if form_stringa_custom and form_stringa_custom not in computed_stringa:
+                        computed_stringa += f" {form_stringa_custom}"
+                else:
+                    computed_stringa = form_stringa_custom
+
+                bolla_save_payload = {
+                    "id": existing_bolla.get("id") if existing_bolla else None,
+                    "data": str(form_data_carico),
+                    "data_consegna": str(form_data_cons),
+                    "id_store": current_sid,
+                    "punto_vendita": form_pv,
+                    "store_name": sel_store_str.split(" - ")[1].split(" (")[0] if " - " in sel_store_str else "",
+                    "tipo_cons": form_tipo_cons,
+                    "vettore": form_vettore,
+                    "cell_autista": "",
+                    "autista": form_autista,
+                    "tipo_mezzo": form_mezzo,
+                    "indirizzo_destino": form_indirizzo,
+                    "colli_abbigl": int(c_abb),
+                    "colli_calzat": int(c_calz),
+                    "colli_ecom": int(c_eco),
+                    "colli_others": int(c_oth),
+                    "colli_vario": int(c_var),
+                    "colli_cont": int(c_cont),
+                    "colli_mat_vario": int(c_mat),
+                    "colli_dann": int(c_dann),
+                    "colli_non_conf": int(c_nonconf),
+                    "anomalie_scarico": form_anomalie,
+                    "intershops_list": inter_rows_data,
+                    "stringa": computed_stringa,
+                }
+                new_id = save_or_update_bolla(bolla_save_payload)
+                if save_next_clicked and store_choices:
+                    try:
+                        curr_idx = store_choices.index(sel_store_str)
+                        if curr_idx + 1 < len(store_choices):
+                            st.session_state["_next_store_override"] = store_choices[curr_idx + 1]
+                    except Exception:
+                        pass
+                act_word = "aggiornata" if existing_bolla else "salvata"
+                st.session_state["flash_bolle_msg"] = f"🎉 Bolla #{new_id} per Store **{current_sid}** {act_word} con successo!"
+                st.rerun()
+
+        # --------------------------------------------------------------------------
     # SOTTO-SCHEDA 2: ELENCO, FILTRI & STAMPA
     # --------------------------------------------------------------------------
     with tab_b_list:
@@ -1691,11 +1691,11 @@ elif menu == "🚚 2. Bolle di Consegna":
         with b_act5:
             if has_perm("can_delete_bolle"):
                 with st.popover("🗑️ Svota Bolle Data", use_container_width=True):
-                st.warning(f"Eliminare tutte le bolle del **{format_date_it(target_date)}**?")
-                if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key="btn_del_bolle_dt"):
-                    n_d = delete_bolle_by_date(target_date)
-                    st.success(f"Eliminate {n_d} bolle.")
-                    st.rerun()
+                    st.warning(f"Eliminare tutte le bolle del **{format_date_it(target_date)}**?")
+                    if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key="btn_del_bolle_dt"):
+                        n_d = delete_bolle_by_date(target_date)
+                        st.success(f"Eliminate {n_d} bolle.")
+                        st.rerun()
 
         # Pannello di Stampa se attivo
         if "print_html" in st.session_state:
@@ -1763,30 +1763,30 @@ elif menu == "🚚 2. Bolle di Consegna":
             # Tool di eliminazione rapida singola bolla
             if has_perm("can_delete_bolle"):
                 with st.expander("🗑️ Elimina Singola Bolla da questa Data"):
-                ed_c1, ed_c2 = st.columns([3, 1])
-                with ed_c1:
-                    bolla_choices = {
-                        int(r["id"]): f"ID #{int(r['id'])} — Negozio {r.get('id_store', '')} ({r.get('punto_vendita', '')} - {r.get('tipo_cons', 'STD')}) — Tot: {int(round(r.get('TOT_COLLI', 0)))} colli"
-                        for _, r in df_b_disp.iterrows() if "id" in r and pd.notna(r["id"])
-                    }
-                    selected_bolla_to_del = st.selectbox(
-                        "Seleziona Bolla da Eliminare:",
-                        options=list(bolla_choices.keys()),
-                        format_func=lambda bid: bolla_choices.get(bid, str(bid)),
-                        key="sb_del_single_bolla"
-                    )
-                with ed_c2:
-                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                    if st.button("🗑️ Elimina Questa Bolla", type="primary", use_container_width=True, key="btn_del_single_bolla"):
-                        if selected_bolla_to_del:
-                            delete_bolla(selected_bolla_to_del)
-                            st.success(f"Bolla #{selected_bolla_to_del} eliminata con successo.")
-                            st.rerun()
+                    ed_c1, ed_c2 = st.columns([3, 1])
+                    with ed_c1:
+                        bolla_choices = {
+                            int(r["id"]): f"ID #{int(r['id'])} — Negozio {r.get('id_store', '')} ({r.get('punto_vendita', '')} - {r.get('tipo_cons', 'STD')}) — Tot: {int(round(r.get('TOT_COLLI', 0)))} colli"
+                            for _, r in df_b_disp.iterrows() if "id" in r and pd.notna(r["id"])
+                        }
+                        selected_bolla_to_del = st.selectbox(
+                            "Seleziona Bolla da Eliminare:",
+                            options=list(bolla_choices.keys()),
+                            format_func=lambda bid: bolla_choices.get(bid, str(bid)),
+                            key="sb_del_single_bolla"
+                        )
+                    with ed_c2:
+                        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                        if st.button("🗑️ Elimina Questa Bolla", type="primary", use_container_width=True, key="btn_del_single_bolla"):
+                            if selected_bolla_to_del:
+                                delete_bolla(selected_bolla_to_del)
+                                st.success(f"Bolla #{selected_bolla_to_del} eliminata con successo.")
+                                st.rerun()
 
 
-# ==============================================================================
-# PAGE 3: CONSUNTIVO & PLANNER INDITEX (CONFRONTO PREVISIONE VS BOLLE REALI)
-# ==============================================================================
+    # ==============================================================================
+    # PAGE 3: CONSUNTIVO & PLANNER INDITEX (CONFRONTO PREVISIONE VS BOLLE REALI)
+    # ==============================================================================
 elif menu == "📊 3. Consuntivo & Planner Inditex":
     st.markdown('<div class="main-header">📊 Consuntivo & Confronto Planner Roma (Form Inditex)</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Quadratura tra colli previsti ed effettivamente consegnati nelle bolle (con seconde consegne contraddistinte dalla lettera "B") ed esportazione diretta del file ufficiale Inditex.</div>', unsafe_allow_html=True)
