@@ -259,55 +259,76 @@ st.markdown("""
             padding-bottom: 110px !important;
         }
 
-        /* Large touch-friendly typography for warehouse use */
-        p, span, label, div {
-            font-size: 15px;
+        /* Tipografia ad altissima visibilità per magazzino & smartphone */
+        p, span, div {
+            font-size: 16.5px;
         }
         .main-header {
-            font-size: 21px !important;
+            font-size: 24px !important;
+            font-weight: 900 !important;
         }
         .sub-header {
-            font-size: 13px !important;
+            font-size: 15px !important;
         }
 
-        /* High-visibility touch buttons */
-        .stButton > button {
-            min-height: 52px !important;
-            font-size: 16px !important;
+        /* Etichette e Label di input: GRANDI E AD ALTO CONTRASTO */
+        label, [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] span, [data-testid="stWidgetLabel"] label {
+            font-size: 18.5px !important;
             font-weight: 800 !important;
-            border-radius: 10px !important;
-            padding: 12px 18px !important;
-            letter-spacing: 0.3px !important;
+            color: #0F172A !important;
+            line-height: 1.35 !important;
+            margin-bottom: 6px !important;
         }
 
-        /* Number Inputs: EXTRA LARGE, bold, centered numerals for warehouse gloves */
+        /* Number Inputs: Cifre giganti e leggibili da lontano */
         input[type="number"], input[type="text"], [data-baseweb="input"] input {
-            min-height: 56px !important;
-            font-size: 26px !important;
+            min-height: 58px !important;
+            font-size: 28px !important;
             font-weight: 900 !important;
-            border-radius: 10px !important;
+            border-radius: 12px !important;
             text-align: center !important;
             color: #0F172A !important;
+            background-color: #FFFFFF !important;
+            border: 2px solid #CBD5E1 !important;
         }
 
+        /* Pulsanti +/- grandi e facili da premere */
         [data-testid="stNumberInput"] button {
-            min-width: 56px !important;
-            min-height: 56px !important;
-            font-size: 26px !important;
+            min-width: 58px !important;
+            min-height: 58px !important;
+            font-size: 28px !important;
             font-weight: 900 !important;
+            background-color: #F1F5F9 !important;
+            color: #0F172A !important;
+            border: 1.5px solid #CBD5E1 !important;
+            border-radius: 10px !important;
         }
 
-        /* Large touch buttons on mobile */
+        /* Pulsanti touch ampi con testo chiaro */
         .stButton > button {
             min-height: 56px !important;
-            font-size: 17px !important;
+            font-size: 18px !important;
             font-weight: 800 !important;
             border-radius: 12px !important;
+            padding: 12px 18px !important;
+        }
+
+        /* Testo degli avvisi (Alert) grande e chiaro */
+        [data-testid="stAlert"] div, [data-testid="stAlert"] p {
+            font-size: 16.5px !important;
+            font-weight: 600 !important;
+            line-height: 1.4 !important;
+        }
+
+        [data-testid="stPopover"] button {
+            min-height: 54px !important;
+            font-size: 17px !important;
+            font-weight: 800 !important;
         }
 
         [data-baseweb="select"] {
-            min-height: 50px !important;
-            font-size: 15.5px !important;
+            min-height: 52px !important;
+            font-size: 17px !important;
         }
 
         .mobile-bottom-nav {
@@ -2801,27 +2822,27 @@ elif "Spunta Banchina" in menu:
 
 
 
-            # Scheda Negozio Touch Gigante ad Altissima Visibilità (32px)
+            # Scheda Negozio Touch Gigante ad Altissima Visibilità (36px)
             tipo_badge_bg = "#FEF3C7" if curr_tipo == "DOPPIA" else "#E0F2FE"
             tipo_badge_color = "#92400E" if curr_tipo == "DOPPIA" else "#0369A1"
             st.markdown(f"""
-            <div style="background: #FFFFFF; border: 2.5px solid #0284C7; border-radius: 14px; padding: 14px 18px; margin-top: 6px; margin-bottom: 12px; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.12);">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
-                    <span style="font-size: 12px; font-weight: 800; color: #0284C7; text-transform: uppercase; letter-spacing: 0.5px;">📍 NEGOZIO IN SPUNTA</span>
-                    <div style="display: flex; gap: 6px;">
-                        <span style="background: #E0F2FE; color: #0369A1; font-size: 13px; font-weight: 800; padding: 3px 10px; border-radius: 9999px;">Giro {curr_giro}</span>
-                        <span style="background: {tipo_badge_bg}; color: {tipo_badge_color}; font-size: 13px; font-weight: 800; padding: 3px 10px; border-radius: 9999px;">{curr_tipo}</span>
-                        <span style="background: #F1F5F9; color: #334155; font-size: 13px; font-weight: 800; padding: 3px 10px; border-radius: 9999px;">{curr_pv}</span>
+            <div style="background: #FFFFFF; border: 3px solid #0284C7; border-radius: 14px; padding: 16px 20px; margin-top: 6px; margin-bottom: 14px; box-shadow: 0 4px 16px rgba(2, 132, 199, 0.15);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <span style="font-size: 15px; font-weight: 900; color: #0284C7; text-transform: uppercase; letter-spacing: 0.6px;">📍 NEGOZIO IN SPUNTA</span>
+                    <div style="display: flex; gap: 8px;">
+                        <span style="background: #E0F2FE; color: #0369A1; font-size: 15px; font-weight: 800; padding: 4px 12px; border-radius: 9999px;">Giro {curr_giro}</span>
+                        <span style="background: {tipo_badge_bg}; color: {tipo_badge_color}; font-size: 15px; font-weight: 800; padding: 4px 12px; border-radius: 9999px;">{curr_tipo}</span>
+                        <span style="background: #F1F5F9; color: #334155; font-size: 15px; font-weight: 800; padding: 4px 12px; border-radius: 9999px;">{curr_pv}</span>
                     </div>
                 </div>
-                <div style="font-size: 32px; font-weight: 900; color: #0F172A; margin-top: 4px; letter-spacing: -0.5px;">
+                <div style="font-size: 36px; font-weight: 900; color: #0F172A; margin-top: 6px; letter-spacing: -0.5px;">
                     STORE {curr_sid}
                 </div>
-                <div style="font-size: 20px; font-weight: 700; color: #334155; margin-top: 2px;">
+                <div style="font-size: 24px; font-weight: 800; color: #1E293B; margin-top: 3px;">
                     {curr_sname}
                 </div>
-                <div style="font-size: 13px; color: #64748B; margin-top: 4px;">
-                    Mezzo: <strong style="color: #0F172A;">{curr_mezzo}</strong> | Vettore: <strong style="color: #0F172A;">{curr_vett}</strong>
+                <div style="font-size: 16px; font-weight: 600; color: #475569; margin-top: 6px;">
+                    Mezzo: <strong style="color: #0F172A;">{curr_mezzo}</strong> &nbsp;|&nbsp; Vettore: <strong style="color: #0F172A;">{curr_vett}</strong>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -2849,38 +2870,38 @@ elif "Spunta Banchina" in menu:
                     prev_comb = p0 + p9
                     m_diff = tot_comb - prev_comb
                     m_ok = (m_diff == 0)
-                    st.markdown(f"""<div style="background: {'#F0FDF4' if m_ok else '#FFFBEB'}; border: 1.5px solid {'#86EFAC' if m_ok else '#FCD34D'}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;"><div style="display: flex; justify-content: space-between; align-items: center;"><span style="font-size: 11px; font-weight: 800; color: #0F172A; text-transform: uppercase;">🔁 Controllo Sdoppiamento /0 & /9 (Totale Negozio {curr_sid})</span><span style="font-size: 11px; font-weight: 700; color: {'#15803D' if m_ok else '#B45309'};">{'🟢 MATCH /0 + /9 OK' if m_ok else f'⚠️ DELTA: {m_diff} colli'}</span></div><div style="font-size: 12px; color: #334155; margin-top: 4px;">Barra 0 (/0 STD): <strong>{c0}</strong> colli (prev: {p0}) &nbsp;|&nbsp; Barra 9 (/9 DOPPIA): <strong>{c9}</strong> colli (prev: {p9}) &nbsp;|&nbsp; <strong>Totale Negozio: {tot_comb} colli</strong> (Previsto: {prev_comb})</div></div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<div style="background: {'#F0FDF4' if m_ok else '#FFFBEB'}; border: 2px solid {'#86EFAC' if m_ok else '#FCD34D'}; border-radius: 10px; padding: 12px 16px; margin-bottom: 14px;"><div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;"><span style="font-size: 14.5px; font-weight: 900; color: #0F172A; text-transform: uppercase;">🔁 Controllo Sdoppiamento /0 & /9 (Totale Store {curr_sid})</span><span style="font-size: 14.5px; font-weight: 800; color: {'#15803D' if m_ok else '#B45309'};">{'🟢 MATCH /0 + /9 OK' if m_ok else f'⚠️ DELTA: {m_diff} colli'}</span></div><div style="font-size: 15px; font-weight: 600; color: #334155; margin-top: 6px; line-height: 1.45;">Barra 0 (/0 STD): <strong style="color: #0F172A;">{c0}</strong> colli (prev: {p0}) &nbsp;|&nbsp; Barra 9 (/9 DOPPIA): <strong style="color: #0F172A;">{c9}</strong> colli (prev: {p9})<br><span style="font-size: 16px; font-weight: 800; color: #0F172A;">Totale Negozio: {tot_comb} colli</span> (Previsto: {prev_comb})</div></div>""", unsafe_allow_html=True)
 
             # Card Valori Previsionali Attesi
             st.markdown(f"""
-            <div class="modern-card" style="padding: 12px 18px; margin-bottom: 14px; background-color: #F8FAFC; border: 1px solid #E2E8F0;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                    <span style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">📊 DATI PREVISIONALI ATTESI</span>
-                    <span style="font-size: 14px; font-weight: 800; color: #1E3A8A;">TOTALE PREVISTO: {format_number_it(prev_tot_m, 0)} COLLI</span>
+            <div class="modern-card" style="padding: 14px 18px; margin-bottom: 16px; background-color: #F8FAFC; border: 1.5px solid #CBD5E1; border-radius: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                    <span style="font-size: 14px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">📊 DATI PREVISIONALI ATTESI</span>
+                    <span style="font-size: 18px; font-weight: 900; color: #1E3A8A;">TOTALE PREVISTO: {format_number_it(prev_tot_m, 0)} COLLI</span>
                 </div>
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 4px;">
-                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 8px; text-align: center;">
-                        <div style="font-size: 9.5px; font-weight: 700; color: #64748B;">👗 TESSILE</div>
-                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(prev_abb_m, 0)}</div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 6px;">
+                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 8px 6px; text-align: center;">
+                        <div style="font-size: 13.5px; font-weight: 800; color: #475569;">👗 TESSILE</div>
+                        <div style="font-size: 22px; font-weight: 900; color: #0F172A; margin-top: 3px;">{format_number_it(prev_abb_m, 0)}</div>
                     </div>
-                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 8px; text-align: center;">
-                        <div style="font-size: 9.5px; font-weight: 700; color: #64748B;">👟 SCARPE</div>
-                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(prev_calz_m, 0)}</div>
+                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 8px 6px; text-align: center;">
+                        <div style="font-size: 13.5px; font-weight: 800; color: #475569;">👟 SCARPE</div>
+                        <div style="font-size: 22px; font-weight: 900; color: #0F172A; margin-top: 3px;">{format_number_it(prev_calz_m, 0)}</div>
                     </div>
-                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 8px; text-align: center;">
-                        <div style="font-size: 9.5px; font-weight: 700; color: #64748B;">📦 E-COM</div>
-                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(prev_eco_m, 0)}</div>
+                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 8px 6px; text-align: center;">
+                        <div style="font-size: 13.5px; font-weight: 800; color: #475569;">📦 E-COM</div>
+                        <div style="font-size: 22px; font-weight: 900; color: #0F172A; margin-top: 3px;">{format_number_it(prev_eco_m, 0)}</div>
                     </div>
-                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 8px; text-align: center;">
-                        <div style="font-size: 9.5px; font-weight: 700; color: #64748B;">📦 ALTRI</div>
-                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(prev_oth_m, 0)}</div>
+                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 8px 6px; text-align: center;">
+                        <div style="font-size: 13.5px; font-weight: 800; color: #475569;">📦 ALTRI</div>
+                        <div style="font-size: 22px; font-weight: 900; color: #0F172A; margin-top: 3px;">{format_number_it(prev_oth_m, 0)}</div>
                     </div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
             # Conteggio Effettivo Touch
-            st.markdown("##### ✍️ Conteggio Merce Banchina (Quantità Effettive)")
+            st.markdown('<div style="font-size: 21px; font-weight: 900; color: #0F172A; margin: 18px 0 12px 0;">✍️ Conteggio Merce Banchina (Quantità Effettive)</div>', unsafe_allow_html=True)
             c_m1, c_m2, c_m3 = st.columns(3)
             with c_m1:
                 init_abb = int(round(float(b_curr.get("colli_abbigl") or 0)))
