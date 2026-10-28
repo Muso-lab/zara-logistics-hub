@@ -634,12 +634,12 @@ def delete_bolle_by_date(date_str: str, db_path: Path = DB_PATH) -> int:
 def compute_inditex_delivery_dates(dt_base: Any, cycle_type: str = "LUN-MER") -> Tuple[date, date]:
     """
     Calcola le date di consegna operative Inditex con rigorosa corrispondenza:
-    - Ciclo LUN-MER (periodo estrazione 26-28 Ottobre, fine periodo Mercoledi):
+    - Ciclo LUN-MER (periodo estrazione 26-28 Ottobre):
         - Consegna /9 (Barra 9 - DOPPIA / 2a Uscita): Mercoledi (monday + 2 giorni)
         - Consegna /0 (Barra 0 - STD / Consegna Standard): Giovedi (monday + 3 giorni)
-    - Ciclo GIOV-DOM (fine periodo Domenica):
+    - Ciclo GIOV-DOM (periodo estrazione Giovedi-Domenica):
+        - Consegna /0 (Barra 0 - STD / Consegna Standard): Sabato (monday + 5 giorni)
         - Consegna /9 (Barra 9 - DOPPIA / 2a Uscita): Domenica (monday + 6 giorni)
-        - Consegna /0 (Barra 0 - STD / Consegna Standard): Lunedi (monday + 7 giorni)
     Ritorna: (date_b9, date_b0)
     """
     if isinstance(dt_base, str):
@@ -660,9 +660,9 @@ def compute_inditex_delivery_dates(dt_base: Any, cycle_type: str = "LUN-MER") ->
         date_b9 = monday + timedelta(days=2)
         date_b0 = monday + timedelta(days=3)
     else:
-        # GIOV-DOM: Domenica (/9) e Lunedi (/0)
+        # GIOV-DOM: Sabato (/0 STD) e Domenica (/9 DOPPIA)
+        date_b0 = monday + timedelta(days=5)
         date_b9 = monday + timedelta(days=6)
-        date_b0 = monday + timedelta(days=7)
 
     return date_b9, date_b0
 
@@ -703,13 +703,21 @@ def generate_bolle_from_forecast(
         try:
             dt_given = datetime.strptime(str(delivery_date)[:10], "%Y-%m-%d").date()
             if dt_given.weekday() in (2, 6):
-                # Data /9 (Mercoledi o Domenica)
+                # Data /9 (Mercoledi 2 o Domenica 6)
                 deliv_date_dop = dt_given.strftime("%Y-%m-%d")
-                deliv_date_std = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")
+                if dt_given.weekday() == 2:
+                    deliv_date_std = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")  # Giovedi
+                else:
+                    deliv_date_std = (dt_given - timedelta(days=1)).strftime("%Y-%m-%d")  # Sabato
             else:
-                # Data /0 (Giovedi o Lunedi o altro)
+                # Data /0 (Giovedi 3 o Sabato 5 o altro)
                 deliv_date_std = dt_given.strftime("%Y-%m-%d")
-                deliv_date_dop = (dt_given - timedelta(days=1)).strftime("%Y-%m-%d")
+                if dt_given.weekday() == 3:
+                    deliv_date_dop = (dt_given - timedelta(days=1)).strftime("%Y-%m-%d")  # Mercoledi
+                elif dt_given.weekday() == 5:
+                    deliv_date_dop = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")  # Domenica
+                else:
+                    deliv_date_dop = dt_given.strftime("%Y-%m-%d")
         except:
             deliv_date_std = str(delivery_date)[:10]
             deliv_date_dop = str(delivery_date)[:10]

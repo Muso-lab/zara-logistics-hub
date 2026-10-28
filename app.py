@@ -1776,8 +1776,8 @@ elif "Bolle di Consegna" in menu:
                     sel_gen_run = st.selectbox("Previsione (Run)", list(run_opts.keys()), format_func=lambda x: run_opts[x], key="pop_gen_run")
                     
                     # Calcolo automatico della data di consegna operativa Inditex:
-                    # - LUN-MER (26-28 Ottobre): /9 Mercoledi (28 Ottobre), /0 Giovedi (29 Ottobre)
-                    # - GIOV-DOM (fine Domenica): /9 Domenica, /0 Lunedi
+                    # - LUN-MER: Consegna /9 Mercoledi, /0 Giovedi
+                    # - GIOV-DOM: Consegna /0 Sabato, /9 Domenica
                     r_sel_row = runs_side[runs_side["id"] == sel_gen_run]
                     if not r_sel_row.empty:
                         r_cyc = str(r_sel_row.iloc[0].get("cycle_type", "LUN-MER")).upper()
@@ -1791,8 +1791,12 @@ elif "Bolle di Consegna" in menu:
                         else:
                             mon_d = r_dt_obj - timedelta(days=r_dt_obj.weekday())
                             is_mid = ("LUN" in r_cyc or r_dt_obj.weekday() <= 2)
-                            date_dop_calc = mon_d + timedelta(days=2 if is_mid else 6)
-                            date_std_calc = mon_d + timedelta(days=3 if is_mid else 7)
+                            if is_mid:
+                                date_dop_calc = mon_d + timedelta(days=2) # Mercoledi
+                                date_std_calc = mon_d + timedelta(days=3) # Giovedi
+                            else:
+                                date_std_calc = mon_d + timedelta(days=5) # Sabato
+                                date_dop_calc = mon_d + timedelta(days=6) # Domenica
                     else:
                         date_dop_calc = date.today()
                         date_std_calc = date.today() + timedelta(days=1)
