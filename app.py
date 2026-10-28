@@ -14,25 +14,19 @@ import html
 import hmac
 import hashlib
 
-# Ensure fresh reload of local modules on Streamlit Cloud code re-runs
-for _mod in [
-    "src.config",
-    "src.utils",
-    "src.cloud_sync",
-    "src.db",
-    "src.parsers",
-    "src.engine",
-    "src.pipeline",
-    "src.bolle_manager",
-    "src.exporters",
-    "src.mailer",
-    "src.components"
-]:
-    if _mod in sys.modules:
-        try:
-            importlib.reload(sys.modules[_mod])
-        except Exception:
-            pass
+# Optional dynamic module reload for development mode only (disabled in production for fast load)
+import os
+if os.getenv("DEV_RELOAD_MODULES") == "1":
+    for _mod in [
+        "src.config", "src.utils", "src.cloud_sync", "src.db", "src.parsers",
+        "src.engine", "src.pipeline", "src.bolle_manager", "src.exporters",
+        "src.mailer", "src.components"
+    ]:
+        if _mod in sys.modules:
+            try:
+                importlib.reload(sys.modules[_mod])
+            except Exception:
+                pass
 
 from src.cloud_sync import (
     get_cloud_url,
@@ -140,6 +134,50 @@ st.markdown("""
     [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
     [data-testid="stDecoration"] {visibility: hidden !important; display: none !important;}
     [data-testid="stStatusWidget"] {visibility: hidden !important;}
+
+    /* =========================================================================
+       PREVIENE LA TRASLUCIDITA' E MOSTRA UN CHIARO INDICATORE DI ELABORAZIONE
+       ========================================================================= */
+    /* Evita che l'app sbiadisca in modo trasparente e dia l'impressione di blocco */
+    div[data-test-script-state="running"] [data-testid="stAppViewContainer"] > .main {
+        opacity: 0.72 !important;
+        filter: grayscale(10%) blur(0.2px) !important;
+        pointer-events: none !important;
+        transition: opacity 0.15s ease-in-out !important;
+    }
+
+    /* Floating Processing Banner centrale ad alto impatto visivo */
+    div[data-test-script-state="running"]::after {
+        content: "⏳ Elaborazione in corso... Attendere prego";
+        position: fixed;
+        top: 22px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #0F172A;
+        color: #FFFFFF;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 14px;
+        font-weight: 700;
+        padding: 10px 26px;
+        border-radius: 9999px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 0 0 2px #38BDF8;
+        z-index: 9999999 !important;
+        letter-spacing: 0.3px;
+        display: block !important;
+        animation: pulse-loader 1.5s infinite ease-in-out;
+        pointer-events: none;
+    }
+
+    @keyframes pulse-loader {
+        0%, 100% {
+            transform: translateX(-50%) scale(1);
+            box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.6), 0 0 0 2px #38BDF8;
+        }
+        50% {
+            transform: translateX(-50%) scale(1.03);
+            box-shadow: 0 14px 30px -5px rgba(15, 23, 42, 0.8), 0 0 0 3px #0284C7;
+        }
+    }
 
     .main-header {
         font-size: 25px;
@@ -316,27 +354,18 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-def _initialize_system():
-    """Esegue l'inizializzazione del DB all'avvio del server."""
+@st.cache_resource(show_spinner=False)
+def _initialize_system_once():
+    """Esegue l'inizializzazione del database una sola volta all'avvio del processo (veloce e non bloccante)."""
     try:
         init_db()
         init_bolle_tables()
         seed_anagrafica_if_empty()
     except Exception:
         pass
+    return True
 
-    # Ripristino automatico dallo storico Cloud (Google Sheets) se SQLite non contiene run o se mancano le impostazioni email
-    # (es. dopo un riavvio del container o un nuovo deploy su Streamlit Cloud)
-    try:
-        from src.db import get_all_runs, get_app_setting
-        has_runs = not get_all_runs().empty
-        has_email = bool(get_app_setting("email_config_json"))
-        if not has_runs or not has_email:
-            pull_all_from_cloud()
-    except Exception:
-        pass
-
-_initialize_system()
+_initialize_system_once()
 
 # ==============================================================================
 # SISTEMA DI LOGIN CON PERSISTENZA SESSIONE (PC & SMARTPHONE REFRESH)
@@ -978,11 +1007,12 @@ if "Previsione & Arrivi" in menu:
                     with st.popover("🗑️ Elimina Run", use_container_width=True):
                         st.warning(f"Vuoi eliminare la **Run #{chosen_id}** e tutti i suoi dati associati?")
                         if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key=f"btn_confirm_del_run_{chosen_id}"):
-                            delete_run(chosen_id)
-                            st.session_state.pop("active_view_run_id", None)
-                            st.session_state.pop("last_run", None)
-                            st.success(f"Run #{chosen_id} eliminata con successo.")
-                            st.rerun()
+                            with st.spinner(f"🗑️ Eliminazione Run #{chosen_id} in corso..."):
+                                delete_run(chosen_id)
+                                st.session_state.pop("active_view_run_id", None)
+                                st.session_state.pop("last_run", None)
+                                st.success(f"Run #{chosen_id} eliminata con successo.")
+                                st.rerun()
 
             # Caricamento effettivo della run
             if "last_run" in st.session_state and st.session_state["last_run"] and st.session_state["last_run"].get("run_id") == st.session_state["active_view_run_id"]:
@@ -1812,9 +1842,10 @@ elif "Bolle di Consegna" in menu:
                 with st.popover("🗑️ Svota Bolle Data", use_container_width=True):
                     st.warning(f"Eliminare tutte le bolle del **{format_date_it(target_date)}**?")
                     if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key="btn_del_bolle_dt"):
-                        n_d = delete_bolle_by_date(target_date)
-                        st.success(f"Eliminate {n_d} bolle.")
-                        st.rerun()
+                        with st.spinner(f"🗑️ Eliminazione bolle del {format_date_it(target_date)} in corso..."):
+                            n_d = delete_bolle_by_date(target_date)
+                            st.success(f"Eliminate {n_d} bolle.")
+                            st.rerun()
 
         # Pannello di Stampa se attivo
         if "print_html" in st.session_state:
@@ -3039,12 +3070,13 @@ elif menu.startswith("🗄️ 5.") or menu.startswith("⚙️ 5."):
                     with st.popover(f"🗑️ Elimina Selezionate ({len(selected_mass_ids)})", use_container_width=True):
                         st.warning(f"Confermi l'eliminazione definitiva di **{len(selected_mass_ids)}** elaborazioni?")
                         if st.button("Conferma Eliminazione Multipla", type="primary", use_container_width=True, key="btn_confirm_mass_del"):
-                            n_del = delete_runs(selected_mass_ids)
-                            st.session_state["mass_del_sel_runs"] = []
-                            if "last_run" in st.session_state and st.session_state["last_run"].get("run_id") in selected_mass_ids:
-                                del st.session_state["last_run"]
-                            st.success(f"Eliminate {n_del} elaborazioni!")
-                            st.rerun()
+                            with st.spinner(f"🗑️ Eliminazione di {len(selected_mass_ids)} elaborazioni in corso... Attendere prego"):
+                                n_del = delete_runs(selected_mass_ids)
+                                st.session_state["mass_del_sel_runs"] = []
+                                if "last_run" in st.session_state and st.session_state["last_run"].get("run_id") in selected_mass_ids:
+                                    del st.session_state["last_run"]
+                                st.success(f"Eliminate {n_del} elaborazioni!")
+                                st.rerun()
                 else:
                     st.button("🗑️ Elimina Selezionate (0)", disabled=True, use_container_width=True)
 
@@ -3052,12 +3084,13 @@ elif menu.startswith("🗄️ 5.") or menu.startswith("⚙️ 5."):
                 with st.popover("⚠️ Svuota Intero Storico", use_container_width=True):
                     st.error("Questa azione azzera tutte le elaborazioni dallo storico (anagrafica e bolle restano intatte).")
                     if st.button("Conferma Svuotamento Totale", type="primary", use_container_width=True, key="btn_confirm_clear_all"):
-                        n_del = clear_all_runs()
-                        st.session_state["mass_del_sel_runs"] = []
-                        if "last_run" in st.session_state:
-                            del st.session_state["last_run"]
-                        st.success(f"Storico azzerato ({n_del} run eliminate)!")
-                        st.rerun()
+                        with st.spinner("⚠️ Svuotamento totale dello storico in corso... Attendere prego"):
+                            n_del = clear_all_runs()
+                            st.session_state["mass_del_sel_runs"] = []
+                            if "last_run" in st.session_state:
+                                del st.session_state["last_run"]
+                            st.success(f"Storico azzerato ({n_del} run eliminate)!")
+                            st.rerun()
 
             st.markdown("---")
             runs_disp = runs.copy()
