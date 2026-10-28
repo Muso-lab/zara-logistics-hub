@@ -146,6 +146,45 @@ st.markdown("""
         transition: opacity 0.15s ease-in-out !important;
     }
 
+    /* Barra di Navigazione Mobile Touch (Pulsanti Chiari in Basso su Smartphone) */
+    .mobile-bottom-nav {
+        display: none;
+    }
+    .mobile-top-bar {
+        display: none;
+    }
+    @media (max-width: 900px) {
+        .mobile-bottom-nav {
+            display: block !important;
+            position: fixed !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            background: #FFFFFF !important;
+            border-top: 2px solid #CBD5E1 !important;
+            box-shadow: 0 -4px 18px rgba(15, 23, 42, 0.15) !important;
+            padding: 8px 10px 14px 10px !important;
+            z-index: 999999 !important;
+        }
+        [data-testid="stAppViewContainer"] > .main {
+            padding-bottom: 95px !important;
+        }
+        .mobile-top-bar {
+            display: flex !important;
+            gap: 6px !important;
+            margin-bottom: 14px !important;
+            overflow-x: auto !important;
+            padding-bottom: 4px !important;
+        }
+        .mobile-top-bar button {
+            white-space: nowrap !important;
+            font-size: 13px !important;
+            font-weight: 700 !important;
+            padding: 8px 14px !important;
+            border-radius: 8px !important;
+        }
+    }
+
     /* Floating Processing Banner centrale ad alto impatto visivo */
     div[data-test-script-state="running"]::after {
         content: "⏳ Elaborazione in corso... Attendere prego";
@@ -615,6 +654,19 @@ menu = st.sidebar.radio(
 )
 st.session_state["nav_menu"] = menu
 
+# Barra Tasti Rapidi Touch per Mobile (Alternativa al menu laterale su smartphone)
+st.markdown('<div class="mobile-top-bar">', unsafe_allow_html=True)
+mob_nav_cols = st.columns(len(MENU_OPTIONS))
+for m_idx, m_opt in enumerate(MENU_OPTIONS):
+    m_short = m_opt.split(". ")[-1] if ". " in m_opt else m_opt
+    m_icon = m_opt.split(" ")[0] if " " in m_opt else "📌"
+    m_is_act = (menu == m_opt)
+    with mob_nav_cols[m_idx]:
+        if st.button(f"{m_icon} {m_short}", key=f"mob_nav_btn_{m_idx}", type="primary" if m_is_act else "secondary", use_container_width=True):
+            st.session_state["nav_menu"] = m_opt
+            st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
+
 df_stores_side = get_stores_df()
 runs_side = get_all_runs()
 
@@ -931,18 +983,22 @@ def render_operativa_files_and_email_section(
             att_files = [p_sintesi, p_sga0, p_sga9]
             if p_zara.exists():
                 att_files.append(p_zara)
-            success, msg = send_operativa_email(
-                recipients=to_list,
-                subject=em_subj,
-                body_text=em_body,
-                attachment_paths=att_files,
-                cc_recipients=cc_list,
-                smtp_config=email_cfg
-            )
-            if success:
-                st.success(f"🎉 **{msg}**")
-            else:
-                st.error(f"❌ {msg}")
+            with st.spinner("📧 Invio email operativa con documenti allegati in corso..."):
+                success, msg = send_operativa_email(
+                    recipients=to_list,
+                    subject=em_subj,
+                    body_text=em_body,
+                    attachment_paths=att_files,
+                    cc_recipients=cc_list,
+                    smtp_config=email_cfg
+                )
+                if success:
+                    st.session_state["flash_email_success"] = msg
+                    st.session_state["active_view_run_id"] = rid
+                    st.session_state["last_run"] = run_data
+                    st.rerun()
+                else:
+                    st.error(f"❌ {msg}")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -964,6 +1020,8 @@ if "Previsione & Arrivi" in menu:
         tab_new_exec = None
 
     with tab_view_active:
+        if "flash_email_success" in st.session_state:
+            st.success(f"🎉 **{st.session_state.pop('flash_email_success')}**")
         active_run_data = None
         latest_run_id = int(runs_side.iloc[0]["id"]) if not runs_side.empty else None
 
@@ -1978,6 +2036,93 @@ elif "Spunta Banchina" in menu:
             spuntati_cnt = int((df_b_date.get("spuntato", pd.Series(0, index=df_b_date.index)).fillna(0) == 1).sum()) if not df_b_date.empty else 0
             tot_b_cnt = len(df_b_date)
             st.caption(f"Avanzamento: **{spuntati_cnt} / {tot_b_cnt}** spuntati")
+
+        # Quadratura Telemetrica Live Barra 0 vs Barra 9 (Previsione vs Spunta)
+        df_b_quad = get_bolle(data_consegna=sel_spunta_dt)
+        if not df_b_quad.empty:
+            b0_sub = df_b_quad[df_b_quad["tipo_cons"] == "STD"]
+            b9_sub = df_b_quad[df_b_quad["tipo_cons"] == "DOPPIA"]
+
+            b0_eff = int(round(float(b0_sub["TOT_COLLI"].sum()))) if not b0_sub.empty else 0
+            b0_prev = int(round(float(b0_sub["prev_totale"].sum()))) if not b0_sub.empty else 0
+            b0_delta = b0_eff - b0_prev
+            b0_sp_ok = int((b0_sub["spuntato"].fillna(0) == 1).sum()) if not b0_sub.empty else 0
+            b0_n_tot = len(b0_sub)
+
+            b9_eff = int(round(float(b9_sub["TOT_COLLI"].sum()))) if not b9_sub.empty else 0
+            b9_prev = int(round(float(b9_sub["prev_totale"].sum()))) if not b9_sub.empty else 0
+            b9_delta = b9_eff - b9_prev
+            b9_sp_ok = int((b9_sub["spuntato"].fillna(0) == 1).sum()) if not b9_sub.empty else 0
+            b9_n_tot = len(b9_sub)
+
+            t_eff = b0_eff + b9_eff
+            t_prev = b0_prev + b9_prev
+            t_delta = t_eff - t_prev
+            t_sp_ok = b0_sp_ok + b9_sp_ok
+            t_n_tot = b0_n_tot + b9_n_tot
+
+            b0_sign = "+" if b0_delta > 0 else ""
+            b9_sign = "+" if b9_delta > 0 else ""
+            t_sign = "+" if t_delta > 0 else ""
+            b0_col = "#15803D" if b0_delta >= 0 else "#DC2626"
+            b9_col = "#15803D" if b9_delta >= 0 else "#DC2626"
+            t_col = "#15803D" if t_delta >= 0 else "#DC2626"
+
+            st.markdown(f"""
+            <div class="modern-card" style="padding: 12px 16px; margin-bottom: 14px; background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                    <span style="font-size: 12px; font-weight: 800; color: #0F172A; text-transform: uppercase;">
+                        📊 QUADRATURA LIVE SPUNTA — {format_date_it(sel_spunta_dt)}
+                    </span>
+                    <span style="font-size: 11px; font-weight: 700; color: #475569;">
+                        Stato Conteggio: <strong style="color: #0284C7;">{t_sp_ok} / {t_n_tot} Negozi</strong>
+                    </span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
+                    <div style="background: #F0FDF4; border: 1px solid #86EFAC; border-radius: 8px; padding: 8px 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 11px; font-weight: 800; color: #166534;">🚚 BARRA 0 (Standard)</span>
+                            <span style="font-size: 10px; font-weight: 700; background: #DCFCE7; color: #15803D; padding: 1px 6px; border-radius: 8px;">{b0_sp_ok}/{b0_n_tot} ok</span>
+                        </div>
+                        <div style="font-size: 19px; font-weight: 800; color: #14532D; margin-top: 3px;">
+                            {format_number_it(b0_eff, 0)} <span style="font-size: 11.5px; font-weight: 600;">colli</span>
+                        </div>
+                        <div style="font-size: 10.5px; color: #166534; margin-top: 2px; display: flex; justify-content: space-between;">
+                            <span>Prev: <strong>{format_number_it(b0_prev, 0)}</strong></span>
+                            <span style="font-weight: 700; color: {b0_col};">Delta: {b0_sign}{b0_delta}</span>
+                        </div>
+                    </div>
+
+                    <div style="background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 8px; padding: 8px 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 11px; font-weight: 800; color: #92400E;">🔁 BARRA 9 (2ª Uscita)</span>
+                            <span style="font-size: 10px; font-weight: 700; background: #FDE68A; color: #B45309; padding: 1px 6px; border-radius: 8px;">{b9_sp_ok}/{b9_n_tot} ok</span>
+                        </div>
+                        <div style="font-size: 19px; font-weight: 800; color: #78350F; margin-top: 3px;">
+                            {format_number_it(b9_eff, 0)} <span style="font-size: 11.5px; font-weight: 600;">colli</span>
+                        </div>
+                        <div style="font-size: 10.5px; color: #92400E; margin-top: 2px; display: flex; justify-content: space-between;">
+                            <span>Prev: <strong>{format_number_it(b9_prev, 0)}</strong></span>
+                            <span style="font-weight: 700; color: {b9_col};">Delta: {b9_sign}{b9_delta}</span>
+                        </div>
+                    </div>
+
+                    <div style="background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 8px; padding: 8px 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 11px; font-weight: 800; color: #1E293B;">📦 TOTALE CONTATI</span>
+                            <span style="font-size: 10px; font-weight: 700; background: #E2E8F0; color: #475569; padding: 1px 6px; border-radius: 8px;">Banchina</span>
+                        </div>
+                        <div style="font-size: 19px; font-weight: 800; color: #0F172A; margin-top: 3px;">
+                            {format_number_it(t_eff, 0)} <span style="font-size: 11.5px; font-weight: 600;">colli</span>
+                        </div>
+                        <div style="font-size: 10.5px; color: #475569; margin-top: 2px; display: flex; justify-content: space-between;">
+                            <span>Prev: <strong>{format_number_it(t_prev, 0)}</strong></span>
+                            <span style="font-weight: 800; color: {t_col};">Delta: {t_sign}{t_delta}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
         if df_b_date.empty:
             st.warning(f"Nessuna bolla trovata per la data {format_date_it(sel_spunta_dt)} nel giro selezionato.")
@@ -3131,3 +3276,19 @@ elif menu.startswith("🗄️ 5.") or menu.startswith("⚙️ 5."):
                     init_bolle_tables()
                     st.success("✅ Database ripristinato con successo!")
                     st.rerun()
+
+
+# ==============================================================================
+# BARRA DI NAVIGAZIONE MOBILE TOUCH FISSA IN BASSO (SMARTPHONE & TABLET)
+# ==============================================================================
+st.markdown('<div class="mobile-bottom-nav">', unsafe_allow_html=True)
+mob_bot_cols = st.columns(len(MENU_OPTIONS))
+for mb_idx, mb_opt in enumerate(MENU_OPTIONS):
+    mb_short = mb_opt.split(". ")[-1] if ". " in mb_opt else mb_opt
+    mb_icon = mb_opt.split(" ")[0] if " " in mb_opt else "📌"
+    mb_is_act = (st.session_state.get("nav_menu") == mb_opt)
+    with mob_bot_cols[mb_idx]:
+        if st.button(f"{mb_icon} {mb_short}", key=f"mob_fixed_bot_{mb_idx}", type="primary" if mb_is_act else "secondary", use_container_width=True):
+            st.session_state["nav_menu"] = mb_opt
+            st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)

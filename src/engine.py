@@ -84,6 +84,18 @@ def compute_analisi(
     results = []
     # Process distinct stores (excluding 'B' suffix stores from master for base analisi)
     base_stores = df_stores[~df_stores["store_id"].str.endswith("B")].copy()
+    known_base_sids = set(base_stores["store_id"].astype(str).str.strip())
+    known_clean_bases = {s[:-1] if s.endswith("B") else s for s in known_base_sids}
+
+    # Find any extra stores present in incoming forecast files that are not in master registry
+    extra_input_sids = []
+    for df_in in [df_total, df_texile, df_shoes, df_ecom]:
+        if df_in is not None and not df_in.empty and "store_id" in df_in.columns:
+            for s in df_in["store_id"].dropna().unique():
+                s_str = str(s).strip()
+                if s_str and s_str not in known_base_sids and s_str not in known_clean_bases:
+                    if s_str not in extra_input_sids:
+                        extra_input_sids.append(s_str)
 
     for _, srow in base_stores.iterrows():
         sid = str(srow["store_id"]).strip()
@@ -127,6 +139,67 @@ def compute_analisi(
 
         # Fallback to TOTAL file if sub-category files didn't include this store
         tot_d = map_total.get(sid, {})
+        if total_planned_crts == 0 and (float(tot_d.get("bultos", 0.0)) > 0 or float(tot_d.get("volumen", 0.0)) > 0):
+            planned_textile = int(round(float(tot_d.get("bultos", 0.0))))
+            crts_textile_total = planned_textile
+            vol_textile = round(float(tot_d.get("volumen", 0.0)), 2)
+            weight_textile = int(round(float(tot_d.get("peso", 0.0))))
+            total_vol = vol_textile
+            total_weight = weight_textile
+            total_planned_crts = planned_textile
+
+        results.append({
+            "store_id": sid,
+            "brand": brand,
+            "store_name": sname,
+            "giro": giro,
+            "crts_textile_total": crts_textile_total,
+            "planned_others": planned_others,
+            "planned_textile": planned_textile,
+            "vol_textile": vol_textile,
+            "weight_textile": weight_textile,
+            "planned_shoes": planned_shoes,
+            "vol_shoes": vol_shoes,
+            "weight_shoes": weight_shoes,
+            "planned_ecom": planned_ecom,
+            "vol_ecom": vol_ecom,
+            "weight_ecom": weight_ecom,
+            "total_vol": total_vol,
+            "total_weight": total_weight,
+            "total_planned_crts": total_planned_crts
+        })
+
+    # Include extra stores from forecast so NO store or carton is lost from totals
+    for sid in extra_input_sids:
+        tex_data = map_texile.get(sid, {})
+        sho_data = map_shoes.get(sid, {})
+        eco_data = map_ecom.get(sid, {})
+        oth_data = map_other.get(sid, {})
+        tot_d = map_total.get(sid, {})
+
+        brand = str(tot_d.get("raw_tienda") or "DA ASSEGNARE")
+        sname = f"Negozio {sid} (Non in Anagrafica)"
+        giro = "DA ASSEGNARE"
+
+        crts_textile_total = int(round(float(tex_data.get("bultos", 0.0))))
+        vol_textile = round(float(tex_data.get("volumen", 0.0)), 2)
+        weight_textile = int(round(float(tex_data.get("peso", 0.0))))
+
+        planned_others = int(round(float(oth_data.get("otros_enviado", 0.0))))
+        planned_textile = max(0, crts_textile_total - planned_others) if crts_textile_total > 0 else 0
+
+        planned_shoes = int(round(float(sho_data.get("bultos", 0.0))))
+        vol_shoes = round(float(sho_data.get("volumen", 0.0)), 2)
+        weight_shoes = int(round(float(sho_data.get("peso", 0.0))))
+
+        planned_ecom = int(round(float(eco_data.get("bultos", 0.0))))
+        vol_ecom = round(float(eco_data.get("volumen", 0.0)), 2)
+        weight_ecom = int(round(float(eco_data.get("peso", 0.0))))
+
+        total_vol = round(vol_textile + vol_shoes + vol_ecom, 2)
+        total_weight = int(weight_textile + weight_shoes + weight_ecom)
+        total_planned_crts = int(planned_textile + planned_others + planned_shoes + planned_ecom)
+
         if total_planned_crts == 0 and (float(tot_d.get("bultos", 0.0)) > 0 or float(tot_d.get("volumen", 0.0)) > 0):
             planned_textile = int(round(float(tot_d.get("bultos", 0.0))))
             crts_textile_total = planned_textile
@@ -950,6 +1023,40 @@ def compute_planning_roma(
                 "total_planned_crts": tot_pl,
                 "total_received_crts": tot_rec,
                 "intershops": d_info.get("stringa", "")
+            })
+
+    # For any store from df_analisi that wasn't matched in template, append as unmapped
+    existing_all_codes = {str(r["store_code"]).strip() for r in records}
+    for _, a_row in df_analisi.iterrows():
+        a_sid = str(a_row.get("store_id") or a_row.get("store_code") or "").strip()
+        if a_sid not in existing_all_codes and (float(a_row.get("total_planned_crts", 0)) > 0 or float(a_row.get("total_vol", 0)) > 0):
+            max_idx += 1
+            records.append({
+                "row_idx": max_idx,
+                "route_id": 99,
+                "store_code": a_sid,
+                "brand": str(a_row.get("brand", "DA ASSEGNARE")),
+                "store_name": str(a_row.get("store_name", f"Negozio {a_sid}")),
+                "delivery_day": "DA ASSEGNARE",
+                "planned_textile": int(round(float(a_row.get("planned_textile", 0)))),
+                "received_textile": 0,
+                "planned_others": int(round(float(a_row.get("planned_others", 0)))),
+                "received_others": 0,
+                "vol_textile": float(a_row.get("vol_textile", 0.0)),
+                "weight_textile": int(round(float(a_row.get("weight_textile", 0)))),
+                "planned_shoes": int(round(float(a_row.get("planned_shoes", 0)))),
+                "received_shoes": 0,
+                "vol_shoes": float(a_row.get("vol_shoes", 0.0)),
+                "weight_shoes": int(round(float(a_row.get("weight_shoes", 0)))),
+                "planned_ecom": int(round(float(a_row.get("planned_ecom", 0)))),
+                "received_ecom": 0,
+                "vol_ecom": float(a_row.get("vol_ecom", 0.0)),
+                "weight_ecom": int(round(float(a_row.get("weight_ecom", 0)))),
+                "total_vol": float(a_row.get("total_vol", 0.0)),
+                "total_weight": int(round(float(a_row.get("total_weight", 0)))),
+                "total_planned_crts": int(round(float(a_row.get("total_planned_crts", 0)))),
+                "total_received_crts": 0,
+                "intershops": ""
             })
 
     return pd.DataFrame(records)

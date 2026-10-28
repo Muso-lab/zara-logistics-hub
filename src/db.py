@@ -270,6 +270,13 @@ def init_db(db_path=DB_PATH):
         """)
 
         # Native Bolle & Delivery Profiles Tables
+        cursor.execute("PRAGMA table_info(runs)")
+        r_cols = [row[1] for row in cursor.fetchall()]
+        if "perfume_data" not in r_cols:
+            cursor.execute("ALTER TABLE runs ADD COLUMN perfume_data TEXT")
+        if "special_breakdowns" not in r_cols:
+            cursor.execute("ALTER TABLE runs ADD COLUMN special_breakdowns TEXT")
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS bolle (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -923,7 +930,7 @@ def get_all_runs(db_path=DB_PATH) -> pd.DataFrame:
     try:
         with get_connection(db_path) as conn:
             return pd.read_sql_query(
-                "SELECT id, id AS run_id, run_date, cycle_type, total_bultos, total_bultos AS total_planned_crts, total_volume, total_weight, total_pedane, notes, created_at FROM runs ORDER BY id DESC",
+                "SELECT id, id AS run_id, run_date, cycle_type, total_bultos, total_bultos AS total_planned_crts, total_volume, total_weight, total_pedane, notes, created_at, perfume_data, special_breakdowns FROM runs ORDER BY id DESC",
                 conn
             )
     except Exception:
@@ -931,7 +938,7 @@ def get_all_runs(db_path=DB_PATH) -> pd.DataFrame:
             init_db(db_path)
             with get_connection(db_path) as conn:
                 return pd.read_sql_query(
-                    "SELECT id, id AS run_id, run_date, cycle_type, total_bultos, total_bultos AS total_planned_crts, total_volume, total_weight, total_pedane, notes, created_at FROM runs ORDER BY id DESC",
+                    "SELECT id, id AS run_id, run_date, cycle_type, total_bultos, total_bultos AS total_planned_crts, total_volume, total_weight, total_pedane, notes, created_at, perfume_data, special_breakdowns FROM runs ORDER BY id DESC",
                     conn
                 )
         except Exception:
@@ -1002,8 +1009,33 @@ def get_run_details(run_id: int, db_path=DB_PATH) -> Dict[str, Any]:
         )
         df_stores = _safe_query("SELECT * FROM stores ORDER BY giro ASC, store_id ASC")
 
-        from src.engine import compute_special_breakdowns
-        special_breakdowns = compute_special_breakdowns(spunta, df_tot, df_sho, df_texile=df_tex, df_ecom=df_eco, df_stores=df_stores)
+        import json
+        saved_sb = None
+        saved_perfumes = None
+        if run_dict:
+            if run_dict.get("special_breakdowns"):
+                try:
+                    saved_sb = json.loads(run_dict["special_breakdowns"])
+                except Exception:
+                    pass
+            if run_dict.get("perfume_data"):
+                try:
+                    saved_perfumes = json.loads(run_dict["perfume_data"])
+                except Exception:
+                    pass
+
+        if saved_sb and isinstance(saved_sb, dict) and "tessile" in saved_sb:
+            special_breakdowns = saved_sb
+            for df_key in ["stender_summary", "home_summary", "recap_totali"]:
+                if df_key in special_breakdowns and isinstance(special_breakdowns[df_key], list):
+                    special_breakdowns[df_key] = pd.DataFrame(special_breakdowns[df_key])
+        else:
+            from src.engine import compute_special_breakdowns
+            special_breakdowns = compute_special_breakdowns(
+                spunta, df_tot, df_sho, df_texile=df_tex, df_ecom=df_eco,
+                perfume_corrections_override=saved_perfumes,
+                df_stores=df_stores
+            )
 
         return {
             "run": run_dict,
@@ -1016,7 +1048,8 @@ def get_run_details(run_id: int, db_path=DB_PATH) -> Dict[str, Any]:
             "sga9": sga9,
             "sga_flows": sga_all,
             "actuals": actuals,
-            "special_breakdowns": special_breakdowns
+            "special_breakdowns": special_breakdowns,
+            "perfume_corrections": saved_perfumes or special_breakdowns.get("perfume_corrections", {})
         }
 
 
@@ -1097,6 +1130,7 @@ def load_run_data(run_id: int, db_path=DB_PATH) -> Optional[Dict[str, Any]]:
         "df_sga9": sga9_df,
         "df_planner": planning_df,
         "special_breakdowns": special_breakdowns,
+        "perfume_corrections": det.get("perfume_corrections", {}),
         "exported_files": exported_files,
         "new_stores_alert": []
     }

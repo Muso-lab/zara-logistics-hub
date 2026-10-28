@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Dict, Any, Optional, Union
 import pandas as pd
@@ -27,6 +28,25 @@ from src.exporters import (
 )
 from src.mailer import build_operativa_zip
 
+
+def _serialize_special_breakdowns(sb: dict) -> str:
+    if not sb:
+        return "{}"
+    clean = {}
+    for k, v in sb.items():
+        if isinstance(v, pd.DataFrame):
+            clean[k] = v.to_dict(orient="records")
+        elif isinstance(v, dict):
+            sub = {}
+            for sk, sv in v.items():
+                if isinstance(sv, pd.DataFrame):
+                    sub[sk] = sv.to_dict(orient="records")
+                else:
+                    sub[sk] = sv
+            clean[k] = sub
+        else:
+            clean[k] = v
+    return json.dumps(clean, default=str)
 
 def run_pipeline(
     total_source: Any,
@@ -170,9 +190,13 @@ def run_pipeline(
     cursor = conn.cursor()
 
     cursor.execute("""
-    INSERT INTO runs (run_date, cycle_type, total_bultos, total_volume, total_weight, total_pedane, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (run_date, cycle_type, tot_bultos, tot_vol, tot_peso, tot_pedane, notes))
+    INSERT INTO runs (run_date, cycle_type, total_bultos, total_volume, total_weight, total_pedane, notes, perfume_data, special_breakdowns)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        run_date, cycle_type, tot_bultos, tot_vol, tot_peso, tot_pedane, notes,
+        json.dumps(perfume_corrections_override or perfume_corrections or {}),
+        _serialize_special_breakdowns(special_breakdowns or {})
+    ))
     run_id = cursor.lastrowid
 
     # Save Planning Results
