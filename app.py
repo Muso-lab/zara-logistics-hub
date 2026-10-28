@@ -1061,6 +1061,7 @@ def render_operativa_files_and_email_section(
                     st.session_state["flash_email_success"] = msg
                     st.session_state["active_view_run_id"] = rid
                     st.session_state["last_run"] = run_data
+                    st.session_state["p1_subview"] = "view"
                     st.rerun()
                 else:
                     st.error(f"❌ {msg}")
@@ -1075,18 +1076,39 @@ if "Previsione & Arrivi" in menu:
     st.markdown('<div class="main-header">📥 Previsione Arrivi, Spunta & Flussi SGA</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Carica i file previsionali da qualsiasi dispositivo (o scaricali da Extranet), calcola pedane e lavorazioni, ed emetti le bolle in 1 clic.</div>', unsafe_allow_html=True)
 
-    if has_perm("can_execute_runs"):
-        tab_view_active, tab_new_exec = st.tabs([
-            "📊 Elaborazione Aperta (Visualizzazione & File Operativa)",
-            "⚡ Nuova Elaborazione (Extranet Inditex / Caricamento File)",
-        ])
-    else:
-        tab_view_active = st.container()
-        tab_new_exec = None
+    if "p1_subview" not in st.session_state:
+        st.session_state["p1_subview"] = "view"
 
-    with tab_view_active:
+    if has_perm("can_execute_runs"):
+        sub_c1, sub_c2 = st.columns(2)
+        with sub_c1:
+            is_view_active = (st.session_state["p1_subview"] == "view")
+            if st.button(
+                "📊 1. Elaborazione Aperta (Visualizzazione & File Operativa)",
+                key="btn_sub_view_active",
+                type="primary" if is_view_active else "secondary",
+                use_container_width=True
+            ):
+                st.session_state["p1_subview"] = "view"
+                st.rerun()
+        with sub_c2:
+            is_new_active = (st.session_state["p1_subview"] == "new")
+            if st.button(
+                "⚡ 2. Nuova Elaborazione (Extranet Inditex / Caricamento File)",
+                key="btn_sub_new_exec",
+                type="primary" if is_new_active else "secondary",
+                use_container_width=True
+            ):
+                st.session_state["p1_subview"] = "new"
+                st.rerun()
+    else:
+        st.session_state["p1_subview"] = "view"
+
+    if st.session_state.get("p1_subview") == "view":
         if "flash_email_success" in st.session_state:
             st.success(f"🎉 **{st.session_state.pop('flash_email_success')}**")
+        if "flash_run_msg" in st.session_state:
+            st.success(f"🎉 **{st.session_state.pop('flash_run_msg')}**")
         active_run_data = None
         latest_run_id = int(runs_side.iloc[0]["id"]) if not runs_side.empty else None
 
@@ -1197,8 +1219,8 @@ if "Previsione & Arrivi" in menu:
     # PAGE 2: BOLLE DI CONSEGNA (ELENCO, STAMPA PER GIRO/AUTISTA, COMPILAZIONE)
     # ==============================================================================
 
-    if tab_new_exec is not None:
-        with tab_new_exec:
+    elif has_perm("can_execute_runs") and st.session_state.get("p1_subview") == "new":
+        if True:
             # 1. Parametri Ciclo
             col_meta1, col_meta2, col_meta3 = st.columns([1.2, 2, 1.8])
             with col_meta1:
@@ -1383,15 +1405,10 @@ if "Previsione & Arrivi" in menu:
                         """, unsafe_allow_html=True)
                         st.session_state["last_run"] = res
                         st.session_state["active_view_run_id"] = res["run_id"]
+                        st.session_state["p1_subview"] = "view"
                         st.session_state[f"show_op_panel_{res['run_id']}"] = True
-
-                        # Mostra subito i file operativi generati e l'invio email
-                        render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"extranet_{res['run_id']}")
-
-                        if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_extranet"):
-                            st.session_state["active_view_run_id"] = res["run_id"]
-                            st.session_state["last_run"] = res
-                            st.rerun()
+                        st.session_state["flash_run_msg"] = f"Elaborazione Extranet Run #{res['run_id']} completata con successo! Visualizzazione aperta."
+                        st.rerun()
 
                     except Exception as e:
                         status_banner.empty()
@@ -1478,15 +1495,10 @@ if "Previsione & Arrivi" in menu:
                         """, unsafe_allow_html=True)
                         st.session_state["last_run"] = res
                         st.session_state["active_view_run_id"] = res["run_id"]
+                        st.session_state["p1_subview"] = "view"
                         st.session_state[f"show_op_panel_{res['run_id']}"] = True
-
-                        # Mostra subito i file operativi generati e l'invio email
-                        render_operativa_files_and_email_section(res, df_stores_side, key_prefix=f"upload_{res['run_id']}")
-
-                        if st.button("📊 APRI TUTTI I DETTAGLI (ELABORAZIONE APERTA)", type="primary", use_container_width=True, key="btn_go_active_upload"):
-                            st.session_state["active_view_run_id"] = res["run_id"]
-                            st.session_state["last_run"] = res
-                            st.rerun()
+                        st.session_state["flash_run_msg"] = f"Elaborazione Run #{res['run_id']} completata con successo! Visualizzazione aperta."
+                        st.rerun()
 
                     except Exception as e:
                         status_banner_up.empty()
@@ -1765,6 +1777,38 @@ elif "Bolle di Consegna" in menu:
             </div>
             """, unsafe_allow_html=True)
 
+            # Controllo Sdoppiamento /0 & /9 (il totale deve matchare tra le 2 bolle)
+            if is_sdoppia:
+                df_paired = df_bolle[df_bolle["id_store"] == current_sid] if not df_bolle.empty else pd.DataFrame()
+                if not df_paired.empty:
+                    b0_m = df_paired[df_paired["tipo_cons"] == "STD"]
+                    b9_m = df_paired[df_paired["tipo_cons"] == "DOPPIA"]
+                    c0_val = int(round(float(b0_m.iloc[0]["TOT_COLLI"]))) if (not b0_m.empty and "TOT_COLLI" in b0_m.columns) else 0
+                    c9_val = int(round(float(b9_m.iloc[0]["TOT_COLLI"]))) if (not b9_m.empty and "TOT_COLLI" in b9_m.columns) else 0
+                    p0_val = int(round(float(b0_m.iloc[0]["prev_totale"]))) if (not b0_m.empty and "prev_totale" in b0_m.columns) else 0
+                    p9_val = int(round(float(b9_m.iloc[0]["prev_totale"]))) if (not b9_m.empty and "prev_totale" in b9_m.columns) else 0
+                    tot_comb_s = c0_val + c9_val
+                    prev_comb_s = p0_val + p9_val
+                    sdop_diff = tot_comb_s - prev_comb_s
+                    sdop_match = (sdop_diff == 0)
+                    st.markdown(f"""
+                    <div style="background: {'#F0FDF4' if sdop_match else '#FFFBEB'}; border: 1.5px solid {'#86EFAC' if sdop_match else '#FCD34D'}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 11px; font-weight: 800; color: #0F172A; text-transform: uppercase;">
+                                🔁 Controllo Quadratura Sdoppiamento /0 & /9 (Store {current_sid})
+                            </span>
+                            <span style="font-size: 11px; font-weight: 700; color: {'#15803D' if sdop_match else '#B45309'};">
+                                {'🟢 QUADRATURA COMBINATA OK' if sdop_match else f'⚠️ DISCORDANZA TOTALE: {sdop_diff} colli'}
+                            </span>
+                        </div>
+                        <div style="font-size: 12px; color: #334155; margin-top: 4px;">
+                            Bolla Barra 0 (/0 STD): <strong>{c0_val}</strong> colli (prev. {p0_val}) &nbsp;|&nbsp; 
+                            Bolla Barra 9 (/9 DOPPIA): <strong>{c9_val}</strong> colli (prev. {p9_val}) &nbsp;|&nbsp; 
+                            <strong>Totale Complessivo Negozio: {tot_comb_s} colli</strong> (Previsto Totale: {prev_comb_s})
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
             # Quantità Colli Effettivi (Modificabili a mano)
             st.markdown("##### 📦 Conteggio Colli Effettivi Bolla")
             col_q1, col_q2, col_q3, col_q4, col_q5 = st.columns(5)
@@ -1781,12 +1825,17 @@ elif "Bolle di Consegna" in menu:
 
             tot_operativa_calc = int(c_abb + c_calz + c_eco + c_oth + c_var)
             delta_eff_prev = tot_operativa_calc - p_tot
-            if delta_eff_prev == 0:
-                st.success(f"🟢 **Totale Colli Bolla: {format_number_it(tot_operativa_calc, 0)} colli (CONFORME AL PREVISTO)**")
-            elif delta_eff_prev > 0:
-                st.warning(f"🟡 **Totale Colli Bolla: {format_number_it(tot_operativa_calc, 0)} colli (ECCEDENZA: +{delta_eff_prev} colli rispetto al previsto di {p_tot})**")
+            is_bolla_confirmed = bool(existing_bolla and int(existing_bolla.get("spuntato", 0) or 0) == 1)
+
+            if not is_bolla_confirmed:
+                st.info(f"⏳ **BOLLA IN ATTESA DI CONFERMA / SPUNTA**: Il dato visualizzato è quello previsionale ({format_number_it(tot_operativa_calc, 0)} colli). Conferma o correggi le quantità contate allo scarico e salva per registrare la spunta.")
             else:
-                st.error(f"🔴 **Totale Colli Bolla: {format_number_it(tot_operativa_calc, 0)} colli (MANCANZA: {delta_eff_prev} colli rispetto al previsto di {p_tot})**")
+                if delta_eff_prev == 0:
+                    st.success(f"🟢 **SPUNTA CONFERMATA — CONFORME AL PREVISTO ({format_number_it(tot_operativa_calc, 0)} colli contati)**")
+                elif delta_eff_prev > 0:
+                    st.warning(f"🟡 **SPUNTA CONFERMATA — ECCEDENZA: +{delta_eff_prev} colli rispetto al previsto di {p_tot} ({tot_operativa_calc} colli)**")
+                else:
+                    st.error(f"🔴 **SPUNTA CONFERMATA — MANCANZA: {delta_eff_prev} colli rispetto al previsto di {p_tot} ({tot_operativa_calc} colli)**")
 
             # Intershops & Note
             with st.expander("🔄 Trasferimenti tra Negozi (Intershops / Stand / Ceste)", expanded=False):
@@ -1863,6 +1912,7 @@ elif "Bolle di Consegna" in menu:
                     "prev_totale": p_tot,
                     "intershops_list": inter_rows_data,
                     "stringa": computed_stringa,
+                    "spuntato": 1,
                 }
                 new_id = save_or_update_bolla(bolla_save_payload)
                 if save_next_clicked and store_choices:
@@ -2003,12 +2053,29 @@ elif "Bolle di Consegna" in menu:
                 if col_n in df_b_disp.columns:
                     df_b_disp[col_n] = df_b_disp[col_n].fillna(0).round().astype(int)
 
+            def _calc_stato_spunta_lbl(row):
+                is_sp = int(row.get("spuntato", 0) or 0) == 1
+                if not is_sp:
+                    return "⏳ Da Confermare"
+                eff = int(round(float(row.get("TOT_COLLI", 0) or 0)))
+                prev = int(round(float(row.get("prev_totale", 0) or 0)))
+                diff = eff - prev
+                if diff == 0:
+                    return "🟢 Conforme"
+                elif diff > 0:
+                    return f"🟡 Eccedenza (+{diff})"
+                else:
+                    return f"🔴 Mancanza ({diff})"
+
+            df_b_disp["stato_spunta"] = df_b_disp.apply(_calc_stato_spunta_lbl, axis=1)
+
             cols_map = {
                 "giro": "Giro",
                 "id_store": "Store ID",
                 "punto_vendita": "Insegna",
                 "store_name": "Punto Vendita",
                 "tipo_cons": "Tipo",
+                "stato_spunta": "Stato Spunta",
                 "TOT_COLLI": "Tot. Colli",
                 "colli_abbigl": "Abbigliamento",
                 "colli_calzat": "Calzature",
@@ -2261,6 +2328,37 @@ elif "Spunta Banchina" in menu:
             </div>
             """, unsafe_allow_html=True)
 
+            # Controllo Sdoppiamento /0 & /9 se presente seconda uscita
+            df_sdop_check = df_b_date[df_b_date["id_store"] == curr_sid] if not df_b_date.empty else pd.DataFrame()
+            if len(df_sdop_check) > 1 or curr_tipo == "DOPPIA":
+                r0 = df_sdop_check[df_sdop_check["tipo_cons"] == "STD"]
+                r9 = df_sdop_check[df_sdop_check["tipo_cons"] == "DOPPIA"]
+                c0 = int(round(float(r0.iloc[0]["TOT_COLLI"]))) if (not r0.empty and "TOT_COLLI" in r0.columns) else 0
+                c9 = int(round(float(r9.iloc[0]["TOT_COLLI"]))) if (not r9.empty and "TOT_COLLI" in r9.columns) else 0
+                p0 = int(round(float(r0.iloc[0]["prev_totale"]))) if (not r0.empty and "prev_totale" in r0.columns) else 0
+                p9 = int(round(float(r9.iloc[0]["prev_totale"]))) if (not r9.empty and "prev_totale" in r9.columns) else 0
+                tot_comb = c0 + c9
+                prev_comb = p0 + p9
+                m_diff = tot_comb - prev_comb
+                m_ok = (m_diff == 0)
+                st.markdown(f"""
+                <div style="background: {'#F0FDF4' if m_ok else '#FFFBEB'}; border: 1.5px solid {'#86EFAC' if m_ok else '#FCD34D'}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 11px; font-weight: 800; color: #0F172A; text-transform: uppercase;">
+                            🔁 Controllo Sdoppiamento /0 & /9 (Totale Negozio {curr_sid})
+                        </span>
+                        <span style="font-size: 11px; font-weight: 700; color: {'#15803D' if m_ok else '#B45309'};">
+                            {'🟢 MATCH /0 + /9 OK' if m_ok else f'⚠️ DELTA: {m_diff} colli'}
+                        </span>
+                    </div>
+                    <div style="font-size: 12px; color: #334155; margin-top: 4px;">
+                        Barra 0 (/0 STD): <strong>{c0}</strong> colli (prev: {p0}) &nbsp;|&nbsp; 
+                        Barra 9 (/9 DOPPIA): <strong>{c9}</strong> colli (prev: {p9}) &nbsp;|&nbsp; 
+                        <strong>Totale Negozio: {tot_comb} colli</strong> (Previsto: {prev_comb})
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
             # Card Valori Previsionali Attesi
             st.markdown(f"""
             <div class="modern-card" style="padding: 12px 18px; margin-bottom: 14px; background-color: #F8FAFC; border: 1px solid #E2E8F0;">
@@ -2310,12 +2408,16 @@ elif "Spunta Banchina" in menu:
             m_delta = m_tot_calc - prev_tot_m
 
             # Live Delta Banner
-            if m_delta == 0:
-                st.success(f"🟢 **CONFORME: {format_number_it(m_tot_calc, 0)} Colli Contati (Delta: 0 rispetto al previsto)**")
-            elif m_delta > 0:
-                st.warning(f"🟡 **ECCEDENZA RISCONTRATA: {format_number_it(m_tot_calc, 0)} Colli Contati (+{m_delta} colli in più rispetto al previsto di {prev_tot_m})**")
+            is_cur_spuntato = bool(int(b_curr.get("spuntato", 0) or 0) == 1)
+            if not is_cur_spuntato:
+                st.info(f"⏳ **IN ATTESA DI CONTEGGIO BANCHINA**: Dato atteso: **{prev_tot_m}** colli. Inserisci le quantità contate allo scarico e premi *Registra Spunta* per confermare la bolla.")
             else:
-                st.error(f"🔴 **MANCANZA RISCONTRATA: {format_number_it(m_tot_calc, 0)} Colli Contati ({m_delta} colli rispetto al previsto di {prev_tot_m})**")
+                if m_delta == 0:
+                    st.success(f"🟢 **SPUNTA CONFERMATA — CONFORME AL PREVISTO: {format_number_it(m_tot_calc, 0)} Colli Contati**")
+                elif m_delta > 0:
+                    st.warning(f"🟡 **SPUNTA CONFERMATA — ECCEDENZA: {format_number_it(m_tot_calc, 0)} Colli Contati (+{m_delta} rispetto al previsto di {prev_tot_m})**")
+                else:
+                    st.error(f"🔴 **SPUNTA CONFERMATA — MANCANZA: {format_number_it(m_tot_calc, 0)} Colli Contati ({m_delta} rispetto al previsto di {prev_tot_m})**")
 
             # Campo Note Banchina
             m_note = st.text_input("📝 Note / Osservazioni Banchina", value=str(b_curr.get("note") or ""), placeholder="es. merce integra, 1 collo bagnato, etc.", key=f"m_note_{sel_bid}")
