@@ -1201,13 +1201,85 @@ def render_operativa_files_and_email_section(
 # PAGE 1: PREVISIONE & ARRIVI (IMPORT + SPUNTA + SGA + LAVORAZIONI)
 # ==============================================================================
 if "Previsione & Arrivi" in menu:
-    st.markdown('<div class="main-header">📥 Previsione Arrivi, Spunta & Flussi SGA</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Carica i file previsionali da qualsiasi dispositivo (o scaricali da Extranet), calcola pedane e lavorazioni, ed emetti le bolle in 1 clic.</div>', unsafe_allow_html=True)
+    if is_magazzino() or not has_perm("can_execute_runs"):
+        # ==============================================================================
+        # VISTA ESCLUSIVA MAGAZZINO: SOLO CONSULTAZIONE ARRIVI DOPO SELEZIONE DATA
+        # (Nessun caricamento file, nessun invio email, nessun file SGA, nessuna eliminazione)
+        # ==============================================================================
+        st.markdown('<div class="main-header">📥 Previsione Arrivi Merci</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Seleziona la data per consultare i quantitativi e le pedane previste in arrivo allo scarico.</div>', unsafe_allow_html=True)
 
-    if "p1_subview" not in st.session_state:
-        st.session_state["p1_subview"] = "view"
+        if runs_side.empty:
+            st.info("ℹ️ Nessuna previsione di arrivo disponibile in archivio.")
+        else:
+            run_date_map = {}
+            for _, r in runs_side.iterrows():
+                r_id = int(r["id"])
+                r_dt = str(r["run_date"])[:10]
+                r_cyc = str(r.get("cycle_type", ""))
+                r_bultos = format_number_it(r.get("total_bultos", 0), 0)
+                r_plt = format_number_it(r.get("total_pedane", 0), 0)
+                run_date_map[r_id] = f"{format_date_it(r_dt)} ({r_dt}) — {r_bultos} colli ({r_plt} PLT) [{r_cyc}]"
 
-    if has_perm("can_execute_runs"):
+            valid_ids = list(run_date_map.keys())
+            latest_run_id = valid_ids[0]
+            if "active_view_run_id" not in st.session_state or st.session_state["active_view_run_id"] not in valid_ids:
+                st.session_state["active_view_run_id"] = latest_run_id
+
+            curr_sel_id = st.session_state.get("active_view_run_id") or latest_run_id
+            sel_idx = valid_ids.index(curr_sel_id) if curr_sel_id in valid_ids else 0
+
+            c_mag_dt, _ = st.columns([2.5, 1])
+            with c_mag_dt:
+                chosen_id = st.selectbox(
+                    "📅 Seleziona Data di Arrivo:",
+                    valid_ids,
+                    index=sel_idx,
+                    format_func=lambda rid: ("⭐ [ULTIMI ARRIVI] " if rid == latest_run_id else "") + run_date_map[rid],
+                    key="p1_magazzino_run_date_sel",
+                )
+            if chosen_id != st.session_state.get("active_view_run_id"):
+                st.session_state["active_view_run_id"] = chosen_id
+                st.rerun()
+
+            active_run_data = load_run_data(chosen_id)
+            if active_run_data:
+                totals = active_run_data["totals"]
+                st.markdown("---")
+                st.markdown("### 📊 Riepilogo Arrivi")
+
+                kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+                kpi1.metric("Totale Colli", format_number_it(totals["total_bultos"], 0))
+                kpi2.metric("Volume Complessivo", format_number_it(totals["total_volume"], 2) + " m³")
+                kpi3.metric("Peso Complessivo", format_number_it(totals["total_weight"], 0) + " kg")
+                kpi4.metric("Pedane Stimate", format_number_it(totals["total_pedane"], 0))
+
+                tab_spunta, tab_giri = st.tabs([
+                    "📋 Spunta Arrivi (Per Negozio)",
+                    "🚛 Vista per Giro & Vettori",
+                ])
+
+                df_sp_view = active_run_data.get("df_spunta", pd.DataFrame())
+
+                with tab_spunta:
+                    render_spunta_arrivi_modern(df_sp_view, df_stores=df_stores_side)
+
+                with tab_giri:
+                    render_riepilogo_giri_modern(
+                        df_sp_view,
+                        df_stores=df_stores_side,
+                        special_breakdowns=active_run_data.get("special_breakdowns", {}),
+                    )
+    else:
+        # ==============================================================================
+        # VISTA COMPLETA (ADMIN / UFFICIO TRAFFICO): ELABORAZIONE, FILE & EMAIL
+        # ==============================================================================
+        st.markdown('<div class="main-header">📥 Previsione Arrivi, Spunta & Flussi SGA</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Carica i file previsionali da qualsiasi dispositivo (o scaricali da Extranet), calcola pedane e lavorazioni, ed emetti le bolle in 1 clic.</div>', unsafe_allow_html=True)
+
+        if "p1_subview" not in st.session_state:
+            st.session_state["p1_subview"] = "view"
+
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
             is_view_active = (st.session_state["p1_subview"] == "view")
@@ -1229,118 +1301,168 @@ if "Previsione & Arrivi" in menu:
             ):
                 st.session_state["p1_subview"] = "new"
                 st.rerun()
-    else:
-        st.session_state["p1_subview"] = "view"
 
-    if st.session_state.get("p1_subview") == "view":
-        if "flash_email_success" in st.session_state:
-            st.success(f"🎉 **{st.session_state.pop('flash_email_success')}**")
-        if "flash_run_msg" in st.session_state:
-            st.success(f"🎉 **{st.session_state.pop('flash_run_msg')}**")
-        active_run_data = None
-        latest_run_id = int(runs_side.iloc[0]["id"]) if not runs_side.empty else None
+        if st.session_state.get("p1_subview") == "view":
+            if "flash_email_success" in st.session_state:
+                st.success(f"🎉 **{st.session_state.pop('flash_email_success')}**")
+            if "flash_run_msg" in st.session_state:
+                st.success(f"🎉 **{st.session_state.pop('flash_run_msg')}**")
+            active_run_data = None
+            latest_run_id = int(runs_side.iloc[0]["id"]) if not runs_side.empty else None
 
-        if not runs_side.empty:
-            valid_ids = list(runs_side["id"])
-            if "active_view_run_id" not in st.session_state or st.session_state["active_view_run_id"] not in valid_ids:
-                st.session_state["active_view_run_id"] = latest_run_id
-
-            if has_perm("can_delete_runs"):
-                col_r_sel, col_r_btn, col_r_del = st.columns([2.6, 1.1, 1.1])
-            else:
-                col_r_sel, col_r_btn = st.columns([3.5, 1.3])
-                col_r_del = None
-            with col_r_sel:
-                run_opts_map = {
-                    int(r["id"]): f"Run #{int(r['id'])} ({format_date_it(r['run_date'])}, {r['cycle_type']}) — {format_number_it(r['total_bultos'], 0)} colli ({format_number_it(r['total_pedane'], 0)} PLT)"
-                    for _, r in runs_side.head(50).iterrows()
-                }
-                curr_selected_id = st.session_state.get("active_view_run_id") or latest_run_id
-                sel_idx = list(run_opts_map.keys()).index(curr_selected_id) if curr_selected_id in run_opts_map else 0
-                chosen_id = st.selectbox(
-                    "📂 Elaborazione Visualizzata (Seleziona Run dallo Storico)",
-                    list(run_opts_map.keys()),
-                    index=sel_idx,
-                    format_func=lambda rid: ("⭐ [ULTIMA RUN] " if rid == latest_run_id else "") + run_opts_map[rid],
-                    key="p1_run_selector_sb",
-                )
-                if chosen_id != st.session_state.get("active_view_run_id"):
-                    st.session_state["active_view_run_id"] = chosen_id
-                    st.rerun()
-
-            with col_r_btn:
-                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                if st.button("🔄 Riapri Ultima Run", use_container_width=True, key="btn_reopen_latest"):
+            if not runs_side.empty:
+                valid_ids = list(runs_side["id"])
+                if "active_view_run_id" not in st.session_state or st.session_state["active_view_run_id"] not in valid_ids:
                     st.session_state["active_view_run_id"] = latest_run_id
-                    st.rerun()
 
-            if col_r_del is not None:
-                with col_r_del:
+                if has_perm("can_delete_runs"):
+                    col_r_sel, col_r_btn, col_r_del = st.columns([2.6, 1.1, 1.1])
+                else:
+                    col_r_sel, col_r_btn = st.columns([3.5, 1.3])
+                    col_r_del = None
+                with col_r_sel:
+                    run_opts_map = {
+                        int(r["id"]): f"Run #{int(r['id'])} ({format_date_it(r['run_date'])}, {r['cycle_type']}) — {format_number_it(r['total_bultos'], 0)} colli ({format_number_it(r['total_pedane'], 0)} PLT)"
+                        for _, r in runs_side.head(50).iterrows()
+                    }
+                    curr_selected_id = st.session_state.get("active_view_run_id") or latest_run_id
+                    sel_idx = list(run_opts_map.keys()).index(curr_selected_id) if curr_selected_id in run_opts_map else 0
+                    chosen_id = st.selectbox(
+                        "📂 Elaborazione Visualizzata (Seleziona Run dallo Storico)",
+                        list(run_opts_map.keys()),
+                        index=sel_idx,
+                        format_func=lambda rid: ("⭐ [ULTIMA RUN] " if rid == latest_run_id else "") + run_opts_map[rid],
+                        key="p1_run_selector_sb",
+                    )
+                    if chosen_id != st.session_state.get("active_view_run_id"):
+                        st.session_state["active_view_run_id"] = chosen_id
+                        st.rerun()
+
+                with col_r_btn:
                     st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                    with st.popover("🗑️ Elimina Run", use_container_width=True):
-                        st.warning(f"Vuoi eliminare la **Run #{chosen_id}** e tutti i suoi dati associati?")
-                        if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key=f"btn_confirm_del_run_{chosen_id}"):
-                            with st.spinner(f"🗑️ Eliminazione Run #{chosen_id} in corso..."):
-                                delete_run(chosen_id)
-                                st.session_state.pop("active_view_run_id", None)
-                                st.session_state.pop("last_run", None)
-                                st.success(f"Run #{chosen_id} eliminata con successo.")
-                                st.rerun()
+                    if st.button("🔄 Riapri Ultima Run", use_container_width=True, key="btn_reopen_latest"):
+                        st.session_state["active_view_run_id"] = latest_run_id
+                        st.rerun()
 
-            # Caricamento effettivo della run
-            if "last_run" in st.session_state and st.session_state["last_run"] and st.session_state["last_run"].get("run_id") == st.session_state["active_view_run_id"]:
-                active_run_data = st.session_state["last_run"]
+                if col_r_del is not None:
+                    with col_r_del:
+                        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                        with st.popover("🗑️ Elimina Run", use_container_width=True):
+                            st.warning(f"Vuoi eliminare la **Run #{chosen_id}** e tutti i suoi dati associati?")
+                            if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key=f"btn_confirm_del_run_{chosen_id}"):
+                                with st.spinner(f"🗑️ Eliminazione Run #{chosen_id} in corso..."):
+                                    delete_run(chosen_id)
+                                    st.session_state.pop("active_view_run_id", None)
+                                    st.session_state.pop("last_run", None)
+                                    st.success(f"Run #{chosen_id} eliminata con successo.")
+                                    st.rerun()
+
+                # Caricamento effettivo della run
+                if "last_run" in st.session_state and st.session_state["last_run"] and st.session_state["last_run"].get("run_id") == st.session_state["active_view_run_id"]:
+                    active_run_data = st.session_state["last_run"]
+                else:
+                    active_run_data = load_run_data(st.session_state["active_view_run_id"])
             else:
-                active_run_data = load_run_data(st.session_state["active_view_run_id"])
-        else:
-            st.info("ℹ️ Nessuna elaborazione presente nello storico. Passa alla scheda **'⚡ Nuova Elaborazione'** qui sopra per eseguire il primo scarico da Extranet o caricare i file Inditex.")
+                st.info("ℹ️ Nessuna elaborazione presente nello storico. Passa alla scheda **'⚡ Nuova Elaborazione'** qui sopra per eseguire il primo scarico da Extranet o caricare i file Inditex.")
 
-        if active_run_data:
-            curr_rid = active_run_data["run_id"]
-            totals = active_run_data["totals"]
+            if active_run_data:
+                curr_rid = active_run_data["run_id"]
+                totals = active_run_data["totals"]
 
-            # Alert nuovi punti vendita inseriti automaticamente
-            new_stores = active_run_data.get("new_stores_alert", [])
-            if new_stores:
-                st.warning(f"⚠️ **Rilevati {len(new_stores)} nuovi punti vendita non presenti in anagrafica (inseriti automaticamente):**")
-                for ns in new_stores:
-                    st.markdown(
-                        f"- Negozio **{ns['store_id']}** (`{ns['store_name']}`) | Brand: **{ns['brand']}** | "
-                        f"Colli: **{format_number_it(ns['bultos'], 0)}** | Volume: **{format_number_it(ns['volumen'], 2)} m³** "
-                        f"→ Censito con stato `ATTIVO` e giro `DA ASSEGNARE`."
+                # Alert nuovi punti vendita inseriti automaticamente
+                new_stores = active_run_data.get("new_stores_alert", [])
+                if new_stores:
+                    st.warning(f"⚠️ **Rilevati {len(new_stores)} nuovi punti vendita non presenti in anagrafica (inseriti automaticamente):**")
+                    for ns in new_stores:
+                        st.markdown(
+                            f"- Negozio **{ns['store_id']}** (`{ns['store_name']}`) | Brand: **{ns['brand']}** | "
+                            f"Colli: **{format_number_it(ns['bultos'], 0)}** | Volume: **{format_number_it(ns['volumen'], 2)} m³** "
+                            f"→ Censito con stato `ATTIVO` e giro `DA ASSEGNARE`."
+                        )
+
+                st.markdown("---")
+                st.markdown("### 📊 Riepilogo Previsione Attiva")
+
+                kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+                kpi1.metric("Totale Colli", format_number_it(totals["total_bultos"], 0))
+                kpi2.metric("Volume Complessivo", format_number_it(totals["total_volume"], 2) + " m³")
+                kpi3.metric("Peso Complessivo", format_number_it(totals["total_weight"], 0) + " kg")
+                kpi4.metric("Pedane Stimate", format_number_it(totals["total_pedane"], 0))
+
+                render_operativa_files_and_email_section(active_run_data, df_stores_side, key_prefix=f"vis_{curr_rid}")
+
+                tab_spunta, tab_giri, tab_lav = st.tabs([
+                    "📋 Spunta Arrivi (Per Negozio)",
+                    "🚛 Vista per Giro & Vettori",
+                    "🏭 Lavorazioni Piattaforma (Tessile 3680/9226/3591 & Home)",
+                ])
+
+                df_sp_view = active_run_data.get("df_spunta", pd.DataFrame())
+
+                with tab_spunta:
+                    render_spunta_arrivi_modern(df_sp_view, df_stores=df_stores_side)
+
+                with tab_giri:
+                    render_riepilogo_giri_modern(
+                        df_sp_view,
+                        df_stores=df_stores_side,
+                        special_breakdowns=active_run_data.get("special_breakdowns", {}),
                     )
 
-            st.markdown("---")
-            st.markdown("### 📊 Riepilogo Previsione Attiva")
+                with tab_lav:
+                    render_lavorazioni_piattaforma(active_run_data.get("special_breakdowns", {}), key_prefix=f"p1_{curr_rid}")
 
-            kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-            kpi1.metric("Totale Colli", format_number_it(totals["total_bultos"], 0))
-            kpi2.metric("Volume Complessivo", format_number_it(totals["total_volume"], 2) + " m³")
-            kpi3.metric("Peso Complessivo", format_number_it(totals["total_weight"], 0) + " kg")
-            kpi4.metric("Pedane Stimate", format_number_it(totals["total_pedane"], 0))
-
-            render_operativa_files_and_email_section(active_run_data, df_stores_side, key_prefix=f"vis_{curr_rid}")
-
-            tab_spunta, tab_giri, tab_lav = st.tabs([
-                "📋 Spunta Arrivi (Per Negozio)",
-                "🚛 Vista per Giro & Vettori",
-                "🏭 Lavorazioni Piattaforma (Tessile 3680/9226/3591 & Home)",
-            ])
-
-            df_sp_view = active_run_data.get("df_spunta", pd.DataFrame())
-
-            with tab_spunta:
-                render_spunta_arrivi_modern(df_sp_view, df_stores=df_stores_side)
-
-            with tab_giri:
-                render_riepilogo_giri_modern(
-                    df_sp_view,
-                    df_stores=df_stores_side,
-                    special_breakdowns=active_run_data.get("special_breakdowns", {}),
+        elif st.session_state.get("p1_subview") == "new":
+            # 1. Parametri Ciclo
+            col_meta1, col_meta2, col_meta3 = st.columns([1.2, 2, 1.8])
+            with col_meta1:
+                run_date = st.date_input("📅 Data Riferimento", value=date.today(), format="DD/MM/YYYY")
+            with col_meta2:
+                default_idx = 0 if run_date.weekday() <= 2 else 1
+                cycle_choice = st.selectbox(
+                    "🔄 Ciclo Settimanale Operativo",
+                    [
+                        "LUN-MER (Consegna Mercoledì — Spedizioni da Lunedì a Mercoledì)",
+                        "GIOV-DOM (Consegna Sabato — Spedizioni da Giovedì a Domenica)",
+                    ],
+                    index=default_idx,
                 )
+                cycle_type = "LUN-MER" if "LUN-MER" in cycle_choice else "GIOV-DOM"
+            with col_meta3:
+                notes = st.text_input("📝 Note / Riferimento", value=f"Elaborazione W{run_date.isocalendar()[1]} ({cycle_type})")
 
-            with tab_lav:
-                render_lavorazioni_piattaforma(active_run_data.get("special_breakdowns", {}), key_prefix=f"p1_{curr_rid}")
+            cycle_desde, cycle_hasta = get_cycle_date_range(cycle_type, run_date)
+
+            # 2. Scorporo Profumi SEMPRE VISIBILE (letto dinamicamente dai negozi con Scorporo Profumi = 'SI' in Anagrafica)
+            df_all_stores = get_stores_df()
+            if "scorporo_profumi" in df_all_stores.columns:
+                df_prof_stores = df_all_stores[df_all_stores["scorporo_profumi"].fillna("NO").astype(str).str.upper() == "SI"].copy()
+            else:
+                df_prof_stores = df_all_stores[df_all_stores["store_id"].isin(["3680", "9226", "3591"])].copy()
+
+            st.markdown('<div class="quick-bar">', unsafe_allow_html=True)
+            st.markdown("##### 🧴 Scorporo Profumi (Dato Dinamico per questa Operativa)")
+            st.caption("I pezzi profumi sono un dato dinamico da inserire manualmente ad ogni specifica run per i negozi abilitati. Se non pervenuti o assenti per questo ciclo, lasciare a 0:")
+
+            perfume_corrections = {}
+            if not df_prof_stores.empty:
+                prof_cols = st.columns(min(len(df_prof_stores), 4))
+                for idx_p, (_, prow) in enumerate(df_prof_stores.iterrows()):
+                    p_sid = str(prow["store_id"]).strip()
+                    p_sname = str(prow.get("store_name", "")).strip()
+                    with prof_cols[idx_p % len(prof_cols)]:
+                        val_pz = st.number_input(
+                            f"Negozio {p_sid} ({p_sname}) — Pezzi Profumi",
+                            value=0,
+                            min_value=0,
+                            step=1,
+                            key=f"perfume_{p_sid}",
+                            help="Dato dinamico per questa specifica run. Se mancante o assente, lasciare a 0."
+                        )
+                        perfume_corrections[p_sid] = float(val_pz)
+            else:
+                st.info("Nessun negozio ha l'opzione 'Scorporo Profumi = SI' attiva in Anagrafica Negozi.")
+            st.markdown('</div>', unsafe_allow_html=True)
 
 
     # ==============================================================================
