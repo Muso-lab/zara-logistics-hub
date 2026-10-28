@@ -57,7 +57,7 @@ gcloud run deploy $ServiceName `
     --max-instances=3 `
     --timeout=3600 `
     --session-affinity `
-    --set-env-vars="ENV=production" `
+    --set-env-vars="ENV=production,ZARA_ADMIN_PASS=zara2026,ZARA_UFFICIO_PASS=traffico2026,ZARA_MAGAZZINO_PASS=banchina2026" `
     --project=$ProjectId
 
 $ServiceUrl = (gcloud run services describe $ServiceName --platform=managed --region=$Region --format="value(status.url)" --project=$ProjectId)

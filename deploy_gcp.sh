@@ -69,7 +69,7 @@ gcloud run deploy "${SERVICE_NAME}" \
     --max-instances=3 \
     --timeout=3600 \
     --session-affinity \
-    --set-env-vars="ENV=production" \
+    --set-env-vars="ENV=production,ZARA_ADMIN_PASS=zara2026,ZARA_UFFICIO_PASS=traffico2026,ZARA_MAGAZZINO_PASS=banchina2026" \
     --project="${PROJECT_ID}"
 
 # 7. Recupero URL pubblico del servizio

@@ -149,6 +149,100 @@ st.markdown("""
         padding: 12px 16px;
         margin-bottom: 16px;
     }
+
+    /* Executive Sidebar Styling */
+    [data-testid="stSidebar"] {
+        background-color: #F8FAFC !important;
+        border-right: 1px solid #E2E8F0 !important;
+    }
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 1.2rem !important;
+    }
+    .sidebar-brand-card {
+        background: linear-gradient(135deg, #1E3A8A 0%, #0F172A 100%);
+        padding: 14px 16px;
+        border-radius: 12px;
+        margin-bottom: 12px;
+        color: white;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .sidebar-brand-icon {
+        font-size: 26px;
+        line-height: 1;
+    }
+    .sidebar-brand-title {
+        font-size: 14.5px;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        color: #FFFFFF;
+        line-height: 1.2;
+    }
+    .sidebar-brand-subtitle {
+        font-size: 11px;
+        opacity: 0.85;
+        font-weight: 500;
+        color: #93C5FD;
+    }
+    .sidebar-user-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .role-badge {
+        padding: 2.5px 8px;
+        border-radius: 9999px;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.4px;
+        display: inline-block;
+    }
+    .sidebar-metrics-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-top: 14px;
+        margin-bottom: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .sidebar-metric-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-top: 6px;
+    }
+    .sidebar-metric-box {
+        background: #F8FAFC;
+        border: 1px solid #EDF2F7;
+        border-radius: 8px;
+        padding: 6px 8px;
+        text-align: center;
+    }
+    .sidebar-metric-box .metric-val {
+        font-size: 13.5px;
+        font-weight: 800;
+        color: #0F172A;
+    }
+    .sidebar-metric-box .metric-lbl {
+        font-size: 9.5px;
+        font-weight: 600;
+        color: #64748B;
+        text-transform: uppercase;
+    }
+    .sidebar-cloud-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -198,34 +292,126 @@ def verify_auth_token(token: str):
         return u, r
     return None
 
+# ==============================================================================
+# CONFIGURAZIONE DEI 3 LIVELLI DI ACCESSO (RUOLI & PERMESSI)
+# ==============================================================================
+ROLE_CONFIG = {
+    "admin": {
+        "label": "Amministratore (Admin)",
+        "badge_color": "#B45309",
+        "badge_bg": "#FEF3C7",
+        "badge_border": "#F59E0B",
+        "icon": "👑",
+        "menu_options": [
+            "📥 1. Previsione & Arrivi",
+            "🚚 2. Bolle di Consegna",
+            "📊 3. Consuntivo & Planner Inditex",
+            "🏢 4. Anagrafica Negozi & Giri",
+            "⚙️ 5. Impostazioni, Email & Backup",
+        ],
+        "can_edit_settings": True,
+        "can_delete_runs": True,
+        "can_delete_bolle": True,
+        "can_edit_master_data": True,
+        "can_send_emails": True,
+        "can_execute_runs": True,
+        "can_edit_bolle": True,
+    },
+    "ufficio": {
+        "label": "Ufficio Traffico & Logistica",
+        "badge_color": "#0369A1",
+        "badge_bg": "#E0F2FE",
+        "badge_border": "#38BDF8",
+        "icon": "💼",
+        "menu_options": [
+            "📥 1. Previsione & Arrivi",
+            "🚚 2. Bolle di Consegna",
+            "📊 3. Consuntivo & Planner Inditex",
+            "🏢 4. Anagrafica Negozi & Giri",
+        ],
+        "can_edit_settings": False,
+        "can_delete_runs": True,
+        "can_delete_bolle": True,
+        "can_edit_master_data": True,
+        "can_send_emails": True,
+        "can_execute_runs": True,
+        "can_edit_bolle": True,
+    },
+    "magazzino": {
+        "label": "Banchina & Magazzino",
+        "badge_color": "#047857",
+        "badge_bg": "#D1FAE5",
+        "badge_border": "#34D399",
+        "icon": "📦",
+        "menu_options": [
+            "📥 1. Previsione & Arrivi",
+            "🚚 2. Bolle di Consegna",
+        ],
+        "can_edit_settings": False,
+        "can_delete_runs": False,
+        "can_delete_bolle": False,
+        "can_edit_master_data": False,
+        "can_send_emails": False,
+        "can_execute_runs": False,
+        "can_edit_bolle": False,
+    },
+}
+
+def get_role_info():
+    r = st.session_state.get("auth_role", "magazzino")
+    return ROLE_CONFIG.get(r, ROLE_CONFIG["magazzino"])
+
+def has_perm(perm_key: str) -> bool:
+    return get_role_info().get(perm_key, False)
+
+def is_admin() -> bool:
+    return st.session_state.get("auth_role") == "admin"
+
+def is_ufficio() -> bool:
+    return st.session_state.get("auth_role") in ("admin", "ufficio")
+
+def is_magazzino() -> bool:
+    return st.session_state.get("auth_role") == "magazzino"
+
 def _get_auth_users() -> dict:
     """
-    Restituisce la mappa degli utenti abilitati e il rispettivo ruolo:
-    - 'admin': accesso operativo completo (lettura e modifica)
-    - 'viewer': accesso di sola consultazione (visualizzazione dati)
-    Personalizzabile tramite Streamlit Secrets (sezione [users]) o variabili d'ambiente.
+    Restituisce la mappa degli utenti abilitati sui 3 livelli di accesso:
+    - 'admin': Amministratore (pieno accesso operativo e configurazioni)
+    - 'ufficio': Ufficio Traffico & Gestione Spedizioni
+    - 'magazzino': Magazzino & Banchina (spunta arrivi, pedane e stampa bolle)
     """
     import os
-    admin_pwd = os.getenv("ZARA_ADMIN_PASS", "zara2026")
-    viewer_pwd = os.getenv("ZARA_VIEWER_PASS", "ospite2026")
+    admin_pwd = os.getenv("ZARA_ADMIN_PASS", "zara2026").strip()
+    ufficio_pwd = os.getenv("ZARA_UFFICIO_PASS", "traffico2026").strip()
+    magazzino_pwd = os.getenv("ZARA_MAGAZZINO_PASS", os.getenv("ZARA_VIEWER_PASS", "banchina2026")).strip()
+
     try:
-        if hasattr(st, "secrets") and "ZARA_ADMIN_PASS" in st.secrets:
-            admin_pwd = str(st.secrets["ZARA_ADMIN_PASS"])
-        if hasattr(st, "secrets") and "ZARA_VIEWER_PASS" in st.secrets:
-            viewer_pwd = str(st.secrets["ZARA_VIEWER_PASS"])
+        if hasattr(st, "secrets"):
+            if "ZARA_ADMIN_PASS" in st.secrets:
+                admin_pwd = str(st.secrets["ZARA_ADMIN_PASS"]).strip()
+            if "ZARA_UFFICIO_PASS" in st.secrets:
+                ufficio_pwd = str(st.secrets["ZARA_UFFICIO_PASS"]).strip()
+            if "ZARA_MAGAZZINO_PASS" in st.secrets:
+                magazzino_pwd = str(st.secrets["ZARA_MAGAZZINO_PASS"]).strip()
+            elif "ZARA_VIEWER_PASS" in st.secrets:
+                magazzino_pwd = str(st.secrets["ZARA_VIEWER_PASS"]).strip()
     except Exception:
         pass
 
     return {
-        "admin": {"password": admin_pwd, "role": "admin", "label": "Amministratore (Operativo)"},
-        "luciano": {"password": admin_pwd, "role": "admin", "label": "Luciano (Amministratore)"},
-        "ospite": {"password": viewer_pwd, "role": "viewer", "label": "Ospite (Sola Visualizzazione)"},
-        "visualizzatore": {"password": viewer_pwd, "role": "viewer", "label": "Consultazione (Sola Lettura)"},
+        "admin": {"password": admin_pwd, "role": "admin", "label": "Amministratore (Admin)"},
+        "luciano": {"password": admin_pwd, "role": "admin", "label": "Luciano (Admin)"},
+        "ufficio": {"password": ufficio_pwd, "role": "ufficio", "label": "Ufficio Traffico & Logistica"},
+        "traffico": {"password": ufficio_pwd, "role": "ufficio", "label": "Ufficio Traffico & Logistica"},
+        "magazzino": {"password": magazzino_pwd, "role": "magazzino", "label": "Banchina & Magazzino"},
+        "banchina": {"password": magazzino_pwd, "role": "magazzino", "label": "Banchina & Magazzino"},
+        "ospite": {"password": magazzino_pwd, "role": "magazzino", "label": "Ospite (Consultazione)"},
+        "viewer": {"password": magazzino_pwd, "role": "magazzino", "label": "Consultazione Banchina"},
     }
 
 users_map = _get_auth_users()
 
-# Recupera automaticamente la sessione autenticata dai query params dell'URL (evita ri-login ad ogni refresh su PC/telefono)
+# Recupera automaticamente la sessione autenticata dai query params dell'URL
 if not st.session_state.get("authenticated", False):
     tok = st.query_params.get("session")
     if tok:
@@ -239,14 +425,28 @@ if not st.session_state.get("authenticated", False):
                 st.session_state["auth_label"] = users_map[u]["label"]
 
 if not st.session_state.get("authenticated", False):
-    c_l1, c_l2, c_l3 = st.columns([1.2, 1.6, 1.2])
+    c_l1, c_l2, c_l3 = st.columns([1.1, 1.8, 1.1])
     with c_l2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown('<div class="main-header" style="text-align:center;">🔐 Zara Logistics Hub</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sub-header" style="text-align:center;">Piattaforma Logistica Monterotondo — Accesso Riservato</div>', unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("""
+        <div style="background: white; border: 1px solid #E2E8F0; border-radius: 14px; padding: 24px; box-shadow: 0 4px 16px rgba(15,23,42,0.08); margin-bottom: 20px;">
+            <div style="text-align: center; margin-bottom: 16px;">
+                <span style="font-size: 38px;">🚚</span>
+                <h2 style="color: #1E3A8A; margin: 6px 0 2px 0; font-size: 22px; font-weight: 800;">ZARA LOGISTICS HUB</h2>
+                <div style="color: #64748B; font-size: 13px;">Hub Monterotondo (RM) — Accesso Operativo Riservato</div>
+            </div>
+            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 12px; color: #334155;">
+                <div style="font-weight: 700; margin-bottom: 4px;">Profili Operativi Configurati:</div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <span style="background:#FEF3C7; color:#B45309; border:1px solid #F59E0B; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700;">👑 Admin</span>
+                    <span style="background:#E0F2FE; color:#0369A1; border:1px solid #38BDF8; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700;">💼 Ufficio Traffico</span>
+                    <span style="background:#D1FAE5; color:#047857; border:1px solid #34D399; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700;">📦 Magazzino / Banchina</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
         with st.form("login_form", clear_on_submit=False):
-            inp_user = st.text_input("👤 Utente", placeholder="es. admin oppure ospite").strip().lower()
-            inp_pass = st.text_input("🔑 Password", type="password", placeholder="Inserisci password").strip()
+            inp_user = st.text_input("👤 Nome Utente", placeholder="es. admin, ufficio, oppure magazzino").strip().lower()
+            inp_pass = st.text_input("🔑 Password", type="password", placeholder="Inserisci la password").strip()
             btn_login = st.form_submit_button("ACCEDI ALLA PIATTAFORMA", type="primary", use_container_width=True)
             if btn_login:
                 if inp_user in users_map and inp_pass == users_map[inp_user]["password"]:
@@ -258,48 +458,51 @@ if not st.session_state.get("authenticated", False):
                     st.query_params["session"] = create_auth_token(inp_user, role)
                     st.rerun()
                 else:
-                    st.error("❌ Credenziali non valide. Riprova.")
+                    st.error("❌ Credenziali non valide. Verifica utente e password.")
+        st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-USER_ROLE = st.session_state.get("auth_role", "viewer")
+USER_ROLE = st.session_state.get("auth_role", "magazzino")
 IS_ADMIN = USER_ROLE == "admin"
 
 # ==============================================================================
-# SIDEBAR: NAVIGAZIONE & STATO OPERATIVO
+# SIDEBAR: NAVIGAZIONE & STATO OPERATIVO ELEGANTE
 # ==============================================================================
-st.sidebar.markdown("## 🚚 Zara Logistics Hub")
-st.sidebar.caption("Gestione Previsioni, Flussi SGA, Bolle & Consuntivo Inditex")
+role_info = get_role_info()
+r_color = role_info["badge_color"]
+r_bg = role_info["badge_bg"]
+r_border = role_info["badge_border"]
+r_icon = role_info["icon"]
+r_label = st.session_state.get("auth_label", role_info["label"])
 
-if IS_ADMIN:
-    st.sidebar.success(f"👤 **{st.session_state.get('auth_label', 'Admin')}**")
-else:
-    st.sidebar.info(f"👁️ **{st.session_state.get('auth_label', 'Sola Lettura')}**")
+st.sidebar.markdown(f"""
+<div class="sidebar-brand-card">
+    <div class="sidebar-brand-icon">🚚</div>
+    <div>
+        <div class="sidebar-brand-title">ZARA LOGISTICS</div>
+        <div class="sidebar-brand-subtitle">Hub Monterotondo (RM)</div>
+    </div>
+</div>
 
-if st.sidebar.button("🚪 Esci (Logout)", use_container_width=True):
+<div class="sidebar-user-card">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+        <span style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase;">PROFILO ATTIVO</span>
+        <span class="role-badge" style="background: {r_bg}; color: {r_color}; border: 1px solid {r_border};">
+            {r_icon} {USER_ROLE.upper()}
+        </span>
+    </div>
+    <div style="font-size: 13px; font-weight: 700; color: #0F172A;">{r_label}</div>
+</div>
+""", unsafe_allow_html=True)
+
+if st.sidebar.button("🚪 Esci dalla Sessione", use_container_width=True, key="btn_logout_sidebar"):
     for k in ["authenticated", "auth_user", "auth_role", "auth_label"]:
         st.session_state.pop(k, None)
     st.query_params.clear()
     st.rerun()
 
-if IS_ADMIN:
-    MENU_OPTIONS = [
-        "📥 1. Previsione & Arrivi",
-        "🚚 2. Bolle di Consegna",
-        "📊 3. Consuntivo & Planner Inditex",
-        "🏢 4. Anagrafica Negozi & Giri",
-        "⚙️ 5. Impostazioni, Email & Backup",
-    ]
-else:
-    MENU_OPTIONS = [
-        "📥 1. Previsione & Arrivi",
-        "🚚 2. Bolle di Consegna",
-        "📊 3. Consuntivo & Planner Inditex",
-    ]
-
-if st.session_state.get("nav_menu") in ["🗄️ 5. Storico & Backup Cloud", "💾 5. Storico & Backup Cloud"]:
-    st.session_state["nav_menu"] = "⚙️ 5. Impostazioni, Email & Backup"
-
-if "nav_menu" not in st.session_state or st.session_state["nav_menu"] not in MENU_OPTIONS:
+MENU_OPTIONS = role_info["menu_options"]
+if st.session_state.get("nav_menu") not in MENU_OPTIONS:
     st.session_state["nav_menu"] = MENU_OPTIONS[0]
 
 menu = st.sidebar.radio(
@@ -310,12 +513,10 @@ menu = st.sidebar.radio(
 )
 st.session_state["nav_menu"] = menu
 
-# Riepilogo sintetico in Sidebar
-st.sidebar.markdown("---")
 df_stores_side = get_stores_df()
 runs_side = get_all_runs()
 
-# Auto-restore trasparente da Google Sheets all'avvio se il database locale del container è vuoto (es. dopo nuovo deploy)
+# Auto-restore trasparente da Google Sheets all'avvio se il database locale del container è vuoto
 if "cloud_auto_checked" not in st.session_state:
     st.session_state["cloud_auto_checked"] = True
     if get_cloud_url():
@@ -327,6 +528,7 @@ if "cloud_auto_checked" not in st.session_state:
                     runs_side = get_all_runs()
         except Exception:
             pass
+
 active_stores_cnt = int((df_stores_side["attivo"].fillna("SI").str.upper() == "SI").sum()) if not df_stores_side.empty else 0
 sdopp_stores_cnt = int((df_stores_side["sdoppiamento_b9"].fillna("NO").str.upper() == "SI").sum()) if not df_stores_side.empty else 0
 
@@ -337,25 +539,52 @@ try:
 except Exception:
     pass
 
-st.sidebar.markdown("##### 📌 Riepilogo Rapido")
-st.sidebar.write(f"🏢 Negozi Attivi: **{active_stores_cnt}** (Sdopp. /9: **{sdopp_stores_cnt}**)")
-if not runs_side.empty:
-    last_r = runs_side.iloc[0]
-    st.sidebar.write(f"📦 Ultima Run: **#{int(last_r['id'])}** ({format_date_it(last_r['run_date'])})")
-else:
-    st.sidebar.write("📦 Ultima Run: *Nessuna*")
-st.sidebar.write(f"📋 Bolle in Archivio: **{format_number_it(total_bolle_db, 0)}**")
+last_run_disp = f"#{int(runs_side.iloc[0]['id'])}" if not runs_side.empty else "—"
+
+st.sidebar.markdown(f"""
+<div class="sidebar-metrics-card">
+    <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-bottom: 8px;">📊 Stato Piattaforma</div>
+    <div class="sidebar-metric-grid">
+        <div class="sidebar-metric-box">
+            <div class="metric-val">{active_stores_cnt}</div>
+            <div class="metric-lbl">Negozi Attivi</div>
+        </div>
+        <div class="sidebar-metric-box">
+            <div class="metric-val">{sdopp_stores_cnt}</div>
+            <div class="metric-lbl">Sdopp. /9</div>
+        </div>
+        <div class="sidebar-metric-box">
+            <div class="metric-val">{last_run_disp}</div>
+            <div class="metric-lbl">Ultima Run</div>
+        </div>
+        <div class="sidebar-metric-box">
+            <div class="metric-val">{format_number_it(total_bolle_db, 0)}</div>
+            <div class="metric-lbl">Bolle DB</div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 if get_cloud_url():
-    st.sidebar.success("☁️ Google Sheets Sync: **ATTIVO**")
-    if st.sidebar.button("🔄 Sincronizza da Google Sheets", use_container_width=True, key="side_btn_pull_cloud", help="Ripristina tutte le run e le bolle salvate sul tuo Foglio Google"):
-        with st.spinner("Sincronizzazione in corso da Google Sheets..."):
-            r_p = pull_all_from_cloud()
-            if r_p.get("status") == "ok":
-                st.session_state.pop("last_run", None)
-                st.session_state.pop("active_view_run_id", None)
-                st.rerun()
+    st.sidebar.markdown("""
+    <div class="sidebar-cloud-card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <span style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase;">CLOUD SYNC</span>
+            <span style="font-size: 11px; font-weight: 800; color: #059669;">🟢 CONNESSO</span>
+        </div>
+        <div style="font-size: 11px; color: #64748B;">Replica Google Sheets attiva.</div>
+    </div>
+    """, unsafe_allow_html=True)
+    if is_ufficio():
+        if st.sidebar.button("🔄 Sincronizza Cloud Ora", use_container_width=True, key="side_btn_pull_cloud", help="Ripristina tutte le run e le bolle salvate sul Foglio Google"):
+            with st.spinner("Sincronizzazione in corso da Google Sheets..."):
+                r_p = pull_all_from_cloud()
+                if r_p.get("status") == "ok":
+                    st.session_state.pop("last_run", None)
+                    st.session_state.pop("active_view_run_id", None)
+                    st.rerun()
 else:
-    st.sidebar.caption("☁️ Google Sheets Sync: *Non collegato*")
+    st.sidebar.caption("☁️ Google Sheets Sync: *Non configurato*")
 
 
 def render_operativa_files_and_email_section(
@@ -606,10 +835,14 @@ if menu == "📥 1. Previsione & Arrivi":
     st.markdown('<div class="main-header">📥 Previsione Arrivi, Spunta & Flussi SGA</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Carica i file previsionali da qualsiasi dispositivo (o scaricali da Extranet), calcola pedane e lavorazioni, ed emetti le bolle in 1 clic.</div>', unsafe_allow_html=True)
 
-    tab_view_active, tab_new_exec = st.tabs([
-        "📊 Elaborazione Aperta (Visualizzazione & File Operativa)",
-        "⚡ Nuova Elaborazione (Extranet Inditex / Caricamento File)",
-    ])
+    if has_perm("can_execute_runs"):
+        tab_view_active, tab_new_exec = st.tabs([
+            "📊 Elaborazione Aperta (Visualizzazione & File Operativa)",
+            "⚡ Nuova Elaborazione (Extranet Inditex / Caricamento File)",
+        ])
+    else:
+        tab_view_active = st.container()
+        tab_new_exec = None
 
     with tab_view_active:
         active_run_data = None
@@ -620,7 +853,11 @@ if menu == "📥 1. Previsione & Arrivi":
             if "active_view_run_id" not in st.session_state or st.session_state["active_view_run_id"] not in valid_ids:
                 st.session_state["active_view_run_id"] = latest_run_id
 
-            col_r_sel, col_r_btn, col_r_del = st.columns([2.6, 1.1, 1.1])
+            if has_perm("can_delete_runs"):
+                col_r_sel, col_r_btn, col_r_del = st.columns([2.6, 1.1, 1.1])
+            else:
+                col_r_sel, col_r_btn = st.columns([3.5, 1.3])
+                col_r_del = None
             with col_r_sel:
                 run_opts_map = {
                     int(r["id"]): f"Run #{int(r['id'])} ({format_date_it(r['run_date'])}, {r['cycle_type']}) — {format_number_it(r['total_bultos'], 0)} colli ({format_number_it(r['total_pedane'], 0)} PLT)"
@@ -645,16 +882,17 @@ if menu == "📥 1. Previsione & Arrivi":
                     st.session_state["active_view_run_id"] = latest_run_id
                     st.rerun()
 
-            with col_r_del:
-                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                with st.popover("🗑️ Elimina Run", use_container_width=True):
-                    st.warning(f"Vuoi eliminare la **Run #{chosen_id}** e tutti i suoi dati associati?")
-                    if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key=f"btn_confirm_del_run_{chosen_id}"):
-                        delete_run(chosen_id)
-                        st.session_state.pop("active_view_run_id", None)
-                        st.session_state.pop("last_run", None)
-                        st.success(f"Run #{chosen_id} eliminata con successo.")
-                        st.rerun()
+            if col_r_del is not None:
+                with col_r_del:
+                    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                    with st.popover("🗑️ Elimina Run", use_container_width=True):
+                        st.warning(f"Vuoi eliminare la **Run #{chosen_id}** e tutti i suoi dati associati?")
+                        if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key=f"btn_confirm_del_run_{chosen_id}"):
+                            delete_run(chosen_id)
+                            st.session_state.pop("active_view_run_id", None)
+                            st.session_state.pop("last_run", None)
+                            st.success(f"Run #{chosen_id} eliminata con successo.")
+                            st.rerun()
 
             # Caricamento effettivo della run
             if "last_run" in st.session_state and st.session_state["last_run"] and st.session_state["last_run"].get("run_id") == st.session_state["active_view_run_id"]:
@@ -716,7 +954,8 @@ if menu == "📥 1. Previsione & Arrivi":
     # PAGE 2: BOLLE DI CONSEGNA (ELENCO, STAMPA PER GIRO/AUTISTA, COMPILAZIONE)
     # ==============================================================================
 
-    with tab_new_exec:
+    if tab_new_exec is not None:
+        with tab_new_exec:
         # 1. Parametri Ciclo
         col_meta1, col_meta2, col_meta3 = st.columns([1.2, 2, 1.8])
         with col_meta1:
@@ -1070,7 +1309,8 @@ elif menu == "🚚 2. Bolle di Consegna":
 
     with col_top3:
         st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-        with st.popover("⚡ Genera Bolle da Previsione", use_container_width=True):
+        if has_perm("can_execute_runs"):
+            with st.popover("⚡ Genera Bolle da Previsione", use_container_width=True):
             if runs_side.empty:
                 st.warning("Nessuna previsione salvata nello storico.")
             else:
@@ -1086,15 +1326,20 @@ elif menu == "🚚 2. Bolle di Consegna":
                     st.session_state["flash_bolle_msg"] = f"🎉 Generate **{c_cnt}** bolle per il **{format_date_it(sel_gen_dt)}** ({s_cnt} già esistenti)."
                     st.rerun()
 
-    tab_b_form, tab_b_list = st.tabs([
-        "📝 Compilazione Singola Bolla",
-        "📋 Elenco Bolle & Stampa Documenti",
-    ])
+    if has_perm("can_edit_bolle"):
+        tab_b_form, tab_b_list = st.tabs([
+            "📝 Compilazione Singola Bolla",
+            "📋 Elenco Bolle & Stampa Documenti",
+        ])
+    else:
+        tab_b_form = None
+        tab_b_list = st.container()
 
     # --------------------------------------------------------------------------
     # SOTTO-SCHEDA 1: COMPILAZIONE SINGOLA BOLLA (MODALITÀ STANDARD)
     # --------------------------------------------------------------------------
-    with tab_b_form:
+    if tab_b_form is not None:
+        with tab_b_form:
         store_choices = [
             f"{r['store_id']} - {r['store_name']} ({r['brand']}) [{r['giro']}]"
             for _, r in df_stores_side.iterrows()
@@ -1444,7 +1689,8 @@ elif menu == "🚚 2. Bolle di Consegna":
             else:
                 st.button("📥 Esporta Excel", disabled=True, use_container_width=True)
         with b_act5:
-            with st.popover("🗑️ Svota Bolle Data", use_container_width=True):
+            if has_perm("can_delete_bolle"):
+                with st.popover("🗑️ Svota Bolle Data", use_container_width=True):
                 st.warning(f"Eliminare tutte le bolle del **{format_date_it(target_date)}**?")
                 if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key="btn_del_bolle_dt"):
                     n_d = delete_bolle_by_date(target_date)
@@ -1515,7 +1761,8 @@ elif menu == "🚚 2. Bolle di Consegna":
             )
 
             # Tool di eliminazione rapida singola bolla
-            with st.expander("🗑️ Elimina Singola Bolla da questa Data"):
+            if has_perm("can_delete_bolle"):
+                with st.expander("🗑️ Elimina Singola Bolla da questa Data"):
                 ed_c1, ed_c2 = st.columns([3, 1])
                 with ed_c1:
                     bolla_choices = {
