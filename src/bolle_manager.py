@@ -5,7 +5,7 @@ Completely replaces Microsoft Access (BOLLE INDITEX_rev.6.mdb).
 import sqlite3
 import json
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 import pandas as pd
 
@@ -631,11 +631,49 @@ def delete_bolle_by_date(date_str: str, db_path: Path = DB_PATH) -> int:
     return n
 
 
+def compute_inditex_delivery_dates(dt_base: Any, cycle_type: str = "LUN-MER") -> Tuple[date, date]:
+    """
+    Calcola le date di consegna operative Inditex con rigorosa corrispondenza:
+    - Ciclo LUN-MER (periodo estrazione 26-28 Ottobre, fine periodo Mercoledi):
+        - Consegna /9 (Barra 9 - DOPPIA / 2a Uscita): Mercoledi (monday + 2 giorni)
+        - Consegna /0 (Barra 0 - STD / Consegna Standard): Giovedi (monday + 3 giorni)
+    - Ciclo GIOV-DOM (fine periodo Domenica):
+        - Consegna /9 (Barra 9 - DOPPIA / 2a Uscita): Domenica (monday + 6 giorni)
+        - Consegna /0 (Barra 0 - STD / Consegna Standard): Lunedi (monday + 7 giorni)
+    Ritorna: (date_b9, date_b0)
+    """
+    if isinstance(dt_base, str):
+        try:
+            dt_base = datetime.strptime(dt_base[:10], "%Y-%m-%d").date()
+        except:
+            dt_base = date.today()
+    elif isinstance(dt_base, datetime):
+        dt_base = dt_base.date()
+    elif not isinstance(dt_base, date):
+        dt_base = date.today()
+
+    monday = dt_base - timedelta(days=dt_base.weekday())
+    is_midweek = ("LUN" in str(cycle_type).upper() or dt_base.weekday() <= 2)
+
+    if is_midweek:
+        # LUN-MER: Mercoledi (/9) e Giovedi (/0)
+        date_b9 = monday + timedelta(days=2)
+        date_b0 = monday + timedelta(days=3)
+    else:
+        # GIOV-DOM: Domenica (/9) e Lunedi (/0)
+        date_b9 = monday + timedelta(days=6)
+        date_b0 = monday + timedelta(days=7)
+
+    return date_b9, date_b0
+
+
 def generate_bolle_from_forecast(
     run_id: int,
     delivery_date: Optional[str] = None,
     overwrite: bool = False,
-    db_path: Path = DB_PATH
+    db_path: Path = DB_PATH,
+    delivery_date_std: Optional[str] = None,
+    delivery_date_dop: Optional[str] = None,
 ) -> Tuple[int, int]:
     """
     Generates bolle directly from the forecast analysis, spunta arrivi and planning of run_id.
@@ -652,42 +690,42 @@ def generate_bolle_from_forecast(
     run_date = str(df_run.iloc[0]["run_date"])[:10]
     cycle_type = str(df_run.iloc[0].get("cycle_type", "LUN-MER")).strip().upper()
     try:
-        dt_base = datetime.strptime(run_date, "%Y-%m-%d")
+        dt_base = datetime.strptime(run_date, "%Y-%m-%d").date()
     except:
-        dt_base = datetime.now()
+        dt_base = date.today()
 
-    # Lunedì della settimana della run
-    monday = dt_base - timedelta(days=dt_base.weekday())
+    default_dop_dt, default_std_dt = compute_inditex_delivery_dates(dt_base, cycle_type)
 
-    # Logica Date Operative Zara / Inditex:
-    # - Ciclo LUN-MER: Consegna /0 = Mercoledì, Consegna /9 = Giovedì
-    # - Ciclo GIOV-DOM: Consegna /0 = Sabato, Consegna /9 = Domenica
-    is_midweek = ("LUN" in cycle_type or dt_base.weekday() <= 2)
-    default_std_dt = monday + timedelta(days=2 if is_midweek else 5)
-    default_dop_dt = monday + timedelta(days=3 if is_midweek else 6)
-
-    if not delivery_date:
-        deliv_date_std = default_std_dt.strftime("%Y-%m-%d")
-        deliv_date_dop = default_dop_dt.strftime("%Y-%m-%d")
-    else:
-        deliv_date_std = delivery_date
+    if delivery_date_std and delivery_date_dop:
+        deliv_date_std = str(delivery_date_std)[:10]
+        deliv_date_dop = str(delivery_date_dop)[:10]
+    elif delivery_date:
         try:
-            dt_given = datetime.strptime(delivery_date, "%Y-%m-%d")
-            # La seconda uscita /9 è sempre il giorno successivo (/0 Mercoledì -> /9 Giovedì; /0 Sabato -> /9 Domenica)
-            deliv_date_dop = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")
+            dt_given = datetime.strptime(str(delivery_date)[:10], "%Y-%m-%d").date()
+            if dt_given.weekday() in (2, 6):
+                # Data /9 (Mercoledi o Domenica)
+                deliv_date_dop = dt_given.strftime("%Y-%m-%d")
+                deliv_date_std = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")
+            else:
+                # Data /0 (Giovedi o Lunedi o altro)
+                deliv_date_std = dt_given.strftime("%Y-%m-%d")
+                deliv_date_dop = (dt_given - timedelta(days=1)).strftime("%Y-%m-%d")
         except:
-            deliv_date_dop = delivery_date
-    delivery_date = deliv_date_std
+            deliv_date_std = str(delivery_date)[:10]
+            deliv_date_dop = str(delivery_date)[:10]
+    else:
+        deliv_date_dop = default_dop_dt.strftime("%Y-%m-%d")
+        deliv_date_std = default_std_dt.strftime("%Y-%m-%d")
 
-    # 2. If overwrite, delete existing bolle for that delivery_date
+    # 2. If overwrite, delete existing bolle for both delivery dates
     if overwrite:
         cur = conn.cursor()
-        cur.execute("DELETE FROM bolle WHERE data_consegna = ? OR data = ?", (delivery_date, delivery_date))
+        cur.execute("DELETE FROM bolle WHERE data_consegna IN (?, ?) OR data IN (?, ?)", (deliv_date_std, deliv_date_dop, deliv_date_std, deliv_date_dop))
         conn.commit()
 
-    # 3. Check existing stores already having bolle for this date
+    # 3. Check existing stores already having bolle for these dates
     cur = conn.cursor()
-    cur.execute("SELECT id_store, tipo_cons FROM bolle WHERE data_consegna = ? OR data = ?", (delivery_date, delivery_date))
+    cur.execute("SELECT id_store, tipo_cons FROM bolle WHERE data_consegna IN (?, ?)", (deliv_date_std, deliv_date_dop))
     existing_pairs = set((str(r[0]), str(r[1]).upper()) for r in cur.fetchall())
 
     # 4. Read spunta_arrivi, planning_results, and stores master
@@ -1120,7 +1158,7 @@ def export_bolle_excel(df_bolle: pd.DataFrame, delivery_date: str) -> bytes:
     return buf.getvalue()
 
 
-def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str = "Bolla di Consegna Inditex") -> str:
+def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str = "Bolla di Consegna Inditex", auto_print: bool = False) -> str:
     """
     Generates a clean, professional printable HTML page for one or multiple bolle.
     Includes page breaks between notes for batch printing.
@@ -1337,6 +1375,7 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
         """
         html_pages.append(page)
 
+    auto_print_script = "<script>window.addEventListener('DOMContentLoaded', function() { setTimeout(function() { try { window.focus(); window.print(); } catch(e) {} }, 300); });</script>" if auto_print else ""
     full_html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -1511,10 +1550,12 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
 </head>
 <body>
     <div class="print-btn-bar">
-        <button class="btn-print" onclick="window.print()">🖨️ Stampa Documento (Tutte le Bolle)</button>
-        <span style="margin-left: 15px; color: #555;">Totale Bolle generate: <strong>{len(bolla_records)}</strong></span>
+        <button class="btn-print" onclick="window.print()">🖨️ Stampa Documento ({len(bolla_records)} Bolle)</button>
+        <button class="btn-print" style="background:#475569; margin-left:8px;" onclick="try{{window.close();}}catch(e){{}}">❌ Chiudi Finestra</button>
+        <span style="margin-left: 15px; color: #555;">Totale Bolle: <strong>{len(bolla_records)}</strong></span>
     </div>
     {"".join(html_pages)}
+    {auto_print_script}
 </body>
 </html>
 """

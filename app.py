@@ -97,6 +97,7 @@ generate_bolle_from_forecast = bm.generate_bolle_from_forecast
 get_actuals_for_planner = bm.get_actuals_for_planner
 render_bolla_printable_html = bm.render_bolla_printable_html
 format_intershops_string = bm.format_intershops_string
+compute_inditex_delivery_dates = getattr(bm, "compute_inditex_delivery_dates", None)
 export_bolle_excel = getattr(bm, "export_bolle_excel", None)
 if export_bolle_excel is None:
     from src.exporters import export_bolle_excel
@@ -1775,8 +1776,8 @@ elif "Bolle di Consegna" in menu:
                     sel_gen_run = st.selectbox("Previsione (Run)", list(run_opts.keys()), format_func=lambda x: run_opts[x], key="pop_gen_run")
                     
                     # Calcolo automatico della data di consegna operativa Inditex:
-                    # LUN-MER -> Consegna /0 Mercoledì, /9 Giovedì
-                    # GIOV-DOM -> Consegna /0 Sabato, /9 Domenica
+                    # - LUN-MER (26-28 Ottobre): /9 Mercoledi (28 Ottobre), /0 Giovedi (29 Ottobre)
+                    # - GIOV-DOM (fine Domenica): /9 Domenica, /0 Lunedi
                     r_sel_row = runs_side[runs_side["id"] == sel_gen_run]
                     if not r_sel_row.empty:
                         r_cyc = str(r_sel_row.iloc[0].get("cycle_type", "LUN-MER")).upper()
@@ -1785,22 +1786,34 @@ elif "Bolle di Consegna" in menu:
                             r_dt_obj = datetime.strptime(r_dt_raw, "%Y-%m-%d").date()
                         except:
                             r_dt_obj = date.today()
-                        mon_d = r_dt_obj - timedelta(days=r_dt_obj.weekday())
-                        is_mid = ("LUN" in r_cyc or r_dt_obj.weekday() <= 2)
-                        def_date_std = mon_d + timedelta(days=2 if is_mid else 5)
-                        def_lbl_info = "Mercoledì (/0 STD) e Giovedì (/9 DOPPIA)" if is_mid else "Sabato (/0 STD) e Domenica (/9 DOPPIA)"
+                        if compute_inditex_delivery_dates:
+                            date_dop_calc, date_std_calc = compute_inditex_delivery_dates(r_dt_obj, r_cyc)
+                        else:
+                            mon_d = r_dt_obj - timedelta(days=r_dt_obj.weekday())
+                            is_mid = ("LUN" in r_cyc or r_dt_obj.weekday() <= 2)
+                            date_dop_calc = mon_d + timedelta(days=2 if is_mid else 6)
+                            date_std_calc = mon_d + timedelta(days=3 if is_mid else 7)
                     else:
-                        def_date_std = date.today() + timedelta(days=1)
-                        def_lbl_info = "Mercoledì (/0 STD) e Giovedì (/9 DOPPIA)"
+                        date_dop_calc = date.today()
+                        date_std_calc = date.today() + timedelta(days=1)
 
-                    sel_gen_dt = st.date_input("Data Consegna Bolle (/0 STD)", value=def_date_std, format="DD/MM/YYYY", key=f"pop_gen_dt_{sel_gen_run}")
-                    st.caption(f"🗓️ Date operative calcolate: **{def_lbl_info}**")
-                    ovw_gen = st.checkbox("Sovrascrivi bolle esistenti della data", value=False, key="pop_gen_ovw")
+                    c_pop_d1, c_pop_d2 = st.columns(2)
+                    with c_pop_d1:
+                        sel_gen_dop = st.date_input("Data Consegna /9 (DOPPIA)", value=date_dop_calc, format="DD/MM/YYYY", key=f"pop_gen_dop_{sel_gen_run}")
+                    with c_pop_d2:
+                        sel_gen_std = st.date_input("Data Consegna /0 (STD)", value=date_std_calc, format="DD/MM/YYYY", key=f"pop_gen_std_{sel_gen_run}")
+
+                    st.caption(f"🗓️ Date operative: **/9 DOPPIA il {format_date_it(sel_gen_dop)}** | **/0 STD il {format_date_it(sel_gen_std)}**")
+                    ovw_gen = st.checkbox("Sovrascrivi bolle esistenti delle date selezionate", value=True, key="pop_gen_ovw")
                     if st.button("🚀 Genera Tutte le Bolle Ora", type="primary", use_container_width=True, key="btn_exec_gen_bolle"):
-                        c_cnt, s_cnt = generate_bolle_from_forecast(sel_gen_run, delivery_date=str(sel_gen_dt), overwrite=ovw_gen)
-                        dop_dt_calc = sel_gen_dt + timedelta(days=1)
-                        st.session_state["flash_bolle_msg"] = f"🎉 Generate **{c_cnt}** bolle: /0 ({format_date_it(sel_gen_dt)}) e /9 ({format_date_it(dop_dt_calc)})!"
-                        st.session_state["_target_date_override"] = str(sel_gen_dt)
+                        c_cnt, s_cnt = generate_bolle_from_forecast(
+                            sel_gen_run,
+                            delivery_date_std=str(sel_gen_std),
+                            delivery_date_dop=str(sel_gen_dop),
+                            overwrite=ovw_gen
+                        )
+                        st.session_state["flash_bolle_msg"] = f"🎉 Generate **{c_cnt}** bolle: /9 ({format_date_it(sel_gen_dop)}) e /0 ({format_date_it(sel_gen_std)})!"
+                        st.session_state["_target_date_override"] = str(sel_gen_std)
                         st.rerun()
 
     if has_perm("can_edit_bolle"):
@@ -1818,8 +1831,10 @@ elif "Bolle di Consegna" in menu:
     if tab_b_form is not None:
         with tab_b_form:
             target_dt_obj = parse_date_obj(target_date)
-            # Inditex: Giovedì (3) e Domenica (6) sono date di consegna per /9 (DOPPIA)
-            is_dop_date = (target_dt_obj.weekday() in (3, 6))
+            # Regola Consegne Inditex:
+            # - Consegne /9 (DOPPIA / 2a Uscita): Mercoledi (weekday 2) e Domenica (weekday 6)
+            # - Consegne /0 (STD / Standard): Giovedi (weekday 3) e Lunedi (weekday 0)
+            is_dop_date = (target_dt_obj.weekday() in (2, 6))
 
             # Query delle bolle precompilate per questa specifica data di consegna
             df_bolle_date = get_bolle(data_consegna=str(target_date))
@@ -2186,25 +2201,30 @@ elif "Bolle di Consegna" in menu:
             form_note = st.text_area("📝 Note Generiche di Consegna / Banchina", value=curr_note_val, key="form_note_input", placeholder="Inserisci eventuali note operative, anomalie o indicazioni per la consegna...")
 
             # Pulsanti di Azione
-            col_sv1, col_sv2, col_sv3, col_sv4 = st.columns([1.8, 1.8, 1.5, 1.1])
+            col_sv1, col_sv2, col_sv3, col_sv4 = st.columns([1.5, 1.8, 1.8, 1.0])
             with col_sv1:
                 btn_save_text = "💾 AGGIORNA BOLLA" if existing_bolla else "💾 SALVA BOLLA"
                 save_clicked = st.button(btn_save_text, type="primary", use_container_width=True, key="btn_save_bolla")
             with col_sv2:
-                btn_next_text = "💾 Aggiorna e Passa al Prossimo ➡️" if existing_bolla else "💾 Salva e Passa al Prossimo ➡️"
+                btn_next_text = "💾 Aggiorna e Prossimo ➡️" if existing_bolla else "💾 Salva e Prossimo ➡️"
                 save_next_clicked = st.button(btn_next_text, use_container_width=True, key="btn_save_next_bolla")
             with col_sv3:
-                btn_print_form_clicked = st.button("🖨️ Stampa Questa Bolla", use_container_width=True, key="btn_print_curr_bolla", help="Genera immediatamente il documento di trasporto stampabile per questa singola bolla")
+                c_p_sub1, c_p_sub2 = st.columns([1.2, 1])
+                with c_p_sub1:
+                    btn_p_direct = st.button("🖨️ Stampa Subito", use_container_width=True, key="btn_print_curr_bolla_dir", type="primary", help="Invia subito al dialogo di stampa del browser senza anteprima")
+                with c_p_sub2:
+                    btn_p_preview = st.button("👁️ Anteprima", use_container_width=True, key="btn_print_curr_bolla_prev", help="Mostra l'anteprima a video prima di stampare")
             with col_sv4:
                 if existing_bolla:
-                    with st.popover("🗑️ Elimina Bolla", use_container_width=True):
+                    with st.popover("🗑️ Elimina", use_container_width=True):
                         st.warning(f"Eliminare la bolla #{existing_bolla['id']} per {current_sid}?")
-                        if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key="btn_del_curr_bolla"):
+                        if st.button("Conferma", type="primary", use_container_width=True, key="btn_del_curr_bolla"):
                             delete_bolla(existing_bolla["id"])
                             st.session_state["flash_bolle_msg"] = f"🗑️ Bolla #{existing_bolla['id']} eliminata con successo."
                             st.rerun()
 
-            if btn_print_form_clicked:
+            if btn_p_direct or btn_p_preview:
+                is_direct = bool(btn_p_direct)
                 computed_stringa_p = format_intershops_string(inter_rows_data) if inter_rows_data else ""
                 single_b_payload = {
                     "id": existing_bolla.get("id", 1) if existing_bolla else "PROVVISORIA",
@@ -2239,30 +2259,53 @@ elif "Bolle di Consegna" in menu:
                     "intershops_list": inter_rows_data,
                     "spuntato": existing_bolla.get("spuntato", 0) if existing_bolla else 1,
                 }
-                st.session_state["print_html"] = render_bolla_printable_html([single_b_payload], title=f"Bolla Store {current_sid} ({form_tipo_cons}) - {format_date_it(str(form_data_cons))}")
+                st.session_state["print_html"] = render_bolla_printable_html([single_b_payload], title=f"Bolla Store {current_sid} ({form_tipo_cons}) - {format_date_it(str(form_data_cons))}", auto_print=is_direct)
                 st.session_state["print_title"] = f"Bolla_{current_sid}_{form_data_cons}_{form_tipo_cons}"
                 st.session_state["print_active_tab"] = "form"
+                st.session_state["print_is_direct"] = is_direct
                 st.rerun()
 
             if "print_html" in st.session_state and st.session_state.get("print_active_tab") == "form":
-                with st.expander(f"🖨️ Documento Stampabile Bolla Store {current_sid} ({form_tipo_cons})", expanded=True):
-                    cpf1, cpf2 = st.columns([2, 1])
-                    with cpf1:
+                is_dir_f = st.session_state.get("print_is_direct", False)
+                if is_dir_f:
+                    st.components.v1.html(st.session_state["print_html"], height=0, width=0)
+                    st.success(f"🖨️ **Stampa Diretta Avviata per Store {current_sid}!** Il dialogo di stampa del browser è attivo.")
+                    cpd1, cpd2 = st.columns([3, 1])
+                    with cpd1:
                         st.download_button(
                             "💾 Scarica File Stampa (.html)",
                             data=st.session_state["print_html"].encode("utf-8"),
                             file_name=f"{st.session_state.get('print_title', 'Bolla')}.html",
                             mime="text/html",
-                            type="primary",
                             use_container_width=True,
-                            key="dl_btn_single_bolla_form"
+                            key="dl_btn_single_bolla_dir_form"
                         )
-                    with cpf2:
-                        if st.button("❌ Chiudi Anteprima Stampa", key="btn_close_p_form", use_container_width=True):
+                    with cpd2:
+                        if st.button("Chiudi", key="btn_close_p_dir_f", use_container_width=True):
                             del st.session_state["print_html"]
                             st.session_state.pop("print_active_tab", None)
+                            st.session_state.pop("print_is_direct", None)
                             st.rerun()
-                    st.components.v1.html(st.session_state["print_html"], height=520, scrolling=True)
+                else:
+                    with st.expander(f"👁️ Anteprima Stampa Bolla Store {current_sid} ({form_tipo_cons})", expanded=True):
+                        cpf1, cpf2 = st.columns([2, 1])
+                        with cpf1:
+                            st.download_button(
+                                "💾 Scarica File Stampa (.html)",
+                                data=st.session_state["print_html"].encode("utf-8"),
+                                file_name=f"{st.session_state.get('print_title', 'Bolla')}.html",
+                                mime="text/html",
+                                type="primary",
+                                use_container_width=True,
+                                key="dl_btn_single_bolla_form"
+                            )
+                        with cpf2:
+                            if st.button("❌ Chiudi Anteprima", key="btn_close_p_form", use_container_width=True):
+                                del st.session_state["print_html"]
+                                st.session_state.pop("print_active_tab", None)
+                                st.session_state.pop("print_is_direct", None)
+                                st.rerun()
+                        st.components.v1.html(st.session_state["print_html"], height=520, scrolling=True)
 
 
             if save_clicked or save_next_clicked:
@@ -2360,24 +2403,33 @@ elif "Bolle di Consegna" in menu:
         mk4.metric("Calzature", format_number_it(int(df_bolle["colli_calzat"].sum()) if not df_bolle.empty else 0, 0))
         mk5.metric("Altri + E-Com", format_number_it(int(df_bolle["colli_others"].sum() + df_bolle["colli_ecom"].sum()) if not df_bolle.empty else 0, 0))
 
+        # Opzione Stampa Diretta vs Anteprima
+        p_mode_c1, p_mode_c2 = st.columns([3.5, 1.5])
+        with p_mode_c1:
+            print_direct_mode = st.toggle("⚡ Stampa Diretta (invia subito alla stampante/dialogo browser saltando l'anteprima)", value=True, key="tog_b_print_dir")
+
         # Barra Pulsanti Stampa & Export
         b_act1, b_act2, b_act3, b_act4, b_act5, b_act6 = st.columns([1.3, 1.3, 1.4, 1.6, 1.2, 1.2])
         with b_act1:
             if st.button("🖨️ Stampa STD (/0)", type="primary", use_container_width=True):
                 df_std = df_bolle[df_bolle["tipo_cons"] == "STD"] if not df_bolle.empty else pd.DataFrame()
                 if not df_std.empty:
-                    st.session_state["print_html"] = render_bolla_printable_html(df_std.to_dict(orient="records"), title=f"Bolle STD - {format_date_it(target_date)}")
+                    st.session_state["print_html"] = render_bolla_printable_html(df_std.to_dict(orient="records"), title=f"Bolle STD - {format_date_it(target_date)}", auto_print=print_direct_mode)
                     st.session_state["print_title"] = f"Bolle_STD_{target_date}"
                     st.session_state["print_active_tab"] = "list"
+                    st.session_state["print_is_direct"] = print_direct_mode
+                    st.rerun()
                 else:
                     st.warning("Nessuna bolla STD nella selezione.")
         with b_act2:
             if st.button("🖨️ Stampa DOPPIA (/9)", use_container_width=True):
                 df_dop = df_bolle[df_bolle["tipo_cons"] == "DOPPIA"] if not df_bolle.empty else pd.DataFrame()
                 if not df_dop.empty:
-                    st.session_state["print_html"] = render_bolla_printable_html(df_dop.to_dict(orient="records"), title=f"Bolle DOPPIA (/9) - {format_date_it(target_date)}")
+                    st.session_state["print_html"] = render_bolla_printable_html(df_dop.to_dict(orient="records"), title=f"Bolle DOPPIA (/9) - {format_date_it(target_date)}", auto_print=print_direct_mode)
                     st.session_state["print_title"] = f"Bolle_DOPPIA_{target_date}"
                     st.session_state["print_active_tab"] = "list"
+                    st.session_state["print_is_direct"] = print_direct_mode
+                    st.rerun()
                 else:
                     st.warning("Nessuna bolla DOPPIA nella selezione.")
         with b_act3:
@@ -2385,9 +2437,11 @@ elif "Bolle di Consegna" in menu:
             lbl_print = f"🖨️ Stampa Selezione ({len(df_bolle)})" if is_filt else f"🖨️ Stampa Tutte ({len(df_bolle)})"
             if st.button(lbl_print, use_container_width=True):
                 if not df_bolle.empty:
-                    st.session_state["print_html"] = render_bolla_printable_html(df_bolle.to_dict(orient="records"), title=f"Bolle Consegna - {format_date_it(target_date)}")
+                    st.session_state["print_html"] = render_bolla_printable_html(df_bolle.to_dict(orient="records"), title=f"Bolle Consegna - {format_date_it(target_date)}", auto_print=print_direct_mode)
                     st.session_state["print_title"] = f"Bolle_{target_date}"
                     st.session_state["print_active_tab"] = "list"
+                    st.session_state["print_is_direct"] = print_direct_mode
+                    st.rerun()
                 else:
                     st.warning("Nessuna bolla da stampare.")
         with b_act4:
@@ -2408,9 +2462,10 @@ elif "Bolle di Consegna" in menu:
                         chosen_dict = store_opt_map.get(sel_b_single)
                         if chosen_dict:
                             sid_chosen = str(chosen_dict["id_store"]).strip()
-                            st.session_state["print_html"] = render_bolla_printable_html([chosen_dict], title=f"Bolla Store {sid_chosen} - {format_date_it(target_date)}")
+                            st.session_state["print_html"] = render_bolla_printable_html([chosen_dict], title=f"Bolla Store {sid_chosen} - {format_date_it(target_date)}", auto_print=print_direct_mode)
                             st.session_state["print_title"] = f"Bolla_{sid_chosen}_{target_date}_{chosen_dict.get('tipo_cons', 'STD')}"
                             st.session_state["print_active_tab"] = "list"
+                            st.session_state["print_is_direct"] = print_direct_mode
                             st.rerun()
                 else:
                     st.info("Nessuna bolla disponibile nella selezione.")
@@ -2438,23 +2493,44 @@ elif "Bolle di Consegna" in menu:
 
         # Pannello di Stampa se attivo
         if "print_html" in st.session_state and st.session_state.get("print_active_tab", "list") == "list":
-            with st.expander("🖨️ Documento Pronto per la Stampa (Clicca per stampare o scaricare)", expanded=True):
-                cp1, cp2 = st.columns([2, 1])
-                with cp1:
+            if st.session_state.get("print_is_direct", False):
+                st.components.v1.html(st.session_state["print_html"], height=0, width=0)
+                st.success("🖨️ **Stampa Diretta Avviata!** Il dialogo di stampa del browser è attivo.")
+                cp_d1, cp_d2 = st.columns([3, 1])
+                with cp_d1:
                     st.download_button(
                         "💾 Scarica File Stampa (.html)",
                         data=st.session_state["print_html"].encode("utf-8"),
                         file_name=f"{st.session_state.get('print_title', 'Bolle')}.html",
                         mime="text/html",
-                        type="primary",
                         use_container_width=True,
+                        key="dl_btn_bolle_dir_list"
                     )
-                with cp2:
-                    if st.button("❌ Chiudi Anteprima Stampa", key="btn_close_p_list", use_container_width=True):
+                with cp_d2:
+                    if st.button("Chiudi", key="btn_close_dir_l", use_container_width=True):
                         del st.session_state["print_html"]
                         st.session_state.pop("print_active_tab", None)
+                        st.session_state.pop("print_is_direct", None)
                         st.rerun()
-                st.components.v1.html(st.session_state["print_html"], height=520, scrolling=True)
+            else:
+                with st.expander("👁️ Anteprima Documento Pronto per la Stampa", expanded=True):
+                    cp1, cp2 = st.columns([2, 1])
+                    with cp1:
+                        st.download_button(
+                            "💾 Scarica File Stampa (.html)",
+                            data=st.session_state["print_html"].encode("utf-8"),
+                            file_name=f"{st.session_state.get('print_title', 'Bolle')}.html",
+                            mime="text/html",
+                            type="primary",
+                            use_container_width=True,
+                        )
+                    with cp2:
+                        if st.button("❌ Chiudi Anteprima Stampa", key="btn_close_p_list", use_container_width=True):
+                            del st.session_state["print_html"]
+                            st.session_state.pop("print_active_tab", None)
+                            st.session_state.pop("print_is_direct", None)
+                            st.rerun()
+                    st.components.v1.html(st.session_state["print_html"], height=520, scrolling=True)
 
         # Tabella Bolle
         if df_bolle.empty:
