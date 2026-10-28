@@ -24,6 +24,11 @@ from src.bolle_manager import (
 
 
 def test_bolle_crud():
+    # Clean up any leftover test data
+    existing = get_bolle(data="2099-01-01", id_store="9999")
+    for _, row in existing.iterrows():
+        delete_bolla(row["id"])
+
     # 1. Insert a test bolla
     test_date = "2099-01-01"
     b_data = {

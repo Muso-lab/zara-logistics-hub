@@ -375,9 +375,10 @@ ROLE_CONFIG = {
         "menu_options": [
             "📥 1. Previsione & Arrivi",
             "🚚 2. Bolle di Consegna",
-            "📊 3. Consuntivo & Planner Inditex",
-            "🏢 4. Anagrafica Negozi & Giri",
-            "⚙️ 5. Impostazioni, Email & Backup",
+            "📱 3. Spunta Banchina (Mobile)",
+            "📊 4. Consuntivo & Planner Inditex",
+            "🏢 5. Anagrafica Negozi & Giri",
+            "⚙️ 6. Impostazioni, Email & Backup",
         ],
         "can_edit_settings": True,
         "can_delete_runs": True,
@@ -396,8 +397,9 @@ ROLE_CONFIG = {
         "menu_options": [
             "📥 1. Previsione & Arrivi",
             "🚚 2. Bolle di Consegna",
-            "📊 3. Consuntivo & Planner Inditex",
-            "🏢 4. Anagrafica Negozi & Giri",
+            "📱 3. Spunta Banchina (Mobile)",
+            "📊 4. Consuntivo & Planner Inditex",
+            "🏢 5. Anagrafica Negozi & Giri",
         ],
         "can_edit_settings": False,
         "can_delete_runs": True,
@@ -414,8 +416,9 @@ ROLE_CONFIG = {
         "badge_border": "#34D399",
         "icon": "📦",
         "menu_options": [
-            "📥 1. Previsione & Arrivi",
-            "🚚 2. Bolle di Consegna",
+            "📱 1. Spunta Banchina (Mobile)",
+            "📥 2. Previsione & Arrivi",
+            "🚚 3. Bolle di Consegna",
         ],
         "can_edit_settings": False,
         "can_delete_runs": False,
@@ -918,7 +921,7 @@ def render_operativa_files_and_email_section(
 # ==============================================================================
 # PAGE 1: PREVISIONE & ARRIVI (IMPORT + SPUNTA + SGA + LAVORAZIONI)
 # ==============================================================================
-if menu == "📥 1. Previsione & Arrivi":
+if "Previsione & Arrivi" in menu:
     st.markdown('<div class="main-header">📥 Previsione Arrivi, Spunta & Flussi SGA</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Carica i file previsionali da qualsiasi dispositivo (o scaricali da Extranet), calcola pedane e lavorazioni, ed emetti le bolle in 1 clic.</div>', unsafe_allow_html=True)
 
@@ -1337,7 +1340,7 @@ if menu == "📥 1. Previsione & Arrivi":
                         st.error(f"Errore durante l'elaborazione: {e}")
 
 
-elif menu == "🚚 2. Bolle di Consegna":
+elif "Bolle di Consegna" in menu:
     st.markdown('<div class="main-header">🚚 Gestione Bolle di Consegna</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Generazione automatica da previsione, stampa distinte per Giro/Autista e compilazione rapida con controllo Sdoppiamento (/0 STD e /9 DOPPIA).</div>', unsafe_allow_html=True)
 
@@ -1550,7 +1553,7 @@ elif menu == "🚚 2. Bolle di Consegna":
                     st.session_state["form_stringa_custom"] = ""
                     st.session_state["form_anomalie"] = ""
 
-            # Testata Bolla
+            # Testata Bolla (Senza autista/cell come da richiesta)
             col_v1, col_v2, col_v3, col_v4 = st.columns([1.2, 1.3, 1.5, 1.5])
             with col_v1:
                 form_data_carico = st.date_input("Data Spedizione", value=date.today(), format="DD/MM/YYYY", key="form_dt_carico")
@@ -1561,50 +1564,79 @@ elif menu == "🚚 2. Bolle di Consegna":
             with col_v4:
                 form_mezzo = st.text_input("Tipo Mezzo", key="form_mezzo")
 
-            col_ind1, col_ind2 = st.columns([3, 1.5])
-            with col_ind1:
-                form_indirizzo = st.text_input("Indirizzo di Destino", key="form_indirizzo")
-            with col_ind2:
-                form_autista = st.text_input("Autista (Opzionale)", key="form_autista")
+            form_indirizzo = st.text_input("Indirizzo di Destino", key="form_indirizzo")
 
-            # Quantità Colli
-            st.markdown("---")
-            col_q_title, col_q_prefill = st.columns([3, 2])
-            with col_q_title:
-                st.markdown("##### 📦 Quantità Colli (Numeri Interi)")
-            with col_q_prefill:
-                if st.button("📥 Precompila con Colli Previsti dalla Run", key="btn_prefill_planned", use_container_width=True):
-                    pl_data = get_store_latest_planned_data(current_sid)
-                    if pl_data.get("has_data"):
-                        sdop_factor = 0.3 if form_tipo_cons == "DOPPIA" else (0.7 if is_sdoppia else 1.0)
-                        st.session_state["form_c_abb"] = int(round(float(pl_data.get("textile", 0) or 0) * sdop_factor))
-                        st.session_state["form_c_calz"] = int(round(float(pl_data.get("shoes", 0) or 0) * sdop_factor))
-                        st.session_state["form_c_eco"] = int(round(float(pl_data.get("ecom", 0) or 0) * sdop_factor))
-                        st.session_state["form_c_oth"] = int(round(float(pl_data.get("others", 0) or 0) * sdop_factor))
-                        st.rerun()
-                    else:
-                        st.warning("Nessun dato previsionale trovato per questo negozio nell'ultima run.")
+            # ------------------------------------------------------------------
+            # CARD DATI PREVISIONALI (SEMPRE VISIBILE)
+            # ------------------------------------------------------------------
+            p_tot = int(round(float(existing_bolla.get("prev_totale", 0) or 0))) if existing_bolla else 0
+            p_abb = int(round(float(existing_bolla.get("prev_abbigl", 0) or 0))) if existing_bolla else 0
+            p_calz = int(round(float(existing_bolla.get("prev_calzat", 0) or 0))) if existing_bolla else 0
+            p_eco = int(round(float(existing_bolla.get("prev_ecom", 0) or 0))) if existing_bolla else 0
+            p_oth = int(round(float(existing_bolla.get("prev_others", 0) or 0))) if existing_bolla else 0
 
-            col_q1, col_q2, col_q3, col_q4 = st.columns(4)
+            if p_tot == 0:
+                pl_data = get_store_latest_planned_data(current_sid)
+                if pl_data.get("has_data"):
+                    sdop_f = 0.3 if form_tipo_cons == "DOPPIA" else (0.7 if is_sdoppia else 1.0)
+                    p_abb = int(round(float(pl_data.get("textile", 0) or 0) * sdop_f))
+                    p_calz = int(round(float(pl_data.get("shoes", 0) or 0) * sdop_f))
+                    p_eco = int(round(float(pl_data.get("ecom", 0) or 0) * sdop_f))
+                    p_oth = int(round(float(pl_data.get("others", 0) or 0) * sdop_f))
+                    p_tot = p_abb + p_calz + p_eco + p_oth
+
+            st.markdown(f"""
+            <div class="modern-card" style="padding: 12px 18px; margin-top: 10px; margin-bottom: 14px; border-left: 5px solid #1E3A8A; background-color: #F8FAFC;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;">📊 DATI PREVISIONALI ATTESI (DALLA PREVISIONE ARRIVI)</span>
+                    <span style="font-size: 13.5px; font-weight: 800; color: #1E3A8A;">TOTALE PREVISTO: {format_number_it(p_tot, 0)} COLLI</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 4px;">
+                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
+                        <div style="font-size: 10px; font-weight: 600; color: #64748B;">👗 TESSILE</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_abb, 0)}</div>
+                    </div>
+                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
+                        <div style="font-size: 10px; font-weight: 600; color: #64748B;">👟 SCARPE</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_calz, 0)}</div>
+                    </div>
+                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
+                        <div style="font-size: 10px; font-weight: 600; color: #64748B;">📦 E-COMMERCE</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_eco, 0)}</div>
+                    </div>
+                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 10px; text-align: center;">
+                        <div style="font-size: 10px; font-weight: 600; color: #64748B;">📦 ALTRI</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(p_oth, 0)}</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Quantità Colli Effettivi (Modificabili a mano)
+            st.markdown("##### 📦 Conteggio Colli Effettivi Bolla")
+            col_q1, col_q2, col_q3, col_q4, col_q5 = st.columns(5)
             with col_q1:
-                c_abb = st.number_input("Abbigliamento + Profumi", min_value=0, step=1, key="form_c_abb")
-                c_var = st.number_input("Mat. Vario Piattaforma", min_value=0, step=1, key="form_c_var")
+                c_abb = st.number_input("Abbigliamento", min_value=0, step=1, key="form_c_abb")
             with col_q2:
-                c_calz = st.number_input("Calzature (Shoes)", min_value=0, step=1, key="form_c_calz")
-                c_mat = st.number_input("Mat. Vario", min_value=0, step=1, key="form_c_mat")
+                c_calz = st.number_input("Calzature", min_value=0, step=1, key="form_c_calz")
             with col_q3:
-                c_oth = st.number_input("Others (Altri Bultos)", min_value=0, step=1, key="form_c_oth")
-                c_cont = st.number_input("Contenitori", min_value=0, step=1, key="form_c_cont")
-            with col_q4:
                 c_eco = st.number_input("E-Commerce", min_value=0, step=1, key="form_c_eco")
-                c_dann = st.number_input("Danneggiati", min_value=0, step=1, key="form_c_dann")
-                c_nonconf = st.number_input("Non Conformi", min_value=0, step=1, key="form_c_nonconf")
+            with col_q4:
+                c_oth = st.number_input("Altri Bultos", min_value=0, step=1, key="form_c_oth")
+            with col_q5:
+                c_var = st.number_input("Mat. Vario Piattaforma", min_value=0, step=1, key="form_c_var")
 
             tot_operativa_calc = int(c_abb + c_calz + c_eco + c_oth + c_var)
-            st.info(f"📦 **Totale Colli Operativa Consegna: {format_number_it(tot_operativa_calc, 0)} colli**")
+            delta_eff_prev = tot_operativa_calc - p_tot
+            if delta_eff_prev == 0:
+                st.success(f"🟢 **Totale Colli Bolla: {format_number_it(tot_operativa_calc, 0)} colli (CONFORME AL PREVISTO)**")
+            elif delta_eff_prev > 0:
+                st.warning(f"🟡 **Totale Colli Bolla: {format_number_it(tot_operativa_calc, 0)} colli (ECCEDENZA: +{delta_eff_prev} colli rispetto al previsto di {p_tot})**")
+            else:
+                st.error(f"🔴 **Totale Colli Bolla: {format_number_it(tot_operativa_calc, 0)} colli (MANCANZA: {delta_eff_prev} colli rispetto al previsto di {p_tot})**")
 
-            # Intershops & Anomalie
-            with st.expander("🔄 Trasferimenti tra Negozi (Intershops / Stand / Ceste) & Note Scarico", expanded=False):
+            # Intershops & Note
+            with st.expander("🔄 Trasferimenti tra Negozi (Intershops / Stand / Ceste)", expanded=False):
                 inter_rows_data = []
                 existing_inter = []
                 try:
@@ -1625,8 +1657,8 @@ elif menu == "🚚 2. Bolle di Consegna":
                     if c_val > 0:
                         inter_rows_data.append({"mittente": m_val, "colli": int(c_val), "tipo": t_val})
 
-                form_stringa_custom = st.text_input("Note / Intershops libere sulla bolla", key="form_stringa_custom")
-                form_anomalie = st.text_area("Anomalie allo Scarico", key="form_anomalie")
+            curr_note_val = str(existing_bolla.get("note") or existing_bolla.get("stringa") or "") if existing_bolla else ""
+            form_note = st.text_area("📝 Note Generiche di Consegna / Banchina", value=curr_note_val, key="form_note_input", placeholder="Inserisci eventuali note operative, anomalie o indicazioni per la consegna...")
 
             # Pulsanti di Azione
             col_sv1, col_sv2, col_sv3 = st.columns([2, 2, 1.2])
@@ -1646,13 +1678,7 @@ elif menu == "🚚 2. Bolle di Consegna":
                             st.rerun()
 
             if save_clicked or save_next_clicked:
-                if inter_rows_data:
-                    computed_stringa = format_intershops_string(inter_rows_data)
-                    if form_stringa_custom and form_stringa_custom not in computed_stringa:
-                        computed_stringa += f" {form_stringa_custom}"
-                else:
-                    computed_stringa = form_stringa_custom
-
+                computed_stringa = format_intershops_string(inter_rows_data) if inter_rows_data else ""
                 bolla_save_payload = {
                     "id": existing_bolla.get("id") if existing_bolla else None,
                     "data": str(form_data_carico),
@@ -1663,7 +1689,7 @@ elif menu == "🚚 2. Bolle di Consegna":
                     "tipo_cons": form_tipo_cons,
                     "vettore": form_vettore,
                     "cell_autista": "",
-                    "autista": form_autista,
+                    "autista": "",
                     "tipo_mezzo": form_mezzo,
                     "indirizzo_destino": form_indirizzo,
                     "colli_abbigl": int(c_abb),
@@ -1671,11 +1697,17 @@ elif menu == "🚚 2. Bolle di Consegna":
                     "colli_ecom": int(c_eco),
                     "colli_others": int(c_oth),
                     "colli_vario": int(c_var),
-                    "colli_cont": int(c_cont),
-                    "colli_mat_vario": int(c_mat),
-                    "colli_dann": int(c_dann),
-                    "colli_non_conf": int(c_nonconf),
-                    "anomalie_scarico": form_anomalie,
+                    "colli_cont": 0,
+                    "colli_mat_vario": 0,
+                    "colli_dann": 0,
+                    "colli_non_conf": 0,
+                    "anomalie_scarico": "",
+                    "note": form_note,
+                    "prev_abbigl": p_abb,
+                    "prev_calzat": p_calz,
+                    "prev_ecom": p_eco,
+                    "prev_others": p_oth,
+                    "prev_totale": p_tot,
                     "intershops_list": inter_rows_data,
                     "stringa": computed_stringa,
                 }
@@ -1874,7 +1906,207 @@ elif menu == "🚚 2. Bolle di Consegna":
     # ==============================================================================
     # PAGE 3: CONSUNTIVO & PLANNER INDITEX (CONFRONTO PREVISIONE VS BOLLE REALI)
     # ==============================================================================
-elif menu == "📊 3. Consuntivo & Planner Inditex":
+
+# ==============================================================================
+# PAGE: SPUNTA BANCHINA & CONTEGGIO MERCI (MOBILE TOUCHSCREEN)
+# ==============================================================================
+elif "Spunta Banchina" in menu:
+    st.markdown('<div class="main-header">📱 Spunta Banchina & Conteggio Merci</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Interfaccia touch per smartphone & banchina: seleziona il punto vendita, confronta il dato previsionale e inserisci le quantità contate allo scarico.</div>', unsafe_allow_html=True)
+
+    all_b_dates = get_bolle_dates()
+    if not all_b_dates:
+        st.info("ℹ️ Nessuna bolla di consegna registrata in archivio. Genera prima le bolle dalla Previsione Arrivi.")
+    else:
+        # 1. Filtri Rapidi di Testata Mobile
+        c_mob1, c_mob2, c_mob3 = st.columns([1.5, 1.5, 1.2])
+        with c_mob1:
+            sel_spunta_dt = st.selectbox(
+                "📅 Data di Consegna",
+                all_b_dates,
+                format_func=lambda d: f"{format_date_it(d)} ({d})",
+                key="mob_spunta_date"
+            )
+        
+        df_b_date = get_bolle(data_consegna=sel_spunta_dt)
+        all_giri_mob = ["TUTTI"]
+        if not df_b_date.empty and not df_stores_side.empty:
+            s_map = df_stores_side.set_index("store_id")["giro"].dropna().to_dict()
+            df_b_date["giro"] = df_b_date["id_store"].map(s_map).fillna("DA ASSEGNARE")
+            g_uniq = sorted([g for g in df_b_date["giro"].unique() if str(g).strip()])
+            all_giri_mob += g_uniq
+
+        with c_mob2:
+            sel_giro_mob = st.selectbox("🚛 Filtro Giro", all_giri_mob, key="mob_spunta_giro")
+
+        if sel_giro_mob != "TUTTI":
+            df_b_date = df_b_date[df_b_date["giro"] == sel_giro_mob]
+
+        with c_mob3:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            spuntati_cnt = int((df_b_date.get("spuntato", pd.Series(0, index=df_b_date.index)).fillna(0) == 1).sum()) if not df_b_date.empty else 0
+            tot_b_cnt = len(df_b_date)
+            st.caption(f"Avanzamento: **{spuntati_cnt} / {tot_b_cnt}** spuntati")
+
+        if df_b_date.empty:
+            st.warning(f"Nessuna bolla trovata per la data {format_date_it(sel_spunta_dt)} nel giro selezionato.")
+        else:
+            # Opzioni di selezione negozio
+            b_options = {}
+            for _, r in df_b_date.iterrows():
+                bid = int(r["id"])
+                sid = str(r["id_store"])
+                sname = str(r.get("store_name", sid))
+                tipo = str(r.get("tipo_cons", "STD"))
+                tot_c = int(round(float(r.get("TOT_COLLI", 0) or 0)))
+                prev_c = int(round(float(r.get("prev_totale", 0) or 0)))
+                is_sp = int(r.get("spuntato", 0) or 0) == 1
+                giro_st = str(r.get("giro", ""))
+                
+                if is_sp:
+                    tag = "🟢 [SPUNTATO]"
+                else:
+                    tag = "⏳ [DA CONTARE]"
+                b_options[bid] = f"{tag} {sid} - {sname} ({tipo}) [{giro_st}] — Contati: {tot_c} | Prev: {prev_c}"
+
+            if "_next_spunta_bid" in st.session_state and st.session_state["_next_spunta_bid"] in b_options:
+                st.session_state["mob_selected_bid"] = st.session_state.pop("_next_spunta_bid")
+
+            sel_bid = st.selectbox(
+                "🏪 Seleziona Punto Vendita da Spuntare:",
+                options=list(b_options.keys()),
+                format_func=lambda bid: b_options[bid],
+                key="mob_selected_bid"
+            )
+
+            b_curr = df_b_date[df_b_date["id"] == sel_bid].iloc[0].to_dict()
+            curr_sid = str(b_curr.get("id_store", ""))
+            curr_sname = str(b_curr.get("store_name", ""))
+            curr_pv = str(b_curr.get("punto_vendita", ""))
+            curr_tipo = str(b_curr.get("tipo_cons", "STD"))
+            curr_mezzo = str(b_curr.get("tipo_mezzo", "—"))
+            curr_vett = str(b_curr.get("vettore", "LACCHI SPA"))
+            curr_ind = str(b_curr.get("indirizzo_destino", "—"))
+            curr_giro = str(b_curr.get("giro", "—"))
+
+            prev_tot_m = int(round(float(b_curr.get("prev_totale", 0) or 0)))
+            prev_abb_m = int(round(float(b_curr.get("prev_abbigl", 0) or 0)))
+            prev_calz_m = int(round(float(b_curr.get("prev_calzat", 0) or 0)))
+            prev_eco_m = int(round(float(b_curr.get("prev_ecom", 0) or 0)))
+            prev_oth_m = int(round(float(b_curr.get("prev_others", 0) or 0)))
+
+            # Scheda Negozio Touch
+            st.markdown(f"""
+            <div class="modern-card" style="padding: 14px 18px; margin-top: 8px; margin-bottom: 12px; border-left: 5px solid #0284C7;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <div>
+                        <span style="font-size: 18px; font-weight: 800; color: #0F172A;">Store {curr_sid}</span>
+                        <span style="font-size: 15px; font-weight: 600; color: #334155; margin-left: 8px;">{curr_sname}</span>
+                        <span style="background: #E0F2FE; color: #0369A1; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 9999px; margin-left: 8px;">{curr_pv}</span>
+                        <span style="background: #FEF3C7; color: #B45309; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 9999px; margin-left: 4px;">{curr_tipo}</span>
+                    </div>
+                    <div style="font-size: 13px; font-weight: 700; color: #64748B;">
+                        Giro: <strong style="color: #0F172A;">{curr_giro}</strong> | Mezzo: <strong style="color: #0F172A;">{curr_mezzo}</strong> | Vettore: <strong style="color: #0F172A;">{curr_vett}</strong>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Card Valori Previsionali Attesi
+            st.markdown(f"""
+            <div class="modern-card" style="padding: 12px 18px; margin-bottom: 14px; background-color: #F8FAFC; border: 1px solid #E2E8F0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">📊 DATI PREVISIONALI ATTESI</span>
+                    <span style="font-size: 14px; font-weight: 800; color: #1E3A8A;">TOTALE PREVISTO: {format_number_it(prev_tot_m, 0)} COLLI</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 4px;">
+                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 8px; text-align: center;">
+                        <div style="font-size: 9.5px; font-weight: 700; color: #64748B;">👗 TESSILE</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(prev_abb_m, 0)}</div>
+                    </div>
+                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 8px; text-align: center;">
+                        <div style="font-size: 9.5px; font-weight: 700; color: #64748B;">👟 SCARPE</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(prev_calz_m, 0)}</div>
+                    </div>
+                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 8px; text-align: center;">
+                        <div style="font-size: 9.5px; font-weight: 700; color: #64748B;">📦 E-COM</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(prev_eco_m, 0)}</div>
+                    </div>
+                    <div style="background: white; border: 1px solid #E2E8F0; border-radius: 6px; padding: 6px 8px; text-align: center;">
+                        <div style="font-size: 9.5px; font-weight: 700; color: #64748B;">📦 ALTRI</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0F172A;">{format_number_it(prev_oth_m, 0)}</div>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Conteggio Effettivo Touch
+            st.markdown("##### ✍️ Conteggio Merce Banchina (Quantità Effettive)")
+            c_m1, c_m2, c_m3 = st.columns(3)
+            with c_m1:
+                init_abb = int(round(float(b_curr.get("colli_abbigl") or 0)))
+                m_abb = st.number_input("👗 Abbigliamento", min_value=0, value=init_abb, step=1, key=f"m_in_abb_{sel_bid}")
+                init_var = int(round(float(b_curr.get("colli_vario") or 0)))
+                m_var = st.number_input("📦 Mat. Vario", min_value=0, value=init_var, step=1, key=f"m_in_var_{sel_bid}")
+            with c_m2:
+                init_calz = int(round(float(b_curr.get("colli_calzat") or 0)))
+                m_calz = st.number_input("👟 Calzature", min_value=0, value=init_calz, step=1, key=f"m_in_calz_{sel_bid}")
+                init_eco = int(round(float(b_curr.get("colli_ecom") or 0)))
+                m_eco = st.number_input("📦 E-Commerce", min_value=0, value=init_eco, step=1, key=f"m_in_eco_{sel_bid}")
+            with c_m3:
+                init_oth = int(round(float(b_curr.get("colli_others") or 0)))
+                m_oth = st.number_input("📦 Altri Bultos", min_value=0, value=init_oth, step=1, key=f"m_in_oth_{sel_bid}")
+
+            m_tot_calc = int(m_abb + m_calz + m_eco + m_oth + m_var)
+            m_delta = m_tot_calc - prev_tot_m
+
+            # Live Delta Banner
+            if m_delta == 0:
+                st.success(f"🟢 **CONFORME: {format_number_it(m_tot_calc, 0)} Colli Contati (Delta: 0 rispetto al previsto)**")
+            elif m_delta > 0:
+                st.warning(f"🟡 **ECCEDENZA RISCONTRATA: {format_number_it(m_tot_calc, 0)} Colli Contati (+{m_delta} colli in più rispetto al previsto di {prev_tot_m})**")
+            else:
+                st.error(f"🔴 **MANCANZA RISCONTRATA: {format_number_it(m_tot_calc, 0)} Colli Contati ({m_delta} colli rispetto al previsto di {prev_tot_m})**")
+
+            # Campo Note Banchina
+            m_note = st.text_input("📝 Note / Osservazioni Banchina", value=str(b_curr.get("note") or ""), placeholder="es. merce integra, 1 collo bagnato, etc.", key=f"m_note_{sel_bid}")
+
+            # Pulsanti Touchscreen Grandi
+            col_mb1, col_mb2 = st.columns([1.6, 1.4])
+            with col_mb1:
+                btn_m_save = st.button("💾 REGISTRA SPUNTA SU BOLLA", type="primary", use_container_width=True, key=f"btn_m_save_{sel_bid}")
+            with col_mb2:
+                btn_m_next = st.button("💾 Salva e Passa al Prossimo ➡️", use_container_width=True, key=f"btn_m_next_{sel_bid}")
+
+            if btn_m_save or btn_m_next:
+                b_curr["colli_abbigl"] = int(m_abb)
+                b_curr["colli_calzat"] = int(m_calz)
+                b_curr["colli_ecom"] = int(m_eco)
+                b_curr["colli_others"] = int(m_oth)
+                b_curr["colli_vario"] = int(m_var)
+                b_curr["note"] = m_note
+                b_curr["spuntato"] = 1
+                b_curr["prev_abbigl"] = prev_abb_m
+                b_curr["prev_calzat"] = prev_calz_m
+                b_curr["prev_ecom"] = prev_eco_m
+                b_curr["prev_others"] = prev_oth_m
+                b_curr["prev_totale"] = prev_tot_m
+                save_or_update_bolla(b_curr)
+
+                if btn_m_next and b_options:
+                    all_bids = list(b_options.keys())
+                    try:
+                        curr_i = all_bids.index(sel_bid)
+                        if curr_i + 1 < len(all_bids):
+                            st.session_state["_next_spunta_bid"] = all_bids[curr_i + 1]
+                    except Exception:
+                        pass
+
+                st.session_state["flash_bolle_msg"] = f"🎉 Spunta registrata per Negozio **{curr_sid}** ({curr_sname})! Totale: **{m_tot_calc}** colli."
+                st.rerun()
+
+
+elif "Consuntivo & Planner" in menu:
     st.markdown('<div class="main-header">📊 Consuntivo & Confronto Planner Roma (Form Inditex)</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Quadratura tra colli previsti ed effettivamente consegnati nelle bolle (con seconde consegne contraddistinte dalla lettera "B") ed esportazione diretta del file ufficiale Inditex.</div>', unsafe_allow_html=True)
 
@@ -1971,7 +2203,7 @@ elif menu == "📊 3. Consuntivo & Planner Inditex":
 # ==============================================================================
 # PAGE 4: ANAGRAFICA NEGOZI & GIRI
 # ==============================================================================
-elif menu == "🏢 4. Anagrafica Negozi & Giri":
+elif "Anagrafica Negozi" in menu:
     _inject_modern_css()
     st.markdown('<div class="main-header">🏢 Anagrafica Punti Vendita, Giri & Parco Mezzi</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Gestione integrata dei punti vendita, percorsi/giri, autisti e flotta veicoli con relative capienze operative.</div>', unsafe_allow_html=True)

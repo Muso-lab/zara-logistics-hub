@@ -65,6 +65,26 @@ def init_bolle_tables(db_path: Path = DB_PATH):
     cur.execute("CREATE INDEX IF NOT EXISTS idx_bolle_datac ON bolle(data_consegna);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_bolle_store ON bolle(id_store);")
 
+    # Migration: add note and prev_* columns if missing
+    cur.execute("PRAGMA table_info(bolle);")
+    existing_b_cols = [r[1] for r in cur.fetchall()]
+    new_cols_defs = [
+        ("note", "TEXT"),
+        ("prev_abbigl", "REAL DEFAULT 0"),
+        ("prev_calzat", "REAL DEFAULT 0"),
+        ("prev_ecom", "REAL DEFAULT 0"),
+        ("prev_others", "REAL DEFAULT 0"),
+        ("prev_totale", "REAL DEFAULT 0"),
+        ("spuntato", "INTEGER DEFAULT 0"),
+    ]
+    for col_n, col_d in new_cols_defs:
+        if col_n not in existing_b_cols:
+            try:
+                cur.execute(f"ALTER TABLE bolle ADD COLUMN {col_n} {col_d};")
+            except Exception:
+                pass
+
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS store_delivery_profiles (
         id_store TEXT NOT NULL,
@@ -420,7 +440,14 @@ def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
             colli_non_conf = ?,
             anomalie_scarico = ?,
             intershops_json = ?,
-            stringa = ?
+            stringa = ?,
+            note = COALESCE(?, note),
+            prev_abbigl = CASE WHEN ? IS NOT NULL THEN ? ELSE prev_abbigl END,
+            prev_calzat = CASE WHEN ? IS NOT NULL THEN ? ELSE prev_calzat END,
+            prev_ecom = CASE WHEN ? IS NOT NULL THEN ? ELSE prev_ecom END,
+            prev_others = CASE WHEN ? IS NOT NULL THEN ? ELSE prev_others END,
+            prev_totale = CASE WHEN ? IS NOT NULL THEN ? ELSE prev_totale END,
+            spuntato = COALESCE(?, spuntato)
         WHERE id = ?
         """, (
             data.get("data", datetime.now().strftime("%Y-%m-%d")),
@@ -446,6 +473,13 @@ def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
             data.get("anomalie_scarico", ""),
             inter_json,
             stringa_val,
+            data.get("note", None),
+            data.get("prev_abbigl", None), data.get("prev_abbigl", None),
+            data.get("prev_calzat", None), data.get("prev_calzat", None),
+            data.get("prev_ecom", None), data.get("prev_ecom", None),
+            data.get("prev_others", None), data.get("prev_others", None),
+            data.get("prev_totale", None), data.get("prev_totale", None),
+            data.get("spuntato", None),
             int(b_id)
         ))
         res_id = int(b_id)
@@ -456,8 +490,9 @@ def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
             vettore, cell_autista, autista, tipo_mezzo, indirizzo_destino,
             colli_abbigl, colli_calzat, colli_ecom, colli_others, colli_vario,
             colli_cont, colli_mat_vario, colli_dann, colli_non_conf,
-            anomalie_scarico, intershops_json, stringa
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            anomalie_scarico, intershops_json, stringa,
+            note, prev_abbigl, prev_calzat, prev_ecom, prev_others, prev_totale, spuntato
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data.get("data", datetime.now().strftime("%Y-%m-%d")),
             data.get("data_consegna", data.get("data", datetime.now().strftime("%Y-%m-%d"))),
@@ -481,7 +516,14 @@ def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
             int(round(float(data.get("colli_non_conf", 0) or 0))),
             data.get("anomalie_scarico", ""),
             inter_json,
-            stringa_val
+            stringa_val,
+            data.get("note", ""),
+            float(data.get("prev_abbigl") or data.get("colli_abbigl") or 0.0),
+            float(data.get("prev_calzat") or data.get("colli_calzat") or 0.0),
+            float(data.get("prev_ecom") or data.get("colli_ecom") or 0.0),
+            float(data.get("prev_others") or data.get("colli_others") or 0.0),
+            float(data.get("prev_totale") or (float(data.get("colli_abbigl") or 0) + float(data.get("colli_calzat") or 0) + float(data.get("colli_ecom") or 0) + float(data.get("colli_others") or 0))),
+            int(data.get("spuntato", 0))
         ))
         res_id = cur.lastrowid
 
@@ -586,12 +628,22 @@ def generate_bolle_from_forecast(
         raise ValueError(f"Run {run_id} non trovata.")
 
     run_date = str(df_run.iloc[0]["run_date"])[:10]
+    try:
+        dt_base = datetime.strptime(run_date, "%Y-%m-%d")
+    except:
+        dt_base = datetime.now()
+
     if not delivery_date:
+        deliv_date_std = (dt_base + timedelta(days=1)).strftime("%Y-%m-%d")
+        deliv_date_dop = (dt_base + timedelta(days=2)).strftime("%Y-%m-%d")
+    else:
+        deliv_date_std = delivery_date
         try:
-            dt = datetime.strptime(run_date, "%Y-%m-%d")
-            delivery_date = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
+            dt_given = datetime.strptime(delivery_date, "%Y-%m-%d")
+            deliv_date_dop = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")
         except:
-            delivery_date = run_date
+            deliv_date_dop = delivery_date
+    delivery_date = deliv_date_std
 
     # 2. If overwrite, delete existing bolle for that delivery_date
     if overwrite:
@@ -712,29 +764,41 @@ def generate_bolle_from_forecast(
             if (base_sid, "STD") in existing_pairs:
                 skipped += 1
             else:
+                std_abb = int(tot_tex - d_tex)
+                std_calz = int(tot_sho - d_sho)
+                std_eco = int(tot_eco - d_eco)
+                std_oth = int(tot_oth - d_oth)
+                std_tot = std_abb + std_calz + std_eco + std_oth
                 bolla_std = {
                     "data": run_date,
-                    "data_consegna": delivery_date,
+                    "data_consegna": deliv_date_std,
                     "id_store": base_sid,
                     "punto_vendita": pv,
                     "store_name": sname,
                     "tipo_cons": "STD",
                     "vettore": vettore,
-                    "cell_autista": cell_autista,
-                    "autista": meta.get("autista", ""),
+                    "cell_autista": "",
+                    "autista": "",
                     "tipo_mezzo": meta.get("tipo_mezzo", "MOTRICE 18 PLT"),
                     "indirizzo_destino": indirizzo,
-                    "colli_abbigl": int(tot_tex - d_tex),
-                    "colli_calzat": int(tot_sho - d_sho),
-                    "colli_ecom": int(tot_eco - d_eco),
-                    "colli_others": int(tot_oth - d_oth),
+                    "colli_abbigl": std_abb,
+                    "colli_calzat": std_calz,
+                    "colli_ecom": std_eco,
+                    "colli_others": std_oth,
+                    "prev_abbigl": std_abb,
+                    "prev_calzat": std_calz,
+                    "prev_ecom": std_eco,
+                    "prev_others": std_oth,
+                    "prev_totale": std_tot,
                     "colli_vario": 0,
                     "colli_cont": 0,
                     "colli_mat_vario": 0,
                     "colli_dann": 0,
                     "colli_non_conf": 0,
                     "anomalie_scarico": "",
-                    "stringa": ""
+                    "note": "",
+                    "stringa": "",
+                    "spuntato": 0
                 }
                 save_or_update_bolla(bolla_std, db_path=db_path)
                 created += 1
@@ -743,29 +807,40 @@ def generate_bolle_from_forecast(
             if (base_sid, "DOPPIA") in existing_pairs:
                 skipped += 1
             else:
+                meta_b = stores_meta.get(f"{base_sid}B", {})
+                b_vett = meta_b.get("vettore") or vettore
+                b_mezzo = meta_b.get("tipo_mezzo") or meta.get("tipo_mezzo_doppia") or "FURGONE 8"
+                dop_tot = d_tex + d_sho + d_eco + d_oth
                 bolla_d = {
                     "data": run_date,
-                    "data_consegna": delivery_date,
+                    "data_consegna": deliv_date_dop,
                     "id_store": base_sid,
                     "punto_vendita": pv,
                     "store_name": sname,
                     "tipo_cons": "DOPPIA",
-                    "vettore": vettore,
-                    "cell_autista": cell_autista,
-                    "autista": meta.get("autista_doppia") or meta.get("autista", ""),
-                    "tipo_mezzo": meta.get("tipo_mezzo_doppia") or "FURGONE",
+                    "vettore": b_vett,
+                    "cell_autista": "",
+                    "autista": "",
+                    "tipo_mezzo": b_mezzo,
                     "indirizzo_destino": indirizzo,
                     "colli_abbigl": d_tex,
                     "colli_calzat": d_sho,
                     "colli_ecom": d_eco,
                     "colli_others": d_oth,
+                    "prev_abbigl": d_tex,
+                    "prev_calzat": d_sho,
+                    "prev_ecom": d_eco,
+                    "prev_others": d_oth,
+                    "prev_totale": dop_tot,
                     "colli_vario": 0,
                     "colli_cont": 0,
                     "colli_mat_vario": 0,
                     "colli_dann": 0,
                     "colli_non_conf": 0,
                     "anomalie_scarico": "",
-                    "stringa": ""
+                    "note": "",
+                    "stringa": "",
+                    "spuntato": 0
                 }
                 save_or_update_bolla(bolla_d, db_path=db_path)
                 created += 1
@@ -774,29 +849,37 @@ def generate_bolle_from_forecast(
             if (base_sid, "STD") in existing_pairs:
                 skipped += 1
             else:
+                sng_tot = tot_tex + tot_sho + tot_eco + tot_oth
                 bolla_single = {
                     "data": run_date,
-                    "data_consegna": delivery_date,
+                    "data_consegna": deliv_date_std,
                     "id_store": base_sid,
                     "punto_vendita": pv,
                     "store_name": sname,
                     "tipo_cons": "STD",
                     "vettore": vettore,
-                    "cell_autista": cell_autista,
-                    "autista": meta.get("autista", ""),
+                    "cell_autista": "",
+                    "autista": "",
                     "tipo_mezzo": meta.get("tipo_mezzo", "MOTRICE 18 PLT"),
                     "indirizzo_destino": indirizzo,
                     "colli_abbigl": tot_tex,
                     "colli_calzat": tot_sho,
                     "colli_ecom": tot_eco,
                     "colli_others": tot_oth,
+                    "prev_abbigl": tot_tex,
+                    "prev_calzat": tot_sho,
+                    "prev_ecom": tot_eco,
+                    "prev_others": tot_oth,
+                    "prev_totale": sng_tot,
                     "colli_vario": 0,
                     "colli_cont": 0,
                     "colli_mat_vario": 0,
                     "colli_dann": 0,
                     "colli_non_conf": 0,
                     "anomalie_scarico": "",
-                    "stringa": ""
+                    "note": "",
+                    "stringa": "",
+                    "spuntato": 0
                 }
                 save_or_update_bolla(bolla_single, db_path=db_path)
                 created += 1
@@ -1033,12 +1116,8 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
         mezzo = b.get("tipo_mezzo", "")
         indirizzo = b.get("indirizzo_destino", "")
 
-        aut_line = ""
-        if autista:
-            aut_line = f"<strong>Autista:</strong> {autista}"
-            if cell:
-                aut_line += f" &nbsp;|&nbsp; <strong>Cell:</strong> {cell}"
-            aut_line += "<br>"
+        aut_line = f"<strong>Autista:</strong> {autista}<br>" if autista else ""
+        nota_consegna = str(b.get("note") or b.get("stringa") or "").strip()
 
         c_abb = int(round(float(b.get("colli_abbigl") or 0)))
         c_calz = int(round(float(b.get("colli_calzat") or 0)))
@@ -1196,15 +1275,11 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
                 </table>
             </div>
 
-            <!-- ANOMALIE E SCARICO -->
-            <div style="margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <div class="border-box">
-                    <strong>COLLI DANNEGGIATI IN ORIGINE:</strong> {c_dann}<br>
-                    <strong>COLLI NON CONFORMI:</strong> {c_nonconf}
-                </div>
-                <div class="border-box">
-                    <strong>ANOMALIE RISCONTRATE ALLO SCARICO:</strong><br>
-                    <span style="color:#d9534f; font-weight:bold;">{anomalie or 'Nessuna anomalia riscontrata'}</span>
+            <!-- NOTE DI CONSEGNA -->
+            <div style="margin-top: 8px;">
+                <div class="border-box" style="min-height: 40px; padding: 6px 10px;">
+                    <strong>NOTE DI CONSEGNA:</strong><br>
+                    <span>{nota_consegna or 'Nessuna nota operativa segnalata.'}</span>
                 </div>
             </div>
 
