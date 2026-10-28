@@ -1823,11 +1823,11 @@ elif "Bolle di Consegna" in menu:
                             mon_d = r_dt_obj - timedelta(days=r_dt_obj.weekday())
                             is_mid = ("LUN" in r_cyc or r_dt_obj.weekday() <= 2)
                             if is_mid:
-                                date_dop_calc = mon_d + timedelta(days=2) # Mercoledi
-                                date_std_calc = mon_d + timedelta(days=3) # Giovedi
+                                date_dop_calc = mon_d + timedelta(days=2) # Mercoledi (/9)
+                                date_std_calc = mon_d + timedelta(days=3) # Giovedi (/0)
                             else:
-                                date_std_calc = mon_d + timedelta(days=5) # Sabato
-                                date_dop_calc = mon_d + timedelta(days=6) # Domenica
+                                date_dop_calc = mon_d + timedelta(days=5) # Sabato (/9)
+                                date_std_calc = mon_d + timedelta(days=6) # Domenica (/0)
                     else:
                         date_dop_calc = date.today()
                         date_std_calc = date.today() + timedelta(days=1)
@@ -1867,9 +1867,9 @@ elif "Bolle di Consegna" in menu:
         with tab_b_form:
             target_dt_obj = parse_date_obj(target_date)
             # Regola Consegne Inditex:
-            # - Consegne /9 (DOPPIA / 2a Uscita): Mercoledi (weekday 2) e Domenica (weekday 6)
-            # - Consegne /0 (STD / Standard): Giovedi (weekday 3) e Lunedi (weekday 0)
-            is_dop_date = (target_dt_obj.weekday() in (2, 6))
+            # - Consegne /0 (STD / Standard): SEMPRE Giovedi (weekday 3) e Domenica (weekday 6)
+            # - Consegne /9 (DOPPIA / 2a Uscita): SEMPRE Mercoledi (weekday 2) e Sabato (weekday 5)
+            is_dop_date = (target_dt_obj.weekday() in (2, 5))
 
             # Query delle bolle precompilate per questa specifica data di consegna
             df_bolle_date = get_bolle(data_consegna=str(target_date))

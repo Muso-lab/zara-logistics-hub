@@ -657,12 +657,12 @@ def compute_inditex_delivery_dates(dt_base: Any, cycle_type: str = "LUN-MER") ->
 
     if is_midweek:
         # LUN-MER: Mercoledi (/9) e Giovedi (/0)
-        date_b9 = monday + timedelta(days=2)
-        date_b0 = monday + timedelta(days=3)
+        date_b9 = monday + timedelta(days=2)  # Mercoledì (/9 DOPPIA)
+        date_b0 = monday + timedelta(days=3)  # Giovedì (/0 STD)
     else:
-        # GIOV-DOM: Sabato (/0 STD) e Domenica (/9 DOPPIA)
-        date_b0 = monday + timedelta(days=5)
-        date_b9 = monday + timedelta(days=6)
+        # GIOV-DOM: Sabato (/9 DOPPIA) e Domenica (/0 STD)
+        date_b9 = monday + timedelta(days=5)  # Sabato (/9 DOPPIA)
+        date_b0 = monday + timedelta(days=6)  # Domenica (/0 STD)
 
     return date_b9, date_b0
 
@@ -702,20 +702,15 @@ def generate_bolle_from_forecast(
     elif delivery_date:
         try:
             dt_given = datetime.strptime(str(delivery_date)[:10], "%Y-%m-%d").date()
-            if dt_given.weekday() in (2, 6):
-                # Data /9 (Mercoledi 2 o Domenica 6)
+            if dt_given.weekday() in (2, 5):
+                # Data /9 (Mercoledi 2 o Sabato 5): /0 STD e il giorno successivo (Giovedi 3 o Domenica 6)
                 deliv_date_dop = dt_given.strftime("%Y-%m-%d")
-                if dt_given.weekday() == 2:
-                    deliv_date_std = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")  # Giovedi
-                else:
-                    deliv_date_std = (dt_given - timedelta(days=1)).strftime("%Y-%m-%d")  # Sabato
+                deliv_date_std = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")
             else:
-                # Data /0 (Giovedi 3 o Sabato 5 o altro)
+                # Data /0 (Giovedi 3 o Domenica 6 o altro): /9 DOPPIA e il giorno precedente (Mercoledi 2 o Sabato 5)
                 deliv_date_std = dt_given.strftime("%Y-%m-%d")
-                if dt_given.weekday() == 3:
-                    deliv_date_dop = (dt_given - timedelta(days=1)).strftime("%Y-%m-%d")  # Mercoledi
-                elif dt_given.weekday() == 5:
-                    deliv_date_dop = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")  # Domenica
+                if dt_given.weekday() in (3, 6):
+                    deliv_date_dop = (dt_given - timedelta(days=1)).strftime("%Y-%m-%d")
                 else:
                     deliv_date_dop = dt_given.strftime("%Y-%m-%d")
         except:
