@@ -236,6 +236,16 @@ st.markdown("""
     .mobile-top-bar {
         display: none;
     }
+    /* Previene glitch di layout e sfarfallii su componenti invisibili a zero altezza */
+    iframe[height="0"], [data-testid="stCustomComponentV1"]:has(iframe[height="0"]) {
+        display: none !important;
+        height: 0 !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+    }
+
     @media (max-width: 900px) {
         /* Nasconde le statistiche in testata su smartphone */
         .platform-stats-strip {
@@ -861,41 +871,28 @@ with c_head_user:
             st.rerun()
 
 
-def render_scroll_top_trigger(target_id="top-page-anchor"):
-    """Injects resilient multi-target instant scroll-to-top scripts for mobile and desktop."""
-    st.components.v1.html(f"""
+def render_smooth_scroll_top():
+    """Effettua uno scroll fluido, pulito e senza glitch verso l'inizio della pagina."""
+    st.components.v1.html("""
     <script>
-        function doParentScroll() {{
-            try {{
-                window.parent.scrollTo(0, 0);
-                var doc = window.parent.document;
-                var el = doc.getElementById('{target_id}');
-                if (el) el.scrollIntoView({{ behavior: 'instant', block: 'start' }});
-                var containers = [
-                    doc.querySelector('[data-testid="stAppViewContainer"]'),
-                    doc.querySelector('.main'),
-                    doc.querySelector('section.main'),
-                    doc.documentElement,
-                    doc.body
-                ];
-                containers.forEach(function(c) {{ if (c) c.scrollTop = 0; }});
-            }} catch(e) {{}}
-        }}
-        doParentScroll();
-        if (window.parent && window.parent.requestAnimationFrame) {{
-            window.parent.requestAnimationFrame(doParentScroll);
-        }}
-        setTimeout(doParentScroll, 25);
-        setTimeout(doParentScroll, 80);
-        setTimeout(doParentScroll, 180);
-        setTimeout(doParentScroll, 350);
-        setTimeout(doParentScroll, 700);
+        (function() {
+            try {
+                var p = window.parent || window;
+                var doc = p.document;
+                var c = doc.querySelector('[data-testid="stAppViewContainer"]') || doc.querySelector('.main') || p;
+                if (c && c.scrollTo) {
+                    c.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+                if (p.scrollTo) {
+                    p.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+            } catch(e) {}
+        })();
     </script>
     """, height=0, width=0)
 
-st.markdown('<div id="top-page-anchor"></div>', unsafe_allow_html=True)
-if st.session_state.get("_scroll_to_top"):
-    render_scroll_top_trigger("top-page-anchor")
+if st.session_state.pop("_scroll_to_top", False):
+    render_smooth_scroll_top()
 
 
 # ==============================================================================
@@ -1907,8 +1904,6 @@ elif "Bolle di Consegna" in menu:
                 st.session_state["form_store_sel"] = store_choices[0]
 
             st.markdown('<div id="bolla-store-header"></div>', unsafe_allow_html=True)
-            if st.session_state.pop("_scroll_to_top", False):
-                render_scroll_top_trigger("bolla-store-header")
             with c_head_s1:
                 sel_store_str = st.selectbox(
                     f"Punto Vendita con Bolla del {format_date_it(target_date)} ({len(store_choices)} disponibili)",
@@ -2752,8 +2747,6 @@ elif "Spunta Banchina" in menu:
             # SELETTORE TOUCH ZERO-KEYBOARD (NESSUNA TASTIERA SOFTWARE SU SMARTPHONE)
             # ------------------------------------------------------------------
             st.markdown('<div id="spunta-store-header"></div>', unsafe_allow_html=True)
-            if st.session_state.pop("_scroll_to_top", False):
-                render_scroll_top_trigger("spunta-store-header")
 
             col_p, col_c, col_n = st.columns([1.1, 2.6, 1.1])
             with col_p:
@@ -2806,9 +2799,7 @@ elif "Spunta Banchina" in menu:
             prev_eco_m = int(round(float(b_curr.get("prev_ecom", 0) or 0)))
             prev_oth_m = int(round(float(b_curr.get("prev_others", 0) or 0)))
 
-            st.markdown('<div id="spunta-store-header"></div>', unsafe_allow_html=True)
-            if st.session_state.pop("_scroll_to_top", False):
-                render_scroll_top_trigger("spunta-store-header")
+
 
             # Scheda Negozio Touch Gigante ad Altissima Visibilità (32px)
             tipo_badge_bg = "#FEF3C7" if curr_tipo == "DOPPIA" else "#E0F2FE"
