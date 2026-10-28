@@ -610,7 +610,7 @@ ROLE_CONFIG = {
         "menu_options": [
             "📥 1. Previsione & Arrivi",
             "🚚 2. Bolle di Consegna",
-            "📱 3. Spunta Banchina (Mobile)",
+            "📱 3. Spunta Banchina",
             "📊 4. Consuntivo & Planner Inditex",
             "🏢 5. Anagrafica Negozi & Giri",
             "⚙️ 6. Impostazioni, Email & Backup",
@@ -632,26 +632,26 @@ ROLE_CONFIG = {
         "menu_options": [
             "📥 1. Previsione & Arrivi",
             "🚚 2. Bolle di Consegna",
-            "📱 3. Spunta Banchina (Mobile)",
-            "📊 4. Consuntivo & Planner Inditex",
-            "🏢 5. Anagrafica Negozi & Giri",
+            "📊 3. Consuntivo & Planner Inditex",
         ],
         "can_edit_settings": False,
         "can_delete_runs": True,
         "can_delete_bolle": True,
-        "can_edit_master_data": True,
+        "can_edit_master_data": False,
         "can_send_emails": True,
         "can_execute_runs": True,
         "can_edit_bolle": True,
     },
     "magazzino": {
-        "label": "Banchina & Magazzino",
+        "label": "Magazzino & Spedizioni",
         "badge_color": "#047857",
         "badge_bg": "#D1FAE5",
         "badge_border": "#34D399",
         "icon": "📦",
         "menu_options": [
-            "📱 1. Spunta Banchina (Mobile)",
+            "📥 1. Previsione & Arrivi",
+            "🚚 2. Bolle di Consegna",
+            "📱 3. Spunta Banchina",
         ],
         "can_edit_settings": False,
         "can_delete_runs": False,
@@ -659,7 +659,7 @@ ROLE_CONFIG = {
         "can_edit_master_data": False,
         "can_send_emails": False,
         "can_execute_runs": False,
-        "can_edit_bolle": False,
+        "can_edit_bolle": True,
     },
     "banchina": {
         "label": "Terminale Spunta Mobile",
@@ -683,7 +683,7 @@ ROLE_CONFIG = {
 def get_role_info():
     r = st.session_state.get("auth_role", "magazzino")
     cfg = dict(ROLE_CONFIG.get(r, ROLE_CONFIG["magazzino"]))
-    if st.session_state.get("mobile_mode", False) or is_banchina() or is_magazzino():
+    if st.session_state.get("mobile_mode", False) or is_banchina():
         cfg["menu_options"] = ["📱 1. Spunta Banchina (Mobile)"]
     return cfg
 
@@ -697,22 +697,24 @@ def is_ufficio() -> bool:
     return st.session_state.get("auth_role") in ("admin", "ufficio")
 
 def is_magazzino() -> bool:
-    return st.session_state.get("auth_role") in ("magazzino", "banchina")
+    return st.session_state.get("auth_role") == "magazzino"
 
 def is_banchina() -> bool:
-    return st.session_state.get("auth_role") == "banchina" or st.session_state.get("force_banchina_terminal", False)
+    return st.session_state.get("auth_role") in ("banchina", "mobile") or st.session_state.get("force_banchina_terminal", False)
 
 def _get_auth_users() -> dict:
     """
-    Restituisce la mappa degli utenti abilitati sui 3 livelli di accesso:
-    - 'admin': Amministratore (pieno accesso operativo e configurazioni)
-    - 'ufficio': Ufficio Traffico & Gestione Spedizioni
-    - 'magazzino': Magazzino & Banchina (spunta arrivi, pedane e stampa bolle)
+    Restituisce la mappa degli utenti abilitati sui 4 profili:
+    - 'admin': Amministratore (accesso completo, anagrafica negozi/giri e configurazioni)
+    - 'ufficio': Ufficio Traffico & Gestione Spedizioni (previsioni, bolle, consuntivo Inditex)
+    - 'magazzino': Magazzino & Spedizioni (consultazione arrivi per data, bolle di consegna, spunta banchina)
+    - 'mobile' / 'banchina': Terminale Smartphone (solo modulo spunta a tutto schermo)
     """
     import os
     admin_pwd = os.getenv("ZARA_ADMIN_PASS", "zara2026").strip()
     ufficio_pwd = os.getenv("ZARA_UFFICIO_PASS", "traffico2026").strip()
-    magazzino_pwd = os.getenv("ZARA_MAGAZZINO_PASS", os.getenv("ZARA_VIEWER_PASS", "banchina2026")).strip()
+    magazzino_pwd = os.getenv("ZARA_MAGAZZINO_PASS", "magazzino2026").strip()
+    mobile_pwd = os.getenv("ZARA_BANCHINA_PASS", os.getenv("ZARA_MOBILE_PASS", "banchina2026")).strip()
 
     try:
         if hasattr(st, "secrets"):
@@ -722,8 +724,10 @@ def _get_auth_users() -> dict:
                 ufficio_pwd = str(st.secrets["ZARA_UFFICIO_PASS"]).strip()
             if "ZARA_MAGAZZINO_PASS" in st.secrets:
                 magazzino_pwd = str(st.secrets["ZARA_MAGAZZINO_PASS"]).strip()
-            elif "ZARA_VIEWER_PASS" in st.secrets:
-                magazzino_pwd = str(st.secrets["ZARA_VIEWER_PASS"]).strip()
+            if "ZARA_BANCHINA_PASS" in st.secrets:
+                mobile_pwd = str(st.secrets["ZARA_BANCHINA_PASS"]).strip()
+            elif "ZARA_MOBILE_PASS" in st.secrets:
+                mobile_pwd = str(st.secrets["ZARA_MOBILE_PASS"]).strip()
     except Exception:
         pass
 
@@ -732,11 +736,11 @@ def _get_auth_users() -> dict:
         "luciano": {"password": admin_pwd, "role": "admin", "label": "Luciano (Admin)"},
         "ufficio": {"password": ufficio_pwd, "role": "ufficio", "label": "Ufficio Traffico & Logistica"},
         "traffico": {"password": ufficio_pwd, "role": "ufficio", "label": "Ufficio Traffico & Logistica"},
-        "magazzino": {"password": magazzino_pwd, "role": "magazzino", "label": "Banchina & Magazzino"},
-        "banchina": {"password": magazzino_pwd, "role": "banchina", "label": "Terminale Spunta Mobile"},
-        "mobile": {"password": magazzino_pwd, "role": "banchina", "label": "Terminale Spunta Mobile"},
-        "ospite": {"password": magazzino_pwd, "role": "magazzino", "label": "Ospite (Consultazione)"},
-        "viewer": {"password": magazzino_pwd, "role": "magazzino", "label": "Consultazione Banchina"},
+        "magazzino": {"password": magazzino_pwd, "role": "magazzino", "label": "Magazzino & Spedizioni", "fallbacks": [magazzino_pwd, "magazzino2026", "banchina2026"]},
+        "mobile": {"password": mobile_pwd, "role": "banchina", "label": "Terminale Spunta Mobile", "fallbacks": [mobile_pwd, "banchina2026", "mobile2026"]},
+        "banchina": {"password": mobile_pwd, "role": "banchina", "label": "Terminale Spunta Mobile", "fallbacks": [mobile_pwd, "banchina2026", "mobile2026"]},
+        "ospite": {"password": magazzino_pwd, "role": "magazzino", "label": "Ospite (Consultazione)", "fallbacks": [magazzino_pwd, "magazzino2026", "banchina2026"]},
+        "viewer": {"password": magazzino_pwd, "role": "magazzino", "label": "Consultazione Banchina", "fallbacks": [magazzino_pwd, "magazzino2026", "banchina2026"]},
     }
 
 users_map = _get_auth_users()
@@ -753,7 +757,7 @@ if not st.session_state.get("authenticated", False):
                 st.session_state["auth_user"] = u
                 st.session_state["auth_role"] = r
                 st.session_state["auth_label"] = users_map[u]["label"]
-                if r in ("magazzino", "banchina") or st.query_params.get("mode") == "mobile":
+                if r == "banchina" or u in ("mobile", "banchina") or st.query_params.get("mode") == "mobile":
                     st.session_state["mobile_mode"] = True
 
 if not st.session_state.get("authenticated", False):
@@ -772,22 +776,31 @@ if not st.session_state.get("authenticated", False):
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                     <span style="background:#FEF3C7; color:#B45309; border:1px solid #F59E0B; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700;">👑 Admin</span>
                     <span style="background:#E0F2FE; color:#0369A1; border:1px solid #38BDF8; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700;">💼 Ufficio Traffico</span>
-                    <span style="background:#D1FAE5; color:#047857; border:1px solid #34D399; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700;">📦 Magazzino / Banchina</span>
+                    <span style="background:#D1FAE5; color:#047857; border:1px solid #34D399; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700;">📦 Magazzino</span>
+                    <span style="background:#F1F5F9; color:#475569; border:1px solid #94A3B8; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700;">📱 Mobile / Banchina</span>
                 </div>
             </div>
         """, unsafe_allow_html=True)
         with st.form("login_form", clear_on_submit=False):
-            inp_user = st.text_input("👤 Nome Utente", placeholder="es. admin, ufficio, oppure magazzino").strip().lower()
+            inp_user = st.text_input("👤 Nome Utente", placeholder="es. admin, ufficio, magazzino, oppure mobile").strip().lower()
             inp_pass = st.text_input("🔑 Password", type="password", placeholder="Inserisci la password").strip()
             btn_login = st.form_submit_button("ACCEDI ALLA PIATTAFORMA", type="primary", use_container_width=True)
             if btn_login:
-                if inp_user in users_map and inp_pass == users_map[inp_user]["password"]:
-                    role = users_map[inp_user]["role"]
+                u_entry = users_map.get(inp_user)
+                valid_pwd = False
+                if u_entry:
+                    if inp_pass == u_entry["password"]:
+                        valid_pwd = True
+                    elif "fallbacks" in u_entry and inp_pass in u_entry["fallbacks"]:
+                        valid_pwd = True
+
+                if u_entry and valid_pwd:
+                    role = u_entry["role"]
                     st.session_state["authenticated"] = True
                     st.session_state["auth_user"] = inp_user
                     st.session_state["auth_role"] = role
-                    st.session_state["auth_label"] = users_map[inp_user]["label"]
-                    st.session_state["mobile_mode"] = (role in ("magazzino", "banchina"))
+                    st.session_state["auth_label"] = u_entry["label"]
+                    st.session_state["mobile_mode"] = (role == "banchina" or inp_user in ("mobile", "banchina"))
                     st.query_params["session"] = create_auth_token(inp_user, role)
                     st.rerun()
                 else:
@@ -877,7 +890,7 @@ with c_head_user:
         </div>
         """, unsafe_allow_html=True)
     with col_u_out:
-        if is_admin() or is_ufficio():
+        if is_admin() or is_ufficio() or is_magazzino():
             is_m_active = st.session_state.get("mobile_mode", False)
             btn_mob_label = "🖥️ Desktop" if is_m_active else "📱 Mobile"
             if st.button(btn_mob_label, key="toggle_mob_mode", use_container_width=True, help="Alterna tra vista Desktop e vista Mobile Touch"):
@@ -919,7 +932,7 @@ if st.session_state.pop("_scroll_to_top", False):
 # ==============================================================================
 # STRISCIA STATISTICHE PIATTAFORMA (DISABILITATA SU MOBILE & BANCHINA)
 # ==============================================================================
-is_mobile_session = (is_magazzino() or is_banchina() or st.session_state.get("mobile_mode", False))
+is_mobile_session = (is_banchina() or st.session_state.get("mobile_mode", False))
 if not is_mobile_session:
     st.markdown(f"""
     <div class="platform-stats-strip" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px;">
@@ -3071,6 +3084,9 @@ elif "Consuntivo & Planner" in menu:
 # PAGE 4: ANAGRAFICA NEGOZI & GIRI
 # ==============================================================================
 elif "Anagrafica Negozi" in menu:
+    if not is_admin():
+        st.error("⛔ Accesso riservato esclusivamente all'account Amministratore (Admin).")
+        st.stop()
     _inject_modern_css()
     st.markdown('<div class="main-header">🏢 Anagrafica Punti Vendita, Giri & Parco Mezzi</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Gestione integrata dei punti vendita, percorsi/giri, autisti e flotta veicoli con relative capienze operative.</div>', unsafe_allow_html=True)
