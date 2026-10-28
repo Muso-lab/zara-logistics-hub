@@ -1616,16 +1616,29 @@ elif "Bolle di Consegna" in menu:
                     key="form_store_sel",
                     help="Seleziona il punto vendita. Se per la data indicata esiste già una bolla registrata, verrà aperta automaticamente per la modifica rapida."
                 )
-                current_sid = sel_store_str.split(" - ")[0].strip() if sel_store_str else "3680"
+                raw_sid = sel_store_str.split(" - ")[0].strip() if sel_store_str else "3680"
+                is_b_store = raw_sid.endswith("B")
+                base_sid = raw_sid[:-1] if is_b_store else raw_sid
+                current_sid = base_sid
 
             # Verifica flag sdoppiamento_b9 in anagrafica per consentire o bloccare DOPPIA
             is_sdoppia = False
             if not df_stores_side.empty:
-                m_row = df_stores_side[df_stores_side["store_id"].astype(str) == current_sid]
+                m_row = df_stores_side[df_stores_side["store_id"].astype(str) == base_sid]
                 if not m_row.empty:
                     is_sdoppia = str(m_row.iloc[0].get("sdoppiamento_b9", "NO")).strip().upper() == "SI"
 
-            tipo_options = ["STD", "DOPPIA"] if is_sdoppia else ["STD"]
+            if is_b_store:
+                tipo_options = ["DOPPIA"]
+                if st.session_state.get("form_tipo_cons") != "DOPPIA":
+                    st.session_state["form_tipo_cons"] = "DOPPIA"
+            elif is_sdoppia:
+                tipo_options = ["STD", "DOPPIA"]
+            else:
+                tipo_options = ["STD"]
+                if st.session_state.get("form_tipo_cons") != "STD":
+                    st.session_state["form_tipo_cons"] = "STD"
+
             with col_t2:
                 form_tipo_cons = st.selectbox(
                     "Tipologia Consegna",
@@ -1645,9 +1658,15 @@ elif "Bolle di Consegna" in menu:
             # Rilevamento automatico se la bolla esiste già
             df_existing = get_bolle(
                 data_consegna=str(form_data_cons),
-                id_store=current_sid,
+                id_store=base_sid,
                 tipo_cons=form_tipo_cons
             )
+            if df_existing.empty and is_b_store:
+                df_existing = get_bolle(
+                    data_consegna=str(form_data_cons),
+                    id_store=raw_sid,
+                    tipo_cons=form_tipo_cons
+                )
             existing_bolla = df_existing.iloc[0].to_dict() if not df_existing.empty else None
 
             if existing_bolla:
@@ -1778,8 +1797,8 @@ elif "Bolle di Consegna" in menu:
             """, unsafe_allow_html=True)
 
             # Controllo Sdoppiamento /0 & /9 (il totale deve matchare tra le 2 bolle)
-            if is_sdoppia:
-                df_paired = df_bolle[df_bolle["id_store"] == current_sid] if not df_bolle.empty else pd.DataFrame()
+            if is_sdoppia or is_b_store:
+                df_paired = get_bolle(id_store=base_sid)
                 if not df_paired.empty:
                     b0_m = df_paired[df_paired["tipo_cons"] == "STD"]
                     b9_m = df_paired[df_paired["tipo_cons"] == "DOPPIA"]
@@ -1791,23 +1810,7 @@ elif "Bolle di Consegna" in menu:
                     prev_comb_s = p0_val + p9_val
                     sdop_diff = tot_comb_s - prev_comb_s
                     sdop_match = (sdop_diff == 0)
-                    st.markdown(f"""
-                    <div style="background: {'#F0FDF4' if sdop_match else '#FFFBEB'}; border: 1.5px solid {'#86EFAC' if sdop_match else '#FCD34D'}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 11px; font-weight: 800; color: #0F172A; text-transform: uppercase;">
-                                🔁 Controllo Quadratura Sdoppiamento /0 & /9 (Store {current_sid})
-                            </span>
-                            <span style="font-size: 11px; font-weight: 700; color: {'#15803D' if sdop_match else '#B45309'};">
-                                {'🟢 QUADRATURA COMBINATA OK' if sdop_match else f'⚠️ DISCORDANZA TOTALE: {sdop_diff} colli'}
-                            </span>
-                        </div>
-                        <div style="font-size: 12px; color: #334155; margin-top: 4px;">
-                            Bolla Barra 0 (/0 STD): <strong>{c0_val}</strong> colli (prev. {p0_val}) &nbsp;|&nbsp; 
-                            Bolla Barra 9 (/9 DOPPIA): <strong>{c9_val}</strong> colli (prev. {p9_val}) &nbsp;|&nbsp; 
-                            <strong>Totale Complessivo Negozio: {tot_comb_s} colli</strong> (Previsto Totale: {prev_comb_s})
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div style="background: {'#F0FDF4' if sdop_match else '#FFFBEB'}; border: 1.5px solid {'#86EFAC' if sdop_match else '#FCD34D'}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;"><div style="display: flex; justify-content: space-between; align-items: center;"><span style="font-size: 11px; font-weight: 800; color: #0F172A; text-transform: uppercase;">🔁 Controllo Quadratura Sdoppiamento /0 & /9 (Store {base_sid})</span><span style="font-size: 11px; font-weight: 700; color: {'#15803D' if sdop_match else '#B45309'};">{'🟢 QUADRATURA COMBINATA OK' if sdop_match else f'⚠️ DISCORDANZA TOTALE: {sdop_diff} colli'}</span></div><div style="font-size: 12px; color: #334155; margin-top: 4px;">Bolla Barra 0 (/0 STD): <strong>{c0_val}</strong> colli (prev. {p0_val}) &nbsp;|&nbsp; Bolla Barra 9 (/9 DOPPIA): <strong>{c9_val}</strong> colli (prev. {p9_val}) &nbsp;|&nbsp; <strong>Totale Complessivo Negozio: {tot_comb_s} colli</strong> (Previsto Totale: {prev_comb_s})</div></div>""", unsafe_allow_html=True)
 
             # Quantità Colli Effettivi (Modificabili a mano)
             st.markdown("##### 📦 Conteggio Colli Effettivi Bolla")
@@ -2208,61 +2211,17 @@ elif "Spunta Banchina" in menu:
             b9_col = "#15803D" if b9_delta >= 0 else "#DC2626"
             t_col = "#15803D" if t_delta >= 0 else "#DC2626"
 
-            st.markdown(f"""
-            <div class="modern-card" style="padding: 12px 16px; margin-bottom: 14px; background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
-                    <span style="font-size: 12px; font-weight: 800; color: #0F172A; text-transform: uppercase;">
-                        📊 QUADRATURA LIVE SPUNTA — {format_date_it(sel_spunta_dt)}
-                    </span>
-                    <span style="font-size: 11px; font-weight: 700; color: #475569;">
-                        Stato Conteggio: <strong style="color: #0284C7;">{t_sp_ok} / {t_n_tot} Negozi</strong>
-                    </span>
-                </div>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">
-                    <div style="background: #F0FDF4; border: 1px solid #86EFAC; border-radius: 8px; padding: 8px 12px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 11px; font-weight: 800; color: #166534;">🚚 BARRA 0 (Standard)</span>
-                            <span style="font-size: 10px; font-weight: 700; background: #DCFCE7; color: #15803D; padding: 1px 6px; border-radius: 8px;">{b0_sp_ok}/{b0_n_tot} ok</span>
-                        </div>
-                        <div style="font-size: 19px; font-weight: 800; color: #14532D; margin-top: 3px;">
-                            {format_number_it(b0_eff, 0)} <span style="font-size: 11.5px; font-weight: 600;">colli</span>
-                        </div>
-                        <div style="font-size: 10.5px; color: #166534; margin-top: 2px; display: flex; justify-content: space-between;">
-                            <span>Prev: <strong>{format_number_it(b0_prev, 0)}</strong></span>
-                            <span style="font-weight: 700; color: {b0_col};">Delta: {b0_sign}{b0_delta}</span>
-                        </div>
-                    </div>
+            html_b0 = ""
+            if b0_n_tot > 0 or b9_n_tot == 0:
+                html_b0 = f"""<div style="background: #F0FDF4; border: 1px solid #86EFAC; border-radius: 8px; padding: 8px 12px;"><div style="display: flex; justify-content: space-between; align-items: center;"><span style="font-size: 11px; font-weight: 800; color: #166534;">🚚 BARRA 0 (Standard)</span><span style="font-size: 10px; font-weight: 700; background: #DCFCE7; color: #15803D; padding: 1px 6px; border-radius: 8px;">{b0_sp_ok}/{b0_n_tot} ok</span></div><div style="font-size: 19px; font-weight: 800; color: #14532D; margin-top: 3px;">{format_number_it(b0_eff, 0)} <span style="font-size: 11.5px; font-weight: 600;">colli</span></div><div style="font-size: 10.5px; color: #166534; margin-top: 2px; display: flex; justify-content: space-between;"><span>Prev: <strong>{format_number_it(b0_prev, 0)}</strong></span><span style="font-weight: 700; color: {b0_col};">Delta: {b0_sign}{b0_delta}</span></div></div>"""
 
-                    <div style="background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 8px; padding: 8px 12px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 11px; font-weight: 800; color: #92400E;">🔁 BARRA 9 (2ª Uscita)</span>
-                            <span style="font-size: 10px; font-weight: 700; background: #FDE68A; color: #B45309; padding: 1px 6px; border-radius: 8px;">{b9_sp_ok}/{b9_n_tot} ok</span>
-                        </div>
-                        <div style="font-size: 19px; font-weight: 800; color: #78350F; margin-top: 3px;">
-                            {format_number_it(b9_eff, 0)} <span style="font-size: 11.5px; font-weight: 600;">colli</span>
-                        </div>
-                        <div style="font-size: 10.5px; color: #92400E; margin-top: 2px; display: flex; justify-content: space-between;">
-                            <span>Prev: <strong>{format_number_it(b9_prev, 0)}</strong></span>
-                            <span style="font-weight: 700; color: {b9_col};">Delta: {b9_sign}{b9_delta}</span>
-                        </div>
-                    </div>
+            html_b9 = ""
+            if b9_n_tot > 0:
+                html_b9 = f"""<div style="background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 8px; padding: 8px 12px;"><div style="display: flex; justify-content: space-between; align-items: center;"><span style="font-size: 11px; font-weight: 800; color: #92400E;">🔁 BARRA 9 (2ª Uscita)</span><span style="font-size: 10px; font-weight: 700; background: #FDE68A; color: #B45309; padding: 1px 6px; border-radius: 8px;">{b9_sp_ok}/{b9_n_tot} ok</span></div><div style="font-size: 19px; font-weight: 800; color: #78350F; margin-top: 3px;">{format_number_it(b9_eff, 0)} <span style="font-size: 11.5px; font-weight: 600;">colli</span></div><div style="font-size: 10.5px; color: #92400E; margin-top: 2px; display: flex; justify-content: space-between;"><span>Prev: <strong>{format_number_it(b9_prev, 0)}</strong></span><span style="font-weight: 700; color: {b9_col};">Delta: {b9_sign}{b9_delta}</span></div></div>"""
 
-                    <div style="background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 8px; padding: 8px 12px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 11px; font-weight: 800; color: #1E293B;">📦 TOTALE CONTATI</span>
-                            <span style="font-size: 10px; font-weight: 700; background: #E2E8F0; color: #475569; padding: 1px 6px; border-radius: 8px;">Banchina</span>
-                        </div>
-                        <div style="font-size: 19px; font-weight: 800; color: #0F172A; margin-top: 3px;">
-                            {format_number_it(t_eff, 0)} <span style="font-size: 11.5px; font-weight: 600;">colli</span>
-                        </div>
-                        <div style="font-size: 10.5px; color: #475569; margin-top: 2px; display: flex; justify-content: space-between;">
-                            <span>Prev: <strong>{format_number_it(t_prev, 0)}</strong></span>
-                            <span style="font-weight: 800; color: {t_col};">Delta: {t_sign}{t_delta}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            html_tot = f"""<div style="background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 8px; padding: 8px 12px;"><div style="display: flex; justify-content: space-between; align-items: center;"><span style="font-size: 11px; font-weight: 800; color: #1E293B;">📦 TOTALE CONSEGNA OGGI</span><span style="font-size: 10px; font-weight: 700; background: #E2E8F0; color: #475569; padding: 1px 6px; border-radius: 8px;">{t_sp_ok}/{t_n_tot} confermati</span></div><div style="font-size: 19px; font-weight: 800; color: #0F172A; margin-top: 3px;">{format_number_it(t_eff, 0)} <span style="font-size: 11.5px; font-weight: 600;">colli</span></div><div style="font-size: 10.5px; color: #475569; margin-top: 2px; display: flex; justify-content: space-between;"><span>Prev: <strong>{format_number_it(t_prev, 0)}</strong></span><span style="font-weight: 800; color: {t_col};">Delta: {t_sign}{t_delta}</span></div></div>"""
+
+            st.markdown(f"""<div class="modern-card" style="padding: 12px 16px; margin-bottom: 14px; background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;"><span style="font-size: 12px; font-weight: 800; color: #0F172A; text-transform: uppercase;">📊 QUADRATURA LIVE SPUNTA — {format_date_it(sel_spunta_dt)}</span><span style="font-size: 11px; font-weight: 700; color: #475569;">Stato Conteggio: <strong style="color: #0284C7;">{t_sp_ok} / {t_n_tot} Negozi Confermati</strong></span></div><div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px;">{html_b0}{html_b9}{html_tot}</div></div>""", unsafe_allow_html=True)
 
         if df_b_date.empty:
             st.warning(f"Nessuna bolla trovata per la data {format_date_it(sel_spunta_dt)} nel giro selezionato.")
@@ -2329,35 +2288,20 @@ elif "Spunta Banchina" in menu:
             """, unsafe_allow_html=True)
 
             # Controllo Sdoppiamento /0 & /9 se presente seconda uscita
-            df_sdop_check = df_b_date[df_b_date["id_store"] == curr_sid] if not df_b_date.empty else pd.DataFrame()
-            if len(df_sdop_check) > 1 or curr_tipo == "DOPPIA":
+            df_sdop_check = get_bolle(id_store=curr_sid)
+            if not df_sdop_check.empty:
                 r0 = df_sdop_check[df_sdop_check["tipo_cons"] == "STD"]
                 r9 = df_sdop_check[df_sdop_check["tipo_cons"] == "DOPPIA"]
-                c0 = int(round(float(r0.iloc[0]["TOT_COLLI"]))) if (not r0.empty and "TOT_COLLI" in r0.columns) else 0
-                c9 = int(round(float(r9.iloc[0]["TOT_COLLI"]))) if (not r9.empty and "TOT_COLLI" in r9.columns) else 0
-                p0 = int(round(float(r0.iloc[0]["prev_totale"]))) if (not r0.empty and "prev_totale" in r0.columns) else 0
-                p9 = int(round(float(r9.iloc[0]["prev_totale"]))) if (not r9.empty and "prev_totale" in r9.columns) else 0
-                tot_comb = c0 + c9
-                prev_comb = p0 + p9
-                m_diff = tot_comb - prev_comb
-                m_ok = (m_diff == 0)
-                st.markdown(f"""
-                <div style="background: {'#F0FDF4' if m_ok else '#FFFBEB'}; border: 1.5px solid {'#86EFAC' if m_ok else '#FCD34D'}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 11px; font-weight: 800; color: #0F172A; text-transform: uppercase;">
-                            🔁 Controllo Sdoppiamento /0 & /9 (Totale Negozio {curr_sid})
-                        </span>
-                        <span style="font-size: 11px; font-weight: 700; color: {'#15803D' if m_ok else '#B45309'};">
-                            {'🟢 MATCH /0 + /9 OK' if m_ok else f'⚠️ DELTA: {m_diff} colli'}
-                        </span>
-                    </div>
-                    <div style="font-size: 12px; color: #334155; margin-top: 4px;">
-                        Barra 0 (/0 STD): <strong>{c0}</strong> colli (prev: {p0}) &nbsp;|&nbsp; 
-                        Barra 9 (/9 DOPPIA): <strong>{c9}</strong> colli (prev: {p9}) &nbsp;|&nbsp; 
-                        <strong>Totale Negozio: {tot_comb} colli</strong> (Previsto: {prev_comb})
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                if not r0.empty and not r9.empty:
+                    c0 = int(round(float(r0.iloc[0]["TOT_COLLI"]))) if (not r0.empty and "TOT_COLLI" in r0.columns) else 0
+                    c9 = int(round(float(r9.iloc[0]["TOT_COLLI"]))) if (not r9.empty and "TOT_COLLI" in r9.columns) else 0
+                    p0 = int(round(float(r0.iloc[0]["prev_totale"]))) if (not r0.empty and "prev_totale" in r0.columns) else 0
+                    p9 = int(round(float(r9.iloc[0]["prev_totale"]))) if (not r9.empty and "prev_totale" in r9.columns) else 0
+                    tot_comb = c0 + c9
+                    prev_comb = p0 + p9
+                    m_diff = tot_comb - prev_comb
+                    m_ok = (m_diff == 0)
+                    st.markdown(f"""<div style="background: {'#F0FDF4' if m_ok else '#FFFBEB'}; border: 1.5px solid {'#86EFAC' if m_ok else '#FCD34D'}; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;"><div style="display: flex; justify-content: space-between; align-items: center;"><span style="font-size: 11px; font-weight: 800; color: #0F172A; text-transform: uppercase;">🔁 Controllo Sdoppiamento /0 & /9 (Totale Negozio {curr_sid})</span><span style="font-size: 11px; font-weight: 700; color: {'#15803D' if m_ok else '#B45309'};">{'🟢 MATCH /0 + /9 OK' if m_ok else f'⚠️ DELTA: {m_diff} colli'}</span></div><div style="font-size: 12px; color: #334155; margin-top: 4px;">Barra 0 (/0 STD): <strong>{c0}</strong> colli (prev: {p0}) &nbsp;|&nbsp; Barra 9 (/9 DOPPIA): <strong>{c9}</strong> colli (prev: {p9}) &nbsp;|&nbsp; <strong>Totale Negozio: {tot_comb} colli</strong> (Previsto: {prev_comb})</div></div>""", unsafe_allow_html=True)
 
             # Card Valori Previsionali Attesi
             st.markdown(f"""
