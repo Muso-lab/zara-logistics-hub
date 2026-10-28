@@ -236,6 +236,11 @@ st.markdown("""
         display: none;
     }
     @media (max-width: 900px) {
+        /* Nasconde le statistiche in testata su smartphone */
+        .platform-stats-strip {
+            display: none !important;
+        }
+
         /* Mobile layout: padding and touch scaling */
         [data-testid="stAppViewContainer"] > .main {
             padding-left: 0.6rem !important;
@@ -615,8 +620,23 @@ ROLE_CONFIG = {
         "icon": "📦",
         "menu_options": [
             "📱 1. Spunta Banchina (Mobile)",
-            "📥 2. Previsione & Arrivi",
-            "🚚 3. Bolle di Consegna",
+        ],
+        "can_edit_settings": False,
+        "can_delete_runs": False,
+        "can_delete_bolle": False,
+        "can_edit_master_data": False,
+        "can_send_emails": False,
+        "can_execute_runs": False,
+        "can_edit_bolle": False,
+    },
+    "banchina": {
+        "label": "Terminale Spunta Mobile",
+        "badge_color": "#047857",
+        "badge_bg": "#D1FAE5",
+        "badge_border": "#34D399",
+        "icon": "📱",
+        "menu_options": [
+            "📱 1. Spunta Banchina (Mobile)",
         ],
         "can_edit_settings": False,
         "can_delete_runs": False,
@@ -630,7 +650,10 @@ ROLE_CONFIG = {
 
 def get_role_info():
     r = st.session_state.get("auth_role", "magazzino")
-    return ROLE_CONFIG.get(r, ROLE_CONFIG["magazzino"])
+    cfg = dict(ROLE_CONFIG.get(r, ROLE_CONFIG["magazzino"]))
+    if st.session_state.get("mobile_mode", False) or is_banchina() or is_magazzino():
+        cfg["menu_options"] = ["📱 1. Spunta Banchina (Mobile)"]
+    return cfg
 
 def has_perm(perm_key: str) -> bool:
     return get_role_info().get(perm_key, False)
@@ -698,6 +721,8 @@ if not st.session_state.get("authenticated", False):
                 st.session_state["auth_user"] = u
                 st.session_state["auth_role"] = r
                 st.session_state["auth_label"] = users_map[u]["label"]
+                if r in ("magazzino", "banchina") or st.query_params.get("mode") == "mobile":
+                    st.session_state["mobile_mode"] = True
 
 if not st.session_state.get("authenticated", False):
     c_l1, c_l2, c_l3 = st.columns([1.1, 1.8, 1.1])
@@ -730,6 +755,7 @@ if not st.session_state.get("authenticated", False):
                     st.session_state["auth_user"] = inp_user
                     st.session_state["auth_role"] = role
                     st.session_state["auth_label"] = users_map[inp_user]["label"]
+                    st.session_state["mobile_mode"] = (role in ("magazzino", "banchina"))
                     st.query_params["session"] = create_auth_token(inp_user, role)
                     st.rerun()
                 else:
@@ -819,8 +845,16 @@ with c_head_user:
         </div>
         """, unsafe_allow_html=True)
     with col_u_out:
+        if is_admin() or is_ufficio():
+            is_m_active = st.session_state.get("mobile_mode", False)
+            btn_mob_label = "🖥️ Desktop" if is_m_active else "📱 Mobile"
+            if st.button(btn_mob_label, key="toggle_mob_mode", use_container_width=True, help="Alterna tra vista Desktop e vista Mobile Touch"):
+                st.session_state["mobile_mode"] = not is_m_active
+                if st.session_state["mobile_mode"]:
+                    st.session_state["active_nav"] = "📱 1. Spunta Banchina (Mobile)"
+                st.rerun()
         if st.button("🚪 Esci", key="btn_logout_top", use_container_width=True, help="Termina la sessione di lavoro"):
-            for k in ["authenticated", "auth_user", "auth_role", "auth_label", "active_nav", "nav_menu"]:
+            for k in ["authenticated", "auth_user", "auth_role", "auth_label", "active_nav", "nav_menu", "mobile_mode"]:
                 st.session_state.pop(k, None)
             st.query_params.clear()
             st.rerun()
@@ -864,44 +898,47 @@ if st.session_state.get("_scroll_to_top"):
 
 
 # ==============================================================================
-# STRISCIA STATISTICHE PIATTAFORMA
+# STRISCIA STATISTICHE PIATTAFORMA (DISABILITATA SU MOBILE & BANCHINA)
 # ==============================================================================
-st.markdown(f"""
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px;">
-    <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
-        <div style="font-size: 20px; font-weight: 800; color: #1E3A8A;">{active_stores_cnt}</div>
-        <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Negozi Attivi</div>
+is_mobile_session = (is_magazzino() or is_banchina() or st.session_state.get("mobile_mode", False))
+if not is_mobile_session:
+    st.markdown(f"""
+    <div class="platform-stats-strip" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px;">
+        <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="font-size: 20px; font-weight: 800; color: #1E3A8A;">{active_stores_cnt}</div>
+            <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Negozi Attivi</div>
+        </div>
+        <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="font-size: 20px; font-weight: 800; color: #B45309;">{sdopp_stores_cnt}</div>
+            <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Sdoppiamento /9</div>
+        </div>
+        <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="font-size: 20px; font-weight: 800; color: #0369A1;">{last_run_disp}</div>
+            <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Ultima Run</div>
+        </div>
+        <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="font-size: 20px; font-weight: 800; color: #059669;">{format_number_it(total_bolle_db, 0)}</div>
+            <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Bolle a Database</div>
+        </div>
     </div>
-    <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
-        <div style="font-size: 20px; font-weight: 800; color: #B45309;">{sdopp_stores_cnt}</div>
-        <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Sdoppiamento /9</div>
-    </div>
-    <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
-        <div style="font-size: 20px; font-weight: 800; color: #0369A1;">{last_run_disp}</div>
-        <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Ultima Run</div>
-    </div>
-    <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
-        <div style="font-size: 20px; font-weight: 800; color: #059669;">{format_number_it(total_bolle_db, 0)}</div>
-        <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Bolle a Database</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
 # ==============================================================================
-# BARRA DI NAVIGAZIONE SUPERIORE (DESKTOP, TABLET & MOBILE)
+# BARRA DI NAVIGAZIONE SUPERIORE (MOSTRATA SOLO SE VI SONO PIU' MODULI)
 # ==============================================================================
-st.markdown('<div class="hub-nav-bar">', unsafe_allow_html=True)
-nav_cols = st.columns(len(MENU_OPTIONS))
-for m_idx, m_opt in enumerate(MENU_OPTIONS):
-    m_short = m_opt.split(". ")[-1] if ". " in m_opt else m_opt
-    m_icon = m_opt.split(" ")[0] if " " in m_opt else "📌"
-    m_is_act = (menu == m_opt)
-    with nav_cols[m_idx]:
-        if st.button(f"{m_icon} {m_short}", key=f"nav_top_btn_{m_idx}", type="primary" if m_is_act else "secondary", use_container_width=True):
-            st.session_state["active_nav"] = m_opt
-            st.session_state["nav_menu"] = m_opt
-            st.rerun()
-st.markdown('</div>', unsafe_allow_html=True)
+if len(MENU_OPTIONS) > 1:
+    st.markdown('<div class="hub-nav-bar">', unsafe_allow_html=True)
+    nav_cols = st.columns(len(MENU_OPTIONS))
+    for m_idx, m_opt in enumerate(MENU_OPTIONS):
+        m_short = m_opt.split(". ")[-1] if ". " in m_opt else m_opt
+        m_icon = m_opt.split(" ")[0] if " " in m_opt else "📌"
+        m_is_act = (menu == m_opt)
+        with nav_cols[m_idx]:
+            if st.button(f"{m_icon} {m_short}", key=f"nav_top_btn_{m_idx}", type="primary" if m_is_act else "secondary", use_container_width=True):
+                st.session_state["active_nav"] = m_opt
+                st.session_state["nav_menu"] = m_opt
+                st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_operativa_files_and_email_section(
@@ -2149,7 +2186,7 @@ elif "Bolle di Consegna" in menu:
             form_note = st.text_area("📝 Note Generiche di Consegna / Banchina", value=curr_note_val, key="form_note_input", placeholder="Inserisci eventuali note operative, anomalie o indicazioni per la consegna...")
 
             # Pulsanti di Azione
-            col_sv1, col_sv2, col_sv3 = st.columns([2, 2, 1.2])
+            col_sv1, col_sv2, col_sv3, col_sv4 = st.columns([1.8, 1.8, 1.5, 1.1])
             with col_sv1:
                 btn_save_text = "💾 AGGIORNA BOLLA" if existing_bolla else "💾 SALVA BOLLA"
                 save_clicked = st.button(btn_save_text, type="primary", use_container_width=True, key="btn_save_bolla")
@@ -2157,6 +2194,8 @@ elif "Bolle di Consegna" in menu:
                 btn_next_text = "💾 Aggiorna e Passa al Prossimo ➡️" if existing_bolla else "💾 Salva e Passa al Prossimo ➡️"
                 save_next_clicked = st.button(btn_next_text, use_container_width=True, key="btn_save_next_bolla")
             with col_sv3:
+                btn_print_form_clicked = st.button("🖨️ Stampa Questa Bolla", use_container_width=True, key="btn_print_curr_bolla", help="Genera immediatamente il documento di trasporto stampabile per questa singola bolla")
+            with col_sv4:
                 if existing_bolla:
                     with st.popover("🗑️ Elimina Bolla", use_container_width=True):
                         st.warning(f"Eliminare la bolla #{existing_bolla['id']} per {current_sid}?")
@@ -2164,6 +2203,66 @@ elif "Bolle di Consegna" in menu:
                             delete_bolla(existing_bolla["id"])
                             st.session_state["flash_bolle_msg"] = f"🗑️ Bolla #{existing_bolla['id']} eliminata con successo."
                             st.rerun()
+
+            if btn_print_form_clicked:
+                computed_stringa_p = format_intershops_string(inter_rows_data) if inter_rows_data else ""
+                single_b_payload = {
+                    "id": existing_bolla.get("id", 1) if existing_bolla else "PROVVISORIA",
+                    "data": str(form_data_carico),
+                    "data_consegna": str(form_data_cons),
+                    "id_store": current_sid,
+                    "punto_vendita": form_pv,
+                    "store_name": sel_store_str.split(" - ")[1].split(" (")[0] if " - " in sel_store_str else current_sid,
+                    "tipo_cons": form_tipo_cons,
+                    "vettore": form_vettore,
+                    "cell_autista": "",
+                    "autista": "",
+                    "tipo_mezzo": form_mezzo,
+                    "indirizzo_destino": form_indirizzo,
+                    "colli_abbigl": int(c_abb),
+                    "colli_calzat": int(c_calz),
+                    "colli_ecom": int(c_eco),
+                    "colli_others": int(c_oth),
+                    "colli_vario": int(c_var),
+                    "colli_cont": 0,
+                    "colli_mat_vario": 0,
+                    "colli_dann": 0,
+                    "colli_non_conf": 0,
+                    "anomalie_scarico": "",
+                    "note": form_note,
+                    "prev_abbigl": p_abb,
+                    "prev_calzat": p_calz,
+                    "prev_ecom": p_eco,
+                    "prev_others": p_oth,
+                    "prev_totale": p_tot,
+                    "stringa": computed_stringa_p,
+                    "intershops_list": inter_rows_data,
+                    "spuntato": existing_bolla.get("spuntato", 0) if existing_bolla else 1,
+                }
+                st.session_state["print_html"] = render_bolla_printable_html([single_b_payload], title=f"Bolla Store {current_sid} ({form_tipo_cons}) - {format_date_it(str(form_data_cons))}")
+                st.session_state["print_title"] = f"Bolla_{current_sid}_{form_data_cons}_{form_tipo_cons}"
+                st.session_state["print_active_tab"] = "form"
+                st.rerun()
+
+            if "print_html" in st.session_state and st.session_state.get("print_active_tab") == "form":
+                with st.expander(f"🖨️ Documento Stampabile Bolla Store {current_sid} ({form_tipo_cons})", expanded=True):
+                    cpf1, cpf2 = st.columns([2, 1])
+                    with cpf1:
+                        st.download_button(
+                            "💾 Scarica File Stampa (.html)",
+                            data=st.session_state["print_html"].encode("utf-8"),
+                            file_name=f"{st.session_state.get('print_title', 'Bolla')}.html",
+                            mime="text/html",
+                            type="primary",
+                            use_container_width=True,
+                            key="dl_btn_single_bolla_form"
+                        )
+                    with cpf2:
+                        if st.button("❌ Chiudi Anteprima Stampa", key="btn_close_p_form", use_container_width=True):
+                            del st.session_state["print_html"]
+                            st.session_state.pop("print_active_tab", None)
+                            st.rerun()
+                    st.components.v1.html(st.session_state["print_html"], height=520, scrolling=True)
 
 
             if save_clicked or save_next_clicked:
@@ -2262,13 +2361,14 @@ elif "Bolle di Consegna" in menu:
         mk5.metric("Altri + E-Com", format_number_it(int(df_bolle["colli_others"].sum() + df_bolle["colli_ecom"].sum()) if not df_bolle.empty else 0, 0))
 
         # Barra Pulsanti Stampa & Export
-        b_act1, b_act2, b_act3, b_act4, b_act5 = st.columns(5)
+        b_act1, b_act2, b_act3, b_act4, b_act5, b_act6 = st.columns([1.3, 1.3, 1.4, 1.6, 1.2, 1.2])
         with b_act1:
             if st.button("🖨️ Stampa STD (/0)", type="primary", use_container_width=True):
                 df_std = df_bolle[df_bolle["tipo_cons"] == "STD"] if not df_bolle.empty else pd.DataFrame()
                 if not df_std.empty:
                     st.session_state["print_html"] = render_bolla_printable_html(df_std.to_dict(orient="records"), title=f"Bolle STD - {format_date_it(target_date)}")
                     st.session_state["print_title"] = f"Bolle_STD_{target_date}"
+                    st.session_state["print_active_tab"] = "list"
                 else:
                     st.warning("Nessuna bolla STD nella selezione.")
         with b_act2:
@@ -2277,6 +2377,7 @@ elif "Bolle di Consegna" in menu:
                 if not df_dop.empty:
                     st.session_state["print_html"] = render_bolla_printable_html(df_dop.to_dict(orient="records"), title=f"Bolle DOPPIA (/9) - {format_date_it(target_date)}")
                     st.session_state["print_title"] = f"Bolle_DOPPIA_{target_date}"
+                    st.session_state["print_active_tab"] = "list"
                 else:
                     st.warning("Nessuna bolla DOPPIA nella selezione.")
         with b_act3:
@@ -2286,9 +2387,34 @@ elif "Bolle di Consegna" in menu:
                 if not df_bolle.empty:
                     st.session_state["print_html"] = render_bolla_printable_html(df_bolle.to_dict(orient="records"), title=f"Bolle Consegna - {format_date_it(target_date)}")
                     st.session_state["print_title"] = f"Bolle_{target_date}"
+                    st.session_state["print_active_tab"] = "list"
                 else:
                     st.warning("Nessuna bolla da stampare.")
         with b_act4:
+            with st.popover("🖨️ Stampa Singola Bolla...", use_container_width=True):
+                if not df_bolle.empty:
+                    store_opts = []
+                    store_opt_map = {}
+                    for _, r_b in df_bolle.iterrows():
+                        sid_o = str(r_b["id_store"]).strip()
+                        sname_o = str(r_b.get("store_name", "")).strip() or sid_o
+                        t_o = str(r_b.get("tipo_cons", "STD")).strip()
+                        tot_o = int(round(float(r_b.get("TOT_COLLI", 0) or 0)))
+                        lbl_opt = f"Store {sid_o} - {sname_o} ({t_o}) — {tot_o} colli [#{r_b['id']}]"
+                        store_opts.append(lbl_opt)
+                        store_opt_map[lbl_opt] = r_b.to_dict()
+                    sel_b_single = st.selectbox("Seleziona Bolla da Stampare:", store_opts, key="sel_print_single_b")
+                    if st.button("🖨️ Genera Stampa Singola", type="primary", use_container_width=True, key="btn_exec_print_single"):
+                        chosen_dict = store_opt_map.get(sel_b_single)
+                        if chosen_dict:
+                            sid_chosen = str(chosen_dict["id_store"]).strip()
+                            st.session_state["print_html"] = render_bolla_printable_html([chosen_dict], title=f"Bolla Store {sid_chosen} - {format_date_it(target_date)}")
+                            st.session_state["print_title"] = f"Bolla_{sid_chosen}_{target_date}_{chosen_dict.get('tipo_cons', 'STD')}"
+                            st.session_state["print_active_tab"] = "list"
+                            st.rerun()
+                else:
+                    st.info("Nessuna bolla disponibile nella selezione.")
+        with b_act5:
             if not df_bolle.empty:
                 excel_bytes = export_bolle_excel(df_bolle, target_date)
                 st.download_button(
@@ -2300,9 +2426,9 @@ elif "Bolle di Consegna" in menu:
                 )
             else:
                 st.button("📥 Esporta Excel", disabled=True, use_container_width=True)
-        with b_act5:
+        with b_act6:
             if has_perm("can_delete_bolle"):
-                with st.popover("🗑️ Svota Bolle Data", use_container_width=True):
+                with st.popover("🗑️ Svota Bolle", use_container_width=True):
                     st.warning(f"Eliminare tutte le bolle del **{format_date_it(target_date)}**?")
                     if st.button("Conferma Eliminazione", type="primary", use_container_width=True, key="btn_del_bolle_dt"):
                         with st.spinner(f"🗑️ Eliminazione bolle del {format_date_it(target_date)} in corso..."):
@@ -2311,9 +2437,9 @@ elif "Bolle di Consegna" in menu:
                             st.rerun()
 
         # Pannello di Stampa se attivo
-        if "print_html" in st.session_state:
+        if "print_html" in st.session_state and st.session_state.get("print_active_tab", "list") == "list":
             with st.expander("🖨️ Documento Pronto per la Stampa (Clicca per stampare o scaricare)", expanded=True):
-                cp1, cp2, cp3 = st.columns([2, 2, 1])
+                cp1, cp2 = st.columns([2, 1])
                 with cp1:
                     st.download_button(
                         "💾 Scarica File Stampa (.html)",
@@ -2324,8 +2450,9 @@ elif "Bolle di Consegna" in menu:
                         use_container_width=True,
                     )
                 with cp2:
-                    if st.button("❌ Chiudi Anteprima Stampa", use_container_width=True):
+                    if st.button("❌ Chiudi Anteprima Stampa", key="btn_close_p_list", use_container_width=True):
                         del st.session_state["print_html"]
+                        st.session_state.pop("print_active_tab", None)
                         st.rerun()
                 st.components.v1.html(st.session_state["print_html"], height=520, scrolling=True)
 
@@ -3751,17 +3878,18 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
 
 
 # ==============================================================================
-# BARRA DI NAVIGAZIONE MOBILE TOUCH FISSA IN BASSO (SMARTPHONE & TABLET)
+# BARRA DI NAVIGAZIONE MOBILE TOUCH FISSA IN BASSO (SOLO SE PIU' MODULI ATTIVI)
 # ==============================================================================
-st.markdown('<div class="mobile-bottom-nav">', unsafe_allow_html=True)
-mob_bot_cols = st.columns(len(MENU_OPTIONS))
-for mb_idx, mb_opt in enumerate(MENU_OPTIONS):
-    mb_short = mb_opt.split(". ")[-1] if ". " in mb_opt else mb_opt
-    mb_icon = mb_opt.split(" ")[0] if " " in mb_opt else "📌"
-    mb_is_act = (st.session_state.get("active_nav") == mb_opt)
-    with mob_bot_cols[mb_idx]:
-        if st.button(f"{mb_icon} {mb_short}", key=f"mob_fixed_bot_{mb_idx}", type="primary" if mb_is_act else "secondary", use_container_width=True):
-            st.session_state["active_nav"] = mb_opt
-            st.session_state["nav_menu"] = mb_opt
-            st.rerun()
-st.markdown('</div>', unsafe_allow_html=True)
+if len(MENU_OPTIONS) > 1:
+    st.markdown('<div class="mobile-bottom-nav">', unsafe_allow_html=True)
+    mob_bot_cols = st.columns(len(MENU_OPTIONS))
+    for mb_idx, mb_opt in enumerate(MENU_OPTIONS):
+        mb_short = mb_opt.split(". ")[-1] if ". " in mb_opt else mb_opt
+        mb_icon = mb_opt.split(" ")[0] if " " in mb_opt else "📌"
+        mb_is_act = (st.session_state.get("active_nav") == mb_opt)
+        with mob_bot_cols[mb_idx]:
+            if st.button(f"{mb_icon} {mb_short}", key=f"mob_fixed_bot_{mb_idx}", type="primary" if mb_is_act else "secondary", use_container_width=True):
+                st.session_state["active_nav"] = mb_opt
+                st.session_state["nav_menu"] = mb_opt
+                st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
