@@ -1083,6 +1083,21 @@ def compute_special_breakdowns(
         sintesi = f"{bancali_totali} bancali + {stander} stender"
         s_name = store_names.get(sid, f"Store {sid}")
 
+        if appesi == 0 and stesi == 0 and sp_row is not None:
+            tex_c = float(pd.to_numeric(sp_row.get("textile_attesi", 0), errors="coerce") or 0)
+            if tex_c > 0:
+                tot_p = int(round(tex_c * 19.5))
+                appesi = int(round(tot_p * 0.55))
+                corr = int(round(perfume_corrections.get(sid, 0.0)))
+                stesi = int(round(max(0.0, tot_p * 0.45 - corr)))
+                tot_pezzi = int(appesi + stesi)
+                stander = int(math.floor(appesi * b0_factor / 200.0)) if appesi > 0 else 0
+                bancali_stesi = int(math.floor(stesi * b0_factor / 15.0 / 20.0)) if stesi > 0 else 0
+                bancali_totali = bancali_stesi + bancali_extra
+                stander_pedane_eq = stander * 2
+                impronta_a_terra = bancali_totali + stander_pedane_eq
+                sintesi = f"{bancali_totali} bancali + {stander} stender"
+
         special_stores[sid] = {
             "label": label_negozio,
             "store_name": s_name,
@@ -1131,6 +1146,12 @@ def compute_special_breakdowns(
     for sid in home_ids:
         tot_d = map_tot.get(sid, {})
         paq = int(round(float(tot_d.get("paqueteria", 0.0))))
+        if paq == 0 and df_spunta is not None and not df_spunta.empty and "store_code" in df_spunta.columns:
+            m_zh = df_spunta[df_spunta["store_code"].astype(str).str.strip() == sid]
+            if not m_zh.empty:
+                zh_c = float(pd.to_numeric(m_zh.iloc[0].get("textile_attesi", 0), errors="coerce") or 0)
+                if zh_c > 0:
+                    paq = int(round(zh_c * 14.0))
         quota_0 = int(round(paq / 2.0))
         quota_8 = int(paq - quota_0)
         s_name = zh_names.get(sid, f"Store {sid}")
@@ -1156,6 +1177,17 @@ def compute_special_breakdowns(
     tot_teorici_colli = float(df_total["bultos"].sum()) if not df_total.empty else 0.0
     tot_teorici_mc = float(df_total["volumen"].sum()) if not df_total.empty else 0.0
     tot_teorici_peso = float(df_total["peso"].sum()) if not df_total.empty else 0.0
+
+    # Sum of spunta (stores only)
+    spunta_stores = df_spunta[df_spunta["is_store"] == True] if "is_store" in df_spunta.columns else df_spunta
+    check_colli = float(spunta_stores["textile_attesi"].sum() + spunta_stores["other_attesi"].sum() + spunta_stores["shoes_attesi"].sum() + spunta_stores["ecom_attesi"].sum()) if not spunta_stores.empty else 0.0
+    check_mc = float(spunta_stores["mc"].sum()) if not spunta_stores.empty else 0.0
+
+    # Graceful fallback if df_total was empty (e.g. run loaded from database)
+    if tot_teorici_colli == 0.0 and check_colli > 0.0:
+        tot_teorici_colli = check_colli
+        tot_teorici_mc = check_mc
+        tot_teorici_peso = check_colli * 12.0
 
     # Sum of categories (SHOES + TEXILE + ECOM)
     sum_voci_colli = 0.0

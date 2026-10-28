@@ -233,7 +233,7 @@ def run_pipeline(
     # Sync immediately to Google Sheets to persist across container restarts
     try:
         from src.cloud_sync import push_tables_to_cloud
-        push_tables_to_cloud(["runs", "planning_results", "spunta_arrivi", "stores"], timeout=15)
+        push_tables_to_cloud(["runs", "planning_results", "spunta_arrivi", "stores", "sga_flows", "forecast_raw"], timeout=20)
     except Exception as e:
         print(f"Warning: Cloud sync skipped or failed: {e}")
 

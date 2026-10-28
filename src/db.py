@@ -18,6 +18,52 @@ def get_connection(db_path=None):
     return conn
 
 
+
+def sync_b_stores(conn):
+    """
+    Ensures that for every base store where sdoppiamento_b9 == 'SI':
+    a corresponding store row with store_id = f'{sid}B' exists in stores.
+    If sdoppiamento_b9 is changed to 'NO', marks the B store as standby (attivo = 'NO').
+    Guarantees all B stores have sdoppiamento_b9 = 'NO'.
+    """
+    cur = conn.cursor()
+    cur.execute("SELECT store_id, store_name, brand, giro, tipo_mezzo, vettore, formula, cod_sga, indirizzo, provincia, cc, sdoppiamento_b9, attivo FROM stores")
+    all_s = cur.fetchall()
+    by_id = {str(r[0]).strip(): r for r in all_s}
+
+    for sid, r in list(by_id.items()):
+        if sid.endswith("B"):
+            if str(r[11] or "").upper() != "NO":
+                cur.execute("UPDATE stores SET sdoppiamento_b9 = 'NO' WHERE store_id = ?", (sid,))
+            continue
+
+        is_sdop = str(r[11] or "").strip().upper() == "SI"
+        is_active = str(r[12] or "SI").strip().upper() == "SI"
+        b_sid = f"{sid}B"
+
+        if is_sdop and is_active:
+            if b_sid not in by_id:
+                s_name = str(r[1] or "")
+                b_name = f"{s_name} (2ª Consegna /9)" if "(2ª" not in s_name else s_name
+                brand = str(r[2] or "ZARA")
+                giro = str(r[3] or "ZA1")
+                vett = str(r[5] or "LACCHI SPA")
+                mezzo = "FURGONE 8"
+                form = str(r[6] or "MC/1,9")
+                cod_sga = r[7]
+                ind = str(r[8] or "")
+                prov = str(r[9] or "")
+                cc = str(r[10] or "")
+                cur.execute("""
+                INSERT INTO stores (store_id, store_name, brand, giro, attivo, tipo_mezzo, vettore, formula, cod_sga, indirizzo, provincia, cc, sdoppiamento_b9)
+                VALUES (?, ?, ?, ?, 'SI', ?, ?, ?, ?, ?, ?, ?, 'NO')
+                """, (b_sid, b_name, brand, giro, mezzo, vett, form, cod_sga, ind, prov, cc))
+            else:
+                cur.execute("UPDATE stores SET attivo = 'SI', sdoppiamento_b9 = 'NO' WHERE store_id = ?", (b_sid,))
+        elif not is_sdop:
+            if b_sid in by_id:
+                cur.execute("UPDATE stores SET attivo = 'NO', sdoppiamento_b9 = 'NO' WHERE store_id = ?", (b_sid,))
+
 def init_db(db_path=DB_PATH):
     """Initializes the database schema."""
     with get_connection(db_path) as conn:
@@ -539,6 +585,7 @@ def update_store_record(store_id: str, updates: Dict[str, Any], db_path=DB_PATH)
                 (id_store, tipo_cons, punto_vendita, store_name, provincia, tipo_mezzo, autista, indirizzo)
                 VALUES (?, 'STD', ?, ?, ?, ?, ?, ?)
                 """, (store_id.strip(), s_pv, s_name, s_prov, s_tm, aut_display, s_ind))
+        sync_b_stores(conn)
         conn.commit()
     from src.cloud_sync import auto_sync_tables
     auto_sync_tables(["stores", "store_delivery_profiles"])
@@ -909,6 +956,16 @@ def get_run_details(run_id: int, db_path=DB_PATH) -> Dict[str, Any]:
             spunta["is_store"] = ~spunta["store_code"].astype(str).str.strip().str.upper().isin(["", "NEGOZIO", "STORE ID", "EXTRA", "NONE"])
         sga0 = _safe_query("SELECT * FROM sga_flows WHERE run_id = ? AND barra = 0 ORDER BY id", params=(int(run_id),))
         sga9 = _safe_query("SELECT * FROM sga_flows WHERE run_id = ? AND barra = 9 ORDER BY id", params=(int(run_id),))
+        if (sga0.empty or sga9.empty) and not spunta.empty:
+            try:
+                from src.engine import compute_sga_flows
+                s0_c, s9_c = compute_sga_flows(spunta, df_stores, str(run_dict.get("run_date", "") if run_dict else ""))
+                if sga0.empty:
+                    sga0 = s0_c
+                if sga9.empty:
+                    sga9 = s9_c
+            except Exception:
+                pass
         sga_all = _safe_query("SELECT * FROM sga_flows WHERE run_id = ? ORDER BY id", params=(int(run_id),))
         actuals = _safe_query("SELECT * FROM actual_deliveries WHERE run_id = ?", params=(int(run_id),))
 
@@ -980,6 +1037,17 @@ def load_run_data(run_id: int, db_path=DB_PATH) -> Optional[Dict[str, Any]]:
     spunta_df = det.get("spunta", pd.DataFrame())
     sga0_df = det.get("sga0", pd.DataFrame())
     sga9_df = det.get("sga9", pd.DataFrame())
+    if (sga0_df.empty or sga9_df.empty) and not spunta_df.empty:
+        try:
+            from src.engine import compute_sga_flows
+            df_st_all = get_stores_df(db_path=db_path)
+            s0_c, s9_c = compute_sga_flows(spunta_df, df_st_all, r_date)
+            if sga0_df.empty:
+                sga0_df = s0_c
+            if sga9_df.empty:
+                sga9_df = s9_c
+        except Exception:
+            pass
     planning_df = det.get("planning", pd.DataFrame())
     special_breakdowns = det.get("special_breakdowns", {})
 

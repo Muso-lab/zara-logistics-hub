@@ -1299,7 +1299,7 @@ def render_anagrafica_negozi_modern(df_stores: pd.DataFrame):
         '<th style="text-align: left; min-width: 210px;">Negozio & Insegna</th>'
         '<th style="min-width: 80px;">Giro</th>'
         '<th style="min-width: 95px;">Stato</th>'
-        '<th style="text-align: left; min-width: 130px;">Mezzo STD</th>'
+        '<th style="text-align: left; min-width: 130px;">Tipo Mezzo</th>'
         '<th style="text-align: left; min-width: 140px;">Vettore</th>'
         '<th style="min-width: 110px;">Lavorazione</th>'
         '<th style="min-width: 90px;">Profumi</th>'

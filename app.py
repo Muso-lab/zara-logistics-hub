@@ -599,8 +599,9 @@ if "cloud_auto_checked" not in st.session_state:
         except Exception:
             pass
 
-active_stores_cnt = int((df_stores_side["attivo"].fillna("SI").str.upper() == "SI").sum()) if not df_stores_side.empty else 0
-sdopp_stores_cnt = int((df_stores_side["sdoppiamento_b9"].fillna("NO").str.upper() == "SI").sum()) if not df_stores_side.empty else 0
+base_stores_side = df_stores_side[~df_stores_side["store_id"].astype(str).str.endswith("B")] if not df_stores_side.empty else pd.DataFrame()
+active_stores_cnt = int((base_stores_side["attivo"].fillna("SI").str.upper() == "SI").sum()) if not base_stores_side.empty else 0
+sdopp_stores_cnt = int((base_stores_side["sdoppiamento_b9"].fillna("NO").str.upper() == "SI").sum()) if not base_stores_side.empty else 0
 
 total_bolle_db = 0
 try:
@@ -695,16 +696,28 @@ def render_operativa_files_and_email_section(
     )
 
     s0_df = run_data.get("df_sga0")
-    if (s0_df is None or s0_df.empty) and "sga0" in run_data.get("exported_files", {}):
+    if s0_df is None or s0_df.empty:
         det_s = get_run_details(rid)
         s0_df = det_s.get("sga0", pd.DataFrame())
+    if s0_df is None or s0_df.empty:
+        from src.engine import compute_sga_flows
+        s0_df, s9_calc = compute_sga_flows(run_data.get("df_spunta", pd.DataFrame()), df_stores, r_date)
+        run_data["df_sga0"] = s0_df
+        if run_data.get("df_sga9") is None or run_data["df_sga9"].empty:
+            run_data["df_sga9"] = s9_calc
+
     if s0_df is not None and not s0_df.empty:
         export_sga_file(s0_df, p_sga0)
 
     s9_df = run_data.get("df_sga9")
-    if (s9_df is None or s9_df.empty) and "sga9" in run_data.get("exported_files", {}):
+    if s9_df is None or s9_df.empty:
         det_s = get_run_details(rid)
         s9_df = det_s.get("sga9", pd.DataFrame())
+    if s9_df is None or s9_df.empty:
+        from src.engine import compute_sga_flows
+        _, s9_df = compute_sga_flows(run_data.get("df_spunta", pd.DataFrame()), df_stores, r_date)
+        run_data["df_sga9"] = s9_df
+
     if s9_df is not None and not s9_df.empty:
         export_sga_file(s9_df, p_sga9)
 
@@ -747,6 +760,8 @@ def render_operativa_files_and_email_section(
                     use_container_width=True,
                     key=f"dl_box_sga0_{key_prefix}_{rid}"
                 )
+        else:
+            st.button("🚛 SGA Barra 0 (N.D.)", disabled=True, use_container_width=True, key=f"dl_box_sga0_nd_{key_prefix}_{rid}")
     with dl_cols[2]:
         if p_sga9.exists():
             with open(p_sga9, "rb") as f_9:
@@ -758,6 +773,8 @@ def render_operativa_files_and_email_section(
                     use_container_width=True,
                     key=f"dl_box_sga9_{key_prefix}_{rid}"
                 )
+        else:
+            st.button("🚚 SGA Barra 9 (N.D.)", disabled=True, use_container_width=True, key=f"dl_box_sga9_nd_{key_prefix}_{rid}")
     with dl_cols[3]:
         if p_zara.exists():
             with open(p_zara, "rb") as f_zara:
@@ -2114,7 +2131,7 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
         cols_order = [
             "store_id", "store_name", "brand", "giro", "attivo", "vettore", "lavorazione",
             "scorporo_profumi", "formula", "tipo_mezzo",
-            "sdoppiamento_b9", "tipo_mezzo_doppia",
+            "sdoppiamento_b9",
             "indirizzo", "provincia", "cod_sga", "cc"
         ]
         df_grid_edit = df_filtered[[c for c in cols_order if c in df_filtered.columns]].copy() if not df_filtered.empty else pd.DataFrame(columns=cols_order)
@@ -2136,9 +2153,8 @@ elif menu == "🏢 4. Anagrafica Negozi & Giri":
                 "lavorazione": st.column_config.SelectboxColumn("Lavorazione Piattaforma", options=["NO", "SI TESSILE", "SI HOME"], required=True, width="medium"),
                 "scorporo_profumi": st.column_config.SelectboxColumn("Scorporo Profumi", options=["NO", "SI"], required=True, width="small"),
                 "formula": st.column_config.SelectboxColumn("Formula Pedane", options=f_opts_grid, required=True, width="medium"),
-                "tipo_mezzo": st.column_config.SelectboxColumn("Mezzo STD", options=mezzi_list_full, width="medium"),
-                "sdoppiamento_b9": st.column_config.SelectboxColumn("Sdopp. /9", options=["NO", "SI"], required=True, width="small"),
-                "tipo_mezzo_doppia": st.column_config.SelectboxColumn("Mezzo /9", options=mezzi_list_full, width="medium"),
+                "tipo_mezzo": st.column_config.SelectboxColumn("Tipo Mezzo", options=mezzi_list_full, width="medium"),
+                "sdoppiamento_b9": st.column_config.SelectboxColumn("2ª Consegna (/9)", options=["NO", "SI"], required=True, width="small"),
                 "indirizzo": st.column_config.TextColumn("Indirizzo Scarico", width="large"),
                 "provincia": st.column_config.TextColumn("Prov.", width="small"),
                 "cod_sga": st.column_config.NumberColumn("Cod. SGA", format="%d", width="small"),
