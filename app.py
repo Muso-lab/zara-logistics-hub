@@ -1413,346 +1413,289 @@ if "Previsione & Arrivi" in menu:
                     render_lavorazioni_piattaforma(active_run_data.get("special_breakdowns", {}), key_prefix=f"p1_{curr_rid}")
 
         elif st.session_state.get("p1_subview") == "new":
-            # 1. Parametri Ciclo
-            col_meta1, col_meta2, col_meta3 = st.columns([1.2, 2, 1.8])
-            with col_meta1:
-                run_date = st.date_input("📅 Data Riferimento", value=date.today(), format="DD/MM/YYYY")
-            with col_meta2:
-                default_idx = 0 if run_date.weekday() <= 2 else 1
-                cycle_choice = st.selectbox(
-                    "🔄 Ciclo Settimanale Operativo",
-                    [
-                        "LUN-MER (Consegna Mercoledì — Spedizioni da Lunedì a Mercoledì)",
-                        "GIOV-DOM (Consegna Sabato — Spedizioni da Giovedì a Domenica)",
-                    ],
-                    index=default_idx,
-                )
-                cycle_type = "LUN-MER" if "LUN-MER" in cycle_choice else "GIOV-DOM"
-            with col_meta3:
-                notes = st.text_input("📝 Note / Riferimento", value=f"Elaborazione W{run_date.isocalendar()[1]} ({cycle_type})")
+            if True:
+                # 1. Parametri Ciclo
+                col_meta1, col_meta2, col_meta3 = st.columns([1.2, 2, 1.8])
+                with col_meta1:
+                    run_date = st.date_input("📅 Data Riferimento", value=date.today(), format="DD/MM/YYYY")
+                with col_meta2:
+                    default_idx = 0 if run_date.weekday() <= 2 else 1
+                    cycle_choice = st.selectbox(
+                        "🔄 Ciclo Settimanale Operativo",
+                        [
+                            "LUN-MER (Consegna Mercoledì — Spedizioni da Lunedì a Mercoledì)",
+                            "GIOV-DOM (Consegna Sabato — Spedizioni da Giovedì a Domenica)",
+                        ],
+                        index=default_idx,
+                    )
+                    cycle_type = "LUN-MER" if "LUN-MER" in cycle_choice else "GIOV-DOM"
+                with col_meta3:
+                    notes = st.text_input("📝 Note / Riferimento", value=f"Elaborazione W{run_date.isocalendar()[1]} ({cycle_type})")
 
-            cycle_desde, cycle_hasta = get_cycle_date_range(cycle_type, run_date)
+                cycle_desde, cycle_hasta = get_cycle_date_range(cycle_type, run_date)
 
-            # 2. Scorporo Profumi SEMPRE VISIBILE (letto dinamicamente dai negozi con Scorporo Profumi = 'SI' in Anagrafica)
-            df_all_stores = get_stores_df()
-            if "scorporo_profumi" in df_all_stores.columns:
-                df_prof_stores = df_all_stores[df_all_stores["scorporo_profumi"].fillna("NO").astype(str).str.upper() == "SI"].copy()
-            else:
-                df_prof_stores = df_all_stores[df_all_stores["store_id"].isin(["3680", "9226", "3591"])].copy()
+                # 2. Scorporo Profumi SEMPRE VISIBILE (letto dinamicamente dai negozi con Scorporo Profumi = 'SI' in Anagrafica)
+                df_all_stores = get_stores_df()
+                if "scorporo_profumi" in df_all_stores.columns:
+                    df_prof_stores = df_all_stores[df_all_stores["scorporo_profumi"].fillna("NO").astype(str).str.upper() == "SI"].copy()
+                else:
+                    df_prof_stores = df_all_stores[df_all_stores["store_id"].isin(["3680", "9226", "3591"])].copy()
 
-            st.markdown('<div class="quick-bar">', unsafe_allow_html=True)
-            st.markdown("##### 🧴 Scorporo Profumi (Dato Dinamico per questa Operativa)")
-            st.caption("I pezzi profumi sono un dato dinamico da inserire manualmente ad ogni specifica run per i negozi abilitati. Se non pervenuti o assenti per questo ciclo, lasciare a 0:")
+                st.markdown('<div class="quick-bar">', unsafe_allow_html=True)
+                st.markdown("##### 🧴 Scorporo Profumi (Dato Dinamico per questa Operativa)")
+                st.caption("I pezzi profumi sono un dato dinamico da inserire manualmente ad ogni specifica run per i negozi abilitati. Se non pervenuti o assenti per questo ciclo, lasciare a 0:")
 
-            perfume_corrections = {}
-            if not df_prof_stores.empty:
-                prof_cols = st.columns(min(len(df_prof_stores), 4))
-                for idx_p, (_, prow) in enumerate(df_prof_stores.iterrows()):
-                    p_sid = str(prow["store_id"]).strip()
-                    p_sname = str(prow.get("store_name", "")).strip()
-                    with prof_cols[idx_p % len(prof_cols)]:
-                        val_pz = st.number_input(
-                            f"Negozio {p_sid} ({p_sname}) — Pezzi Profumi",
-                            value=0,
-                            min_value=0,
-                            step=1,
-                            key=f"perfume_{p_sid}",
-                            help="Dato dinamico per questa specifica run. Se mancante o assente, lasciare a 0."
-                        )
-                        perfume_corrections[p_sid] = float(val_pz)
-            else:
-                st.info("Nessun negozio ha l'opzione 'Scorporo Profumi = SI' attiva in Anagrafica Negozi.")
-            st.markdown('</div>', unsafe_allow_html=True)
+                perfume_corrections = {}
+                if not df_prof_stores.empty:
+                    prof_cols = st.columns(min(len(df_prof_stores), 4))
+                    for idx_p, (_, prow) in enumerate(df_prof_stores.iterrows()):
+                        p_sid = str(prow["store_id"]).strip()
+                        p_sname = str(prow.get("store_name", "")).strip()
+                        with prof_cols[idx_p % len(prof_cols)]:
+                            val_pz = st.number_input(
+                                f"Negozio {p_sid} ({p_sname}) — Pezzi Profumi",
+                                value=0,
+                                min_value=0,
+                                step=1,
+                                key=f"perfume_{p_sid}",
+                                help="Dato dinamico per questa specifica run. Se mancante o assente, lasciare a 0."
+                            )
+                            perfume_corrections[p_sid] = float(val_pz)
+                else:
+                    st.info("Nessun negozio ha l'opzione 'Scorporo Profumi = SI' attiva in Anagrafica Negozi.")
+                st.markdown('</div>', unsafe_allow_html=True)
 
+                # 3. Sorgente Dati: Default = Prelievo Automatico da Extranet | Secondario = Caricamento Manuale (Emergenza)
+                tab_src_extranet, tab_src_upload = st.tabs([
+                    "🌐 Prelievo Automatico da Extranet Inditex (Default)",
+                    "📤 Caricamento Manuale File (Emergenza)",
+                ])
 
-    # ==============================================================================
-    # PAGE 2: BOLLE DI CONSEGNA (ELENCO, STAMPA PER GIRO/AUTISTA, COMPILAZIONE)
-    # ==============================================================================
+                with tab_src_extranet:
+                    st.caption(
+                        f"In base alla **Data Riferimento ({format_date_it(run_date)})** e al ciclo **{cycle_type}**, "
+                        f"il sistema ricerca automaticamente su Extranet le spedizioni della settimana dal **{format_date_it(cycle_desde)}** al **{format_date_it(cycle_hasta)}** (modificabili qui sotto se necessario):"
+                    )
+                    col_ex1, col_ex2 = st.columns(2)
+                    with col_ex1:
+                        sc_desde = st.date_input("📅 Spedizioni Dal (Inizio)", value=cycle_desde, format="DD/MM/YYYY", key=f"sc_d_{cycle_type}_{run_date}")
+                    with col_ex2:
+                        sc_hasta = st.date_input("📅 Spedizioni Al (Fine)", value=cycle_hasta, format="DD/MM/YYYY", key=f"sc_h_{cycle_type}_{run_date}")
 
-    elif has_perm("can_execute_runs") and st.session_state.get("p1_subview") == "new":
-        if True:
-            # 1. Parametri Ciclo
-            col_meta1, col_meta2, col_meta3 = st.columns([1.2, 2, 1.8])
-            with col_meta1:
-                run_date = st.date_input("📅 Data Riferimento", value=date.today(), format="DD/MM/YYYY")
-            with col_meta2:
-                default_idx = 0 if run_date.weekday() <= 2 else 1
-                cycle_choice = st.selectbox(
-                    "🔄 Ciclo Settimanale Operativo",
-                    [
-                        "LUN-MER (Consegna Mercoledì — Spedizioni da Lunedì a Mercoledì)",
-                        "GIOV-DOM (Consegna Sabato — Spedizioni da Giovedì a Domenica)",
-                    ],
-                    index=default_idx,
-                )
-                cycle_type = "LUN-MER" if "LUN-MER" in cycle_choice else "GIOV-DOM"
-            with col_meta3:
-                notes = st.text_input("📝 Note / Riferimento", value=f"Elaborazione W{run_date.isocalendar()[1]} ({cycle_type})")
+                    ex_user, ex_pass = get_extranet_credentials()
 
-            cycle_desde, cycle_hasta = get_cycle_date_range(cycle_type, run_date)
+                    col_cred1, col_cred2 = st.columns([2.5, 1.5])
+                    with col_cred1:
+                        st.markdown(f"<div style='font-size:13px; color:#475569; margin: 4px 0 10px 0;'>🔑 Accesso configurato: <strong><code>{ex_user}</code></strong></div>", unsafe_allow_html=True)
+                    with col_cred2:
+                        with st.popover("⚙️ Modifica Credenziali Inditex", use_container_width=True):
+                            st.markdown("##### 🔐 Credenziali Extranet Inditex")
+                            new_u = st.text_input("Utente", value=ex_user, key="pop_ext_u")
+                            new_p = st.text_input("Password", value=ex_pass, type="password", key="pop_ext_p")
+                            if st.button("💾 Salva Nuove Credenziali", use_container_width=True, key="btn_save_pop_ext_creds"):
+                                set_extranet_credentials(new_u, new_p)
+                                st.success("Credenziali Extranet aggiornate!")
+                                st.rerun()
 
-            # 2. Scorporo Profumi SEMPRE VISIBILE (letto dinamicamente dai negozi con Scorporo Profumi = 'SI' in Anagrafica)
-            df_all_stores = get_stores_df()
-            if "scorporo_profumi" in df_all_stores.columns:
-                df_prof_stores = df_all_stores[df_all_stores["scorporo_profumi"].fillna("NO").astype(str).str.upper() == "SI"].copy()
-            else:
-                df_prof_stores = df_all_stores[df_all_stores["store_id"].isin(["3680", "9226", "3591"])].copy()
+                    prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno (0 pz)"
+                    st.caption(f"🧴 Scorporo profumi attivo per questa elaborazione: {prof_summary_str}")
+                    btn_scrape_go = st.button("🌐 SCARICA DA EXTRANET ED AVVIA ESTRAZIONE", type="primary", use_container_width=True, key="btn_ask_scrape")
 
-            st.markdown('<div class="quick-bar">', unsafe_allow_html=True)
-            st.markdown("##### 🧴 Scorporo Profumi (Dato Dinamico per questa Operativa)")
-            st.caption("I pezzi profumi sono un dato dinamico da inserire manualmente ad ogni specifica run per i negozi abilitati. Se non pervenuti o assenti per questo ciclo, lasciare a 0:")
-
-            perfume_corrections = {}
-            if not df_prof_stores.empty:
-                prof_cols = st.columns(min(len(df_prof_stores), 4))
-                for idx_p, (_, prow) in enumerate(df_prof_stores.iterrows()):
-                    p_sid = str(prow["store_id"]).strip()
-                    p_sname = str(prow.get("store_name", "")).strip()
-                    with prof_cols[idx_p % len(prof_cols)]:
-                        val_pz = st.number_input(
-                            f"Negozio {p_sid} ({p_sname}) — Pezzi Profumi",
-                            value=0,
-                            min_value=0,
-                            step=1,
-                            key=f"perfume_{p_sid}",
-                            help="Dato dinamico per questa specifica run. Se mancante o assente, lasciare a 0."
-                        )
-                        perfume_corrections[p_sid] = float(val_pz)
-            else:
-                st.info("Nessun negozio ha l'opzione 'Scorporo Profumi = SI' attiva in Anagrafica Negozi.")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            # 3. Sorgente Dati: Default = Prelievo Automatico da Extranet | Secondario = Caricamento Manuale (Emergenza)
-            tab_src_extranet, tab_src_upload = st.tabs([
-                "🌐 Prelievo Automatico da Extranet Inditex (Default)",
-                "📤 Caricamento Manuale File (Emergenza)",
-            ])
-
-            with tab_src_extranet:
-                st.caption(
-                    f"In base alla **Data Riferimento ({format_date_it(run_date)})** e al ciclo **{cycle_type}**, "
-                    f"il sistema ricerca automaticamente su Extranet le spedizioni della settimana dal **{format_date_it(cycle_desde)}** al **{format_date_it(cycle_hasta)}** (modificabili qui sotto se necessario):"
-                )
-                col_ex1, col_ex2 = st.columns(2)
-                with col_ex1:
-                    sc_desde = st.date_input("📅 Spedizioni Dal (Inizio)", value=cycle_desde, format="DD/MM/YYYY", key=f"sc_d_{cycle_type}_{run_date}")
-                with col_ex2:
-                    sc_hasta = st.date_input("📅 Spedizioni Al (Fine)", value=cycle_hasta, format="DD/MM/YYYY", key=f"sc_h_{cycle_type}_{run_date}")
-
-                ex_user, ex_pass = get_extranet_credentials()
-
-                col_cred1, col_cred2 = st.columns([2.5, 1.5])
-                with col_cred1:
-                    st.markdown(f"<div style='font-size:13px; color:#475569; margin: 4px 0 10px 0;'>🔑 Accesso configurato: <strong><code>{ex_user}</code></strong></div>", unsafe_allow_html=True)
-                with col_cred2:
-                    with st.popover("⚙️ Modifica Credenziali Inditex", use_container_width=True):
-                        st.markdown("##### 🔐 Credenziali Extranet Inditex")
-                        new_u = st.text_input("Utente", value=ex_user, key="pop_ext_u")
-                        new_p = st.text_input("Password", value=ex_pass, type="password", key="pop_ext_p")
-                        if st.button("💾 Salva Nuove Credenziali", use_container_width=True, key="btn_save_pop_ext_creds"):
-                            set_extranet_credentials(new_u, new_p)
-                            st.success("Credenziali Extranet aggiornate!")
-                            st.rerun()
-
-                prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno (0 pz)"
-                st.caption(f"🧴 Scorporo profumi attivo per questa elaborazione: {prof_summary_str}")
-                btn_scrape_go = st.button("🌐 SCARICA DA EXTRANET ED AVVIA ESTRAZIONE", type="primary", use_container_width=True, key="btn_ask_scrape")
-
-                if btn_scrape_go:
-                    status_banner = st.empty()
-                    prog_bar = st.progress(5)
-                    status_banner.markdown("""
-                    <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
-                                border: 2px solid #38BDF8; border-radius: 12px;
-                                padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
-                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <div style="display: flex; align-items: center; gap: 14px;">
-                                <div style="font-size: 28px;">⚙️</div>
-                                <div>
-                                    <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
-                                        🚀 ESTRAZIONE ED ELABORAZIONE AVVIATA — ATTENDERE PREGO
-                                    </div>
-                                    <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                        Connessione a Inditex Extranet in corso e download automatico file...
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">5%</div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    temp_extract_dir = DATA_DIR / "downloads" / f"extranet_{ts}"
-                    temp_extract_dir.mkdir(parents=True, exist_ok=True)
-
-                    def update_progress(msg: str, pct: int):
-                        prog_bar.progress(pct)
-                        status_banner.markdown(f"""
+                    if btn_scrape_go:
+                        status_banner = st.empty()
+                        prog_bar = st.progress(5)
+                        status_banner.markdown("""
                         <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
                                     border: 2px solid #38BDF8; border-radius: 12px;
                                     padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
                             <div style="display: flex; align-items: center; justify-content: space-between;">
                                 <div style="display: flex; align-items: center; gap: 14px;">
-                                    <div style="font-size: 28px;">🔄</div>
+                                    <div style="font-size: 28px;">⚙️</div>
                                     <div>
                                         <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
-                                            ESTRAZIONE ED ELABORAZIONE IN CORSO...
+                                            🚀 ESTRAZIONE ED ELABORAZIONE AVVIATA — ATTENDERE PREGO
                                         </div>
                                         <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                            {html.escape(msg)}
+                                            Connessione a Inditex Extranet in corso e download automatico file...
                                         </div>
                                     </div>
                                 </div>
-                                <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">{pct}%</div>
+                                <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">5%</div>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
 
-                    try:
-                        scraper = InditexExtranetScraper(
-                            username=ex_user,
-                            password=ex_pass,
-                            headless=True,
-                            progress_callback=update_progress,
-                        )
-                        scrape_res = scraper.scrape_all(
-                            desde_date=sc_desde,
-                            hasta_date=sc_hasta,
-                            output_dir=temp_extract_dir,
-                        )
-                        update_progress("Elaborazione Spunta Arrivi e Flussi SGA...", 95)
-                        res = run_pipeline(
-                            total_source=temp_extract_dir / "TOTAL.xls",
-                            shoes_source=(temp_extract_dir / "SHOES.xls") if (temp_extract_dir / "SHOES.xls").exists() else None,
-                            texile_source=(temp_extract_dir / "TEXILE.xls") if (temp_extract_dir / "TEXILE.xls").exists() else None,
-                            ecom_source=(temp_extract_dir / "ECOM.xls") if (temp_extract_dir / "ECOM.xls").exists() else None,
-                            other_source=(temp_extract_dir / "OTHER"),
-                            esportazione_source=None,
-                            run_date=str(run_date),
-                            cycle_type=cycle_type,
-                            notes=f"{notes} [Extranet {format_date_it(sc_desde)}-{format_date_it(sc_hasta)}]",
-                            perfume_corrections=perfume_corrections,
-                            save_to_network=False,
-                        )
-                        prog_bar.progress(100)
-                        status_banner.markdown("""
-                        <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
-                                    border: 2px solid #10B981; border-radius: 12px;
-                                    padding: 18px 24px; margin: 12px 0 16px 0;">
-                            <div style="display: flex; align-items: center; gap: 14px;">
-                                <div style="font-size: 28px;">✅</div>
-                                <div>
-                                    <div style="font-size: 16px; font-weight: 800; color: #34D399;">
-                                        ELABORAZIONE COMPLETATA CON SUCCESSO!
+                        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        temp_extract_dir = DATA_DIR / "downloads" / f"extranet_{ts}"
+                        temp_extract_dir.mkdir(parents=True, exist_ok=True)
+
+                        def update_progress(msg: str, pct: int):
+                            prog_bar.progress(pct)
+                            status_banner.markdown(f"""
+                            <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+                                        border: 2px solid #38BDF8; border-radius: 12px;
+                                        padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
+                                <div style="display: flex; align-items: center; justify-content: space-between;">
+                                    <div style="display: flex; align-items: center; gap: 14px;">
+                                        <div style="font-size: 28px;">🔄</div>
+                                        <div>
+                                            <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
+                                                ESTRAZIONE ED ELABORAZIONE IN CORSO...
+                                            </div>
+                                            <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                                {html.escape(msg)}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                        File TOTAL, SHOES, TEXILE, ECOM e OTHER estratti e calcolati con successo. Dati archiviati nel DB.
+                                    <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">{pct}%</div>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                        try:
+                            scraper = InditexExtranetScraper(
+                                username=ex_user,
+                                password=ex_pass,
+                                headless=True,
+                                progress_callback=update_progress,
+                            )
+                            scrape_res = scraper.scrape_all(
+                                desde_date=sc_desde,
+                                hasta_date=sc_hasta,
+                                output_dir=temp_extract_dir,
+                            )
+                            update_progress("Elaborazione Spunta Arrivi e Flussi SGA...", 95)
+                            res = run_pipeline(
+                                total_source=temp_extract_dir / "TOTAL.xls",
+                                shoes_source=(temp_extract_dir / "SHOES.xls") if (temp_extract_dir / "SHOES.xls").exists() else None,
+                                texile_source=(temp_extract_dir / "TEXILE.xls") if (temp_extract_dir / "TEXILE.xls").exists() else None,
+                                ecom_source=(temp_extract_dir / "ECOM.xls") if (temp_extract_dir / "ECOM.xls").exists() else None,
+                                other_source=(temp_extract_dir / "OTHER"),
+                                esportazione_source=None,
+                                run_date=str(run_date),
+                                cycle_type=cycle_type,
+                                notes=f"{notes} [Extranet {format_date_it(sc_desde)}-{format_date_it(sc_hasta)}]",
+                                perfume_corrections=perfume_corrections,
+                                save_to_network=False,
+                            )
+                            prog_bar.progress(100)
+                            status_banner.markdown("""
+                            <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
+                                        border: 2px solid #10B981; border-radius: 12px;
+                                        padding: 18px 24px; margin: 12px 0 16px 0;">
+                                <div style="display: flex; align-items: center; gap: 14px;">
+                                    <div style="font-size: 28px;">✅</div>
+                                    <div>
+                                        <div style="font-size: 16px; font-weight: 800; color: #34D399;">
+                                            ELABORAZIONE COMPLETATA CON SUCCESSO!
+                                        </div>
+                                        <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                            File TOTAL, SHOES, TEXILE, ECOM e OTHER estratti e calcolati con successo. Dati archiviati nel DB.
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        st.session_state["last_run"] = res
-                        st.session_state["active_view_run_id"] = res["run_id"]
-                        st.session_state["p1_subview"] = "view"
-                        st.session_state[f"show_op_panel_{res['run_id']}"] = True
-                        st.session_state["flash_run_msg"] = f"Elaborazione Extranet Run #{res['run_id']} completata con successo! Visualizzazione aperta."
-                        st.rerun()
+                            """, unsafe_allow_html=True)
+                            st.session_state["last_run"] = res
+                            st.session_state["active_view_run_id"] = res["run_id"]
+                            st.session_state["p1_subview"] = "view"
+                            st.session_state[f"show_op_panel_{res['run_id']}"] = True
+                            st.session_state["flash_run_msg"] = f"Elaborazione Extranet Run #{res['run_id']} completata con successo! Visualizzazione aperta."
+                            st.rerun()
 
-                    except Exception as e:
-                        status_banner.empty()
-                        st.error(f"Errore durante l'estrazione da Extranet: {e}")
+                        except Exception as e:
+                            status_banner.empty()
+                            st.error(f"Errore durante l'estrazione da Extranet: {e}")
 
-            with tab_src_upload:
-                st.caption("Modalità di emergenza: seleziona o trascina qui **tutti insieme** i file scaricati manualmente (`TOTAL`, `SHOES`, `TEXILE`, `ECOM` ed eventuali file di dettaglio `OTHER`, oppure un file `.zip`). Il sistema li riconosce e smista in automatico:")
-                uploaded_batch = st.file_uploader(
-                    "Trascina qui tutti i file (.xls, .xlsx, .csv, .zip)",
-                    type=["xls", "xlsx", "csv", "zip"],
-                    accept_multiple_files=True,
-                    key="smart_batch_uploader",
-                )
+                with tab_src_upload:
+                    st.caption("Modalità di emergenza: seleziona o trascina qui **tutti insieme** i file scaricati manualmente (`TOTAL`, `SHOES`, `TEXILE`, `ECOM` ed eventuali file di dettaglio `OTHER`, oppure un file `.zip`). Il sistema li riconosce e smista in automatico:")
+                    uploaded_batch = st.file_uploader(
+                        "Trascina qui tutti i file (.xls, .xlsx, .csv, .zip)",
+                        type=["xls", "xlsx", "csv", "zip"],
+                        accept_multiple_files=True,
+                        key="smart_batch_uploader",
+                    )
 
-                classified = classify_uploaded_files(uploaded_batch) if uploaded_batch else None
-                if classified:
-                    s_info = classified["summary"]
-                    c_s1, c_s2, c_s3, c_s4, c_s5 = st.columns(5)
-                    c_s1.success(f"TOTALE: {s_info['total']}") if s_info["total"] else c_s1.warning("TOTALE: Non caricato")
-                    c_s2.success(f"CALZATURE: {s_info['shoes']}") if s_info["shoes"] else c_s2.info("CALZATURE: Assente (0)")
-                    c_s3.success(f"TESSILE: {s_info['texile']}") if s_info["texile"] else c_s3.info("TESSILE: Assente (0)")
-                    c_s4.success(f"E-COMMERCE: {s_info['ecom']}") if s_info["ecom"] else c_s4.info("E-COMMERCE: Assente (0)")
-                    c_s5.success(f"ALTRI (OTHER): {s_info['other_count']} file") if s_info["other_count"] > 0 else c_s5.info("ALTRI (OTHER): 0 file")
+                    classified = classify_uploaded_files(uploaded_batch) if uploaded_batch else None
+                    if classified:
+                        s_info = classified["summary"]
+                        c_s1, c_s2, c_s3, c_s4, c_s5 = st.columns(5)
+                        c_s1.success(f"TOTALE: {s_info['total']}") if s_info["total"] else c_s1.warning("TOTALE: Non caricato")
+                        c_s2.success(f"CALZATURE: {s_info['shoes']}") if s_info["shoes"] else c_s2.info("CALZATURE: Assente (0)")
+                        c_s3.success(f"TESSILE: {s_info['texile']}") if s_info["texile"] else c_s3.info("TESSILE: Assente (0)")
+                        c_s4.success(f"E-COMMERCE: {s_info['ecom']}") if s_info["ecom"] else c_s4.info("E-COMMERCE: Assente (0)")
+                        c_s5.success(f"ALTRI (OTHER): {s_info['other_count']} file") if s_info["other_count"] > 0 else c_s5.info("ALTRI (OTHER): 0 file")
 
-                prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno (0 pz)"
-                st.caption(f"🧴 Scorporo profumi attivo per questa elaborazione: {prof_summary_str}")
-                btn_upload_go = st.button("🚀 ELABORA FILE CARICATI ORA", type="primary", use_container_width=True, disabled=not bool(classified and (classified["total"] or classified["texile"])), key="btn_ask_upload")
+                    prof_summary_str = " | ".join([f"**{k}** = `{int(v)}` pz" for k, v in perfume_corrections.items()]) or "Nessuno (0 pz)"
+                    st.caption(f"🧴 Scorporo profumi attivo per questa elaborazione: {prof_summary_str}")
+                    btn_upload_go = st.button("🚀 ELABORA FILE CARICATI ORA", type="primary", use_container_width=True, disabled=not bool(classified and (classified["total"] or classified["texile"])), key="btn_ask_upload")
 
-                if btn_upload_go:
-                    status_banner_up = st.empty()
-                    prog_bar_up = st.progress(25)
-                    status_banner_up.markdown("""
-                    <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
-                                border: 2px solid #38BDF8; border-radius: 12px;
-                                padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
-                        <div style="display: flex; align-items: center; justify-content: space-between;">
-                            <div style="display: flex; align-items: center; gap: 14px;">
-                                <div style="font-size: 28px;">⚙️</div>
-                                <div>
-                                    <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
-                                        🚀 ELABORAZIONE FILE AVVIATA — ATTENDERE PREGO
-                                    </div>
-                                    <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                        Calcolo Spunta Arrivi, suddivisione Sdoppiamenti /0-/9 e salvataggio storico...
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">25%</div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    try:
-                        res = run_pipeline(
-                            total_source=classified["total"],
-                            shoes_source=classified["shoes"],
-                            texile_source=classified["texile"],
-                            ecom_source=classified["ecom"],
-                            other_source=classified["other"],
-                            esportazione_source=None,
-                            run_date=str(run_date),
-                            cycle_type=cycle_type,
-                            notes=notes,
-                            perfume_corrections=perfume_corrections,
-                            save_to_network=False,
-                        )
-                        prog_bar_up.progress(100)
+                    if btn_upload_go:
+                        status_banner_up = st.empty()
+                        prog_bar_up = st.progress(25)
                         status_banner_up.markdown("""
-                        <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
-                                    border: 2px solid #10B981; border-radius: 12px;
-                                    padding: 18px 24px; margin: 12px 0 16px 0;">
-                            <div style="display: flex; align-items: center; gap: 14px;">
-                                <div style="font-size: 28px;">✅</div>
-                                <div>
-                                    <div style="font-size: 16px; font-weight: 800; color: #34D399;">
-                                        ELABORAZIONE COMPLETATA CON SUCCESSO!
-                                    </div>
-                                    <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
-                                        Spunta Arrivi, Flussi SGA e Riepilogo Giri calcolati con successo.
+                        <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+                                    border: 2px solid #38BDF8; border-radius: 12px;
+                                    padding: 18px 24px; margin: 12px 0 16px 0; box-shadow: 0 4px 15px rgba(14, 165, 233, 0.25);">
+                            <div style="display: flex; align-items: center; justify-content: space-between;">
+                                <div style="display: flex; align-items: center; gap: 14px;">
+                                    <div style="font-size: 28px;">⚙️</div>
+                                    <div>
+                                        <div style="font-size: 16px; font-weight: 800; color: #38BDF8; letter-spacing: 0.5px;">
+                                            🚀 ELABORAZIONE FILE AVVIATA — ATTENDERE PREGO
+                                        </div>
+                                        <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                            Calcolo Spunta Arrivi, suddivisione Sdoppiamenti /0-/9 e salvataggio storico...
+                                        </div>
                                     </div>
                                 </div>
+                                <div style="font-size: 18px; font-weight: 800; color: #F59E0B;">25%</div>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
-                        st.session_state["last_run"] = res
-                        st.session_state["active_view_run_id"] = res["run_id"]
-                        st.session_state["p1_subview"] = "view"
-                        st.session_state[f"show_op_panel_{res['run_id']}"] = True
-                        st.session_state["flash_run_msg"] = f"Elaborazione Run #{res['run_id']} completata con successo! Visualizzazione aperta."
-                        st.rerun()
 
-                    except Exception as e:
-                        status_banner_up.empty()
-                        st.error(f"Errore durante l'elaborazione: {e}")
+                        try:
+                            res = run_pipeline(
+                                total_source=classified["total"],
+                                shoes_source=classified["shoes"],
+                                texile_source=classified["texile"],
+                                ecom_source=classified["ecom"],
+                                other_source=classified["other"],
+                                esportazione_source=None,
+                                run_date=str(run_date),
+                                cycle_type=cycle_type,
+                                notes=notes,
+                                perfume_corrections=perfume_corrections,
+                                save_to_network=False,
+                            )
+                            prog_bar_up.progress(100)
+                            status_banner_up.markdown("""
+                            <div style="background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
+                                        border: 2px solid #10B981; border-radius: 12px;
+                                        padding: 18px 24px; margin: 12px 0 16px 0;">
+                                <div style="display: flex; align-items: center; gap: 14px;">
+                                    <div style="font-size: 28px;">✅</div>
+                                    <div>
+                                        <div style="font-size: 16px; font-weight: 800; color: #34D399;">
+                                            ELABORAZIONE COMPLETATA CON SUCCESSO!
+                                        </div>
+                                        <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 3px;">
+                                            Spunta Arrivi, Flussi SGA e Riepilogo Giri calcolati con successo.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            st.session_state["last_run"] = res
+                            st.session_state["active_view_run_id"] = res["run_id"]
+                            st.session_state["p1_subview"] = "view"
+                            st.session_state[f"show_op_panel_{res['run_id']}"] = True
+                            st.session_state["flash_run_msg"] = f"Elaborazione Run #{res['run_id']} completata con successo! Visualizzazione aperta."
+                            st.rerun()
+
+                        except Exception as e:
+                            status_banner_up.empty()
+                            st.error(f"Errore durante l'elaborazione: {e}")
 
 
 elif "Bolle di Consegna" in menu:
