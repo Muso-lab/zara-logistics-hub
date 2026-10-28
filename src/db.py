@@ -956,6 +956,20 @@ def get_run_details(run_id: int, db_path=DB_PATH) -> Dict[str, Any]:
             spunta["is_store"] = ~spunta["store_code"].astype(str).str.strip().str.upper().isin(["", "NEGOZIO", "STORE ID", "EXTRA", "NONE"])
         sga0 = _safe_query("SELECT * FROM sga_flows WHERE run_id = ? AND barra = 0 ORDER BY id", params=(int(run_id),))
         sga9 = _safe_query("SELECT * FROM sga_flows WHERE run_id = ? AND barra = 9 ORDER BY id", params=(int(run_id),))
+
+        def _norm_sga(df_in: pd.DataFrame) -> pd.DataFrame:
+            if df_in is None or df_in.empty:
+                return df_in
+            s_map = {
+                "giro": "GIRO", "data_carico": "DATA_CARICO", "cod_mittente": "COD_MITTENTE",
+                "magazzino_carico": "MAGAZZINO_CARICO", "data_scarico": "DATA_SCARICO",
+                "cod_destinatario": "COD_DESTINATARIO", "magazzino_scarico": "MAGAZZINO_SCARICO",
+                "peso": "PESO", "volume": "VOLUME", "colli": "COLLI"
+            }
+            return df_in.rename(columns=s_map)
+
+        sga0 = _norm_sga(sga0)
+        sga9 = _norm_sga(sga9)
         if (sga0.empty or sga9.empty) and not spunta.empty:
             try:
                 from src.engine import compute_sga_flows
@@ -966,7 +980,7 @@ def get_run_details(run_id: int, db_path=DB_PATH) -> Dict[str, Any]:
                     sga9 = s9_c
             except Exception:
                 pass
-        sga_all = _safe_query("SELECT * FROM sga_flows WHERE run_id = ? ORDER BY id", params=(int(run_id),))
+        sga_all = _norm_sga(_safe_query("SELECT * FROM sga_flows WHERE run_id = ? ORDER BY id", params=(int(run_id),)))
         actuals = _safe_query("SELECT * FROM actual_deliveries WHERE run_id = ?", params=(int(run_id),))
 
         # Reconstruct special_breakdowns from forecast_raw

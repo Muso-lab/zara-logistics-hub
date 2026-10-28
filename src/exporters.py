@@ -48,13 +48,31 @@ def export_sga_file(df_flows: pd.DataFrame, output_path: Union[str, Path]):
 
     # Esclusione rigida negozi 'DA ASSEGNARE' o senza giro definito
     if df_flows is not None and not df_flows.empty:
-        mask_valid = ~df_flows["GIRO"].fillna("").astype(str).str.strip().str.upper().apply(
-            lambda g: g in ("", "DA ASSEGNARE", "NON ASSEGNATO", "NON DEFINITO", "NONE", "NAN", "-")
-            or g.startswith("DA ASS")
-            or g.startswith("NON ASS")
-        )
-        if "store_code" in df_flows.columns:
-            mask_valid = mask_valid & ~df_flows["store_code"].fillna("").astype(str).str.strip().str.upper().apply(
+        df_flows = df_flows.copy()
+        # Normalizzazione nomi colonne (gestisce sia maiuscolo da engine che minuscolo da SQLite)
+        col_rename = {}
+        for c in df_flows.columns:
+            u = str(c).strip().upper()
+            if u in cols_order:
+                col_rename[c] = u
+            elif u in ("FLUSSO_TIPO", "STORE_CODE", "BARRA"):
+                col_rename[c] = u.lower()
+        if col_rename:
+            df_flows = df_flows.rename(columns=col_rename)
+
+        giro_col = "GIRO" if "GIRO" in df_flows.columns else ("giro" if "giro" in df_flows.columns else None)
+        if giro_col:
+            mask_valid = ~df_flows[giro_col].fillna("").astype(str).str.strip().str.upper().apply(
+                lambda g: g in ("", "DA ASSEGNARE", "NON ASSEGNATO", "NON DEFINITO", "NONE", "NAN", "-")
+                or g.startswith("DA ASS")
+                or g.startswith("NON ASS")
+            )
+        else:
+            mask_valid = pd.Series([True] * len(df_flows), index=df_flows.index)
+
+        store_col = "store_code" if "store_code" in df_flows.columns else ("STORE_CODE" if "STORE_CODE" in df_flows.columns else None)
+        if store_col:
+            mask_valid = mask_valid & ~df_flows[store_col].fillna("").astype(str).str.strip().str.upper().apply(
                 lambda s: s in ("DA ASSEGNARE", "NON ASSEGNATO") or s.startswith("DA ASS")
             )
         df_flows = df_flows[mask_valid].copy()
@@ -83,13 +101,18 @@ def export_sga_file(df_flows: pd.DataFrame, output_path: Union[str, Path]):
     )
 
     for r_idx, (_, row) in enumerate(df_flows.iterrows(), start=2):
-        is_ritorno = (row.get("flusso_tipo") == "RITORNO")
+        flusso_val = str(row.get("flusso_tipo") or row.get("FLUSSO_TIPO") or "").strip().upper()
+        is_ritorno = (flusso_val == "RITORNO")
         for c_idx, col_name in enumerate(cols_order, start=1):
-            val = row.get(col_name, 0 if is_ritorno and col_name in ("PESO", "VOLUME", "COLLI") else "")
+            val = row.get(col_name)
+            if val is None or pd.isna(val):
+                val = row.get(col_name.lower())
             if is_ritorno and col_name in ("PESO", "VOLUME", "COLLI"):
                 val = 0
             elif col_name in ("DATA_CARICO", "DATA_SCARICO"):
                 val = _format_sga_date(val)
+            elif val is None or pd.isna(val):
+                val = 0 if col_name in ("PESO", "VOLUME", "COLLI") else ""
             cell = ws.cell(row=r_idx, column=c_idx, value=val)
             cell.border = thin_border
             if col_name in ("PESO", "VOLUME", "COLLI"):
@@ -110,18 +133,19 @@ def export_sga_file(df_flows: pd.DataFrame, output_path: Union[str, Path]):
     csv_path = output_path.with_suffix(".csv")
     csv_rows = []
     for _, row in df_flows.iterrows():
-        is_ritorno = (row.get("flusso_tipo") == "RITORNO")
+        flusso_val = str(row.get("flusso_tipo") or row.get("FLUSSO_TIPO") or "").strip().upper()
+        is_ritorno = (flusso_val == "RITORNO")
         csv_rows.append({
-            "GIRO": row.get("GIRO", ""),
-            "DATA_CARICO": _format_sga_date(row.get("DATA_CARICO", "")),
-            "COD_MITTENTE": row.get("COD_MITTENTE", ""),
-            "MAGAZZINO_CARICO": row.get("MAGAZZINO_CARICO", ""),
-            "DATA_SCARICO": _format_sga_date(row.get("DATA_SCARICO", "")),
-            "COD_DESTINATARIO": row.get("COD_DESTINATARIO", ""),
-            "MAGAZZINO_SCARICO": row.get("MAGAZZINO_SCARICO", ""),
-            "PESO": 0 if is_ritorno else row.get("PESO", 0),
-            "VOLUME": 0 if is_ritorno else row.get("VOLUME", 0),
-            "COLLI": 0 if is_ritorno else row.get("COLLI", 0),
+            "GIRO": row.get("GIRO", row.get("giro", "")),
+            "DATA_CARICO": _format_sga_date(row.get("DATA_CARICO", row.get("data_carico", ""))),
+            "COD_MITTENTE": row.get("COD_MITTENTE", row.get("cod_mittente", "")),
+            "MAGAZZINO_CARICO": row.get("MAGAZZINO_CARICO", row.get("magazzino_carico", "")),
+            "DATA_SCARICO": _format_sga_date(row.get("DATA_SCARICO", row.get("data_scarico", ""))),
+            "COD_DESTINATARIO": row.get("COD_DESTINATARIO", row.get("cod_destinatario", "")),
+            "MAGAZZINO_SCARICO": row.get("MAGAZZINO_SCARICO", row.get("magazzino_scarico", "")),
+            "PESO": 0 if is_ritorno else (row.get("PESO") if row.get("PESO") is not None else row.get("peso", 0)),
+            "VOLUME": 0 if is_ritorno else (row.get("VOLUME") if row.get("VOLUME") is not None else row.get("volume", 0)),
+            "COLLI": 0 if is_ritorno else (row.get("COLLI") if row.get("COLLI") is not None else row.get("colli", 0)),
         })
     pd.DataFrame(csv_rows, columns=cols_order).to_csv(csv_path, index=False)
 
