@@ -650,18 +650,30 @@ def generate_bolle_from_forecast(
         raise ValueError(f"Run {run_id} non trovata.")
 
     run_date = str(df_run.iloc[0]["run_date"])[:10]
+    cycle_type = str(df_run.iloc[0].get("cycle_type", "LUN-MER")).strip().upper()
     try:
         dt_base = datetime.strptime(run_date, "%Y-%m-%d")
     except:
         dt_base = datetime.now()
 
+    # Lunedì della settimana della run
+    monday = dt_base - timedelta(days=dt_base.weekday())
+
+    # Logica Date Operative Zara / Inditex:
+    # - Ciclo LUN-MER: Consegna /0 = Mercoledì, Consegna /9 = Giovedì
+    # - Ciclo GIOV-DOM: Consegna /0 = Sabato, Consegna /9 = Domenica
+    is_midweek = ("LUN" in cycle_type or dt_base.weekday() <= 2)
+    default_std_dt = monday + timedelta(days=2 if is_midweek else 5)
+    default_dop_dt = monday + timedelta(days=3 if is_midweek else 6)
+
     if not delivery_date:
-        deliv_date_std = (dt_base + timedelta(days=1)).strftime("%Y-%m-%d")
-        deliv_date_dop = (dt_base + timedelta(days=2)).strftime("%Y-%m-%d")
+        deliv_date_std = default_std_dt.strftime("%Y-%m-%d")
+        deliv_date_dop = default_dop_dt.strftime("%Y-%m-%d")
     else:
         deliv_date_std = delivery_date
         try:
             dt_given = datetime.strptime(delivery_date, "%Y-%m-%d")
+            # La seconda uscita /9 è sempre il giorno successivo (/0 Mercoledì -> /9 Giovedì; /0 Sabato -> /9 Domenica)
             deliv_date_dop = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")
         except:
             deliv_date_dop = delivery_date

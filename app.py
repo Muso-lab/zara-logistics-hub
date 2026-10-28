@@ -229,6 +229,54 @@ st.markdown("""
         display: none;
     }
     @media (max-width: 900px) {
+        /* Mobile layout: padding and touch scaling */
+        [data-testid="stAppViewContainer"] > .main {
+            padding-left: 0.6rem !important;
+            padding-right: 0.6rem !important;
+            padding-bottom: 110px !important;
+        }
+
+        /* Large touch-friendly typography for warehouse use */
+        p, span, label, div {
+            font-size: 15px;
+        }
+        .main-header {
+            font-size: 21px !important;
+        }
+        .sub-header {
+            font-size: 13px !important;
+        }
+
+        /* High-visibility touch buttons */
+        .stButton > button {
+            min-height: 52px !important;
+            font-size: 16px !important;
+            font-weight: 800 !important;
+            border-radius: 10px !important;
+            padding: 12px 18px !important;
+            letter-spacing: 0.3px !important;
+        }
+
+        /* Number Inputs: large, bold, centered numerals for carton counts */
+        input[type="number"], input[type="text"], [data-baseweb="input"] input {
+            min-height: 50px !important;
+            font-size: 20px !important;
+            font-weight: 800 !important;
+            border-radius: 8px !important;
+            text-align: center !important;
+        }
+
+        [data-testid="stNumberInput"] button {
+            min-width: 48px !important;
+            min-height: 48px !important;
+            font-size: 22px !important;
+        }
+
+        [data-baseweb="select"] {
+            min-height: 50px !important;
+            font-size: 15.5px !important;
+        }
+
         .mobile-bottom-nav {
             display: block !important;
             position: fixed !important;
@@ -237,25 +285,15 @@ st.markdown("""
             right: 0 !important;
             background: #FFFFFF !important;
             border-top: 2px solid #CBD5E1 !important;
-            box-shadow: 0 -4px 18px rgba(15, 23, 42, 0.15) !important;
-            padding: 8px 10px 14px 10px !important;
+            box-shadow: 0 -4px 20px rgba(15, 23, 42, 0.16) !important;
+            padding: 8px 6px 12px 6px !important;
             z-index: 999999 !important;
         }
-        [data-testid="stAppViewContainer"] > .main {
-            padding-bottom: 95px !important;
-        }
-        .mobile-top-bar {
-            display: flex !important;
-            gap: 6px !important;
-            margin-bottom: 14px !important;
-            overflow-x: auto !important;
-            padding-bottom: 4px !important;
-        }
-        .mobile-top-bar button {
-            white-space: nowrap !important;
-            font-size: 13px !important;
-            font-weight: 700 !important;
-            padding: 8px 14px !important;
+        .mobile-bottom-nav button {
+            min-height: 48px !important;
+            font-size: 13.5px !important;
+            font-weight: 800 !important;
+            padding: 6px 4px !important;
             border-radius: 8px !important;
         }
     }
@@ -765,6 +803,38 @@ with c_head_user:
                 st.session_state.pop(k, None)
             st.query_params.clear()
             st.rerun()
+
+# Gestione automatica Scroll-to-Top dopo salvataggio o passaggio a prossimo negozio
+if st.session_state.pop("_scroll_to_top", False):
+    st.markdown("""
+    <script>
+        try {
+            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+            if (window.parent) {
+                window.parent.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+                const doc = window.parent.document;
+                const c1 = doc.querySelector('.main');
+                const c2 = doc.querySelector('[data-testid="stAppViewContainer"]');
+                const c3 = doc.documentElement;
+                if (c1) c1.scrollTop = 0;
+                if (c2) c2.scrollTop = 0;
+                if (c3) c3.scrollTop = 0;
+            }
+        } catch(e) {}
+    </script>
+    """, unsafe_allow_html=True)
+    st.components.v1.html("""
+    <script>
+        try {
+            window.parent.scrollTo(0, 0);
+            const doc = window.parent.document;
+            const c1 = doc.querySelector('.main');
+            const c2 = doc.querySelector('[data-testid="stAppViewContainer"]');
+            if (c1) c1.scrollTop = 0;
+            if (c2) c2.scrollTop = 0;
+        } catch(e) {}
+    </script>
+    """, height=0, width=0)
 
 # ==============================================================================
 # STRISCIA STATISTICHE PIATTAFORMA
@@ -1574,11 +1644,34 @@ elif "Bolle di Consegna" in menu:
                         for _, r in runs_side.head(20).iterrows()
                     }
                     sel_gen_run = st.selectbox("Previsione (Run)", list(run_opts.keys()), format_func=lambda x: run_opts[x], key="pop_gen_run")
-                    sel_gen_dt = st.date_input("Data Consegna Bolle", value=date.today() + timedelta(days=1), format="DD/MM/YYYY", key="pop_gen_dt")
+                    
+                    # Calcolo automatico della data di consegna operativa Inditex:
+                    # LUN-MER -> Consegna /0 Mercoledì, /9 Giovedì
+                    # GIOV-DOM -> Consegna /0 Sabato, /9 Domenica
+                    r_sel_row = runs_side[runs_side["id"] == sel_gen_run]
+                    if not r_sel_row.empty:
+                        r_cyc = str(r_sel_row.iloc[0].get("cycle_type", "LUN-MER")).upper()
+                        r_dt_raw = str(r_sel_row.iloc[0].get("run_date", ""))[:10]
+                        try:
+                            r_dt_obj = datetime.strptime(r_dt_raw, "%Y-%m-%d").date()
+                        except:
+                            r_dt_obj = date.today()
+                        mon_d = r_dt_obj - timedelta(days=r_dt_obj.weekday())
+                        is_mid = ("LUN" in r_cyc or r_dt_obj.weekday() <= 2)
+                        def_date_std = mon_d + timedelta(days=2 if is_mid else 5)
+                        def_lbl_info = "Mercoledì (/0 STD) e Giovedì (/9 DOPPIA)" if is_mid else "Sabato (/0 STD) e Domenica (/9 DOPPIA)"
+                    else:
+                        def_date_std = date.today() + timedelta(days=1)
+                        def_lbl_info = "Mercoledì (/0 STD) e Giovedì (/9 DOPPIA)"
+
+                    sel_gen_dt = st.date_input("Data Consegna Bolle (/0 STD)", value=def_date_std, format="DD/MM/YYYY", key=f"pop_gen_dt_{sel_gen_run}")
+                    st.caption(f"🗓️ Date operative calcolate: **{def_lbl_info}**")
                     ovw_gen = st.checkbox("Sovrascrivi bolle esistenti della data", value=False, key="pop_gen_ovw")
                     if st.button("🚀 Genera Tutte le Bolle Ora", type="primary", use_container_width=True, key="btn_exec_gen_bolle"):
                         c_cnt, s_cnt = generate_bolle_from_forecast(sel_gen_run, delivery_date=str(sel_gen_dt), overwrite=ovw_gen)
-                        st.session_state["flash_bolle_msg"] = f"🎉 Generate **{c_cnt}** bolle per il **{format_date_it(sel_gen_dt)}** ({s_cnt} già esistenti)."
+                        dop_dt_calc = sel_gen_dt + timedelta(days=1)
+                        st.session_state["flash_bolle_msg"] = f"🎉 Generate **{c_cnt}** bolle: /0 ({format_date_it(sel_gen_dt)}) e /9 ({format_date_it(dop_dt_calc)})!"
+                        st.session_state["_target_date_override"] = str(sel_gen_dt)
                         st.rerun()
 
     if has_perm("can_edit_bolle"):
@@ -1925,6 +2018,9 @@ elif "Bolle di Consegna" in menu:
                             st.session_state["_next_store_override"] = store_choices[curr_idx + 1]
                     except Exception:
                         pass
+                    st.session_state["_scroll_to_top"] = True
+                elif save_clicked:
+                    st.session_state["_scroll_to_top"] = True
                 act_word = "aggiornata" if existing_bolla else "salvata"
                 st.session_state["flash_bolle_msg"] = f"🎉 Bolla #{new_id} per Store **{current_sid}** {act_word} con successo!"
                 st.rerun()
@@ -2396,6 +2492,9 @@ elif "Spunta Banchina" in menu:
                             st.session_state["_next_spunta_bid"] = all_bids[curr_i + 1]
                     except Exception:
                         pass
+                    st.session_state["_scroll_to_top"] = True
+                elif btn_m_save:
+                    st.session_state["_scroll_to_top"] = True
 
                 st.session_state["flash_bolle_msg"] = f"🎉 Spunta registrata per Negozio **{curr_sid}** ({curr_sname})! Totale: **{m_tot_calc}** colli."
                 st.rerun()
