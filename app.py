@@ -121,7 +121,7 @@ st.set_page_config(
     page_title="Zara Logistics Hub",
     page_icon="🚚",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # PWA & Mobile Installation Manifest, Meta-Tags & Icons
@@ -206,6 +206,19 @@ st.markdown("""
         filter: grayscale(10%) blur(0.2px) !important;
         pointer-events: none !important;
         transition: opacity 0.15s ease-in-out !important;
+    }
+
+        /* Disabilita e nasconde completamente la sidebar nativa di Streamlit */
+    [data-testid="stSidebar"], [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+
+    /* Container a tutta larghezza confortevole ed elegante */
+    [data-testid="stAppViewContainer"] > .main {
+        max-width: 100% !important;
+        padding-top: 1rem !important;
+        padding-left: 1.5rem !important;
+        padding-right: 1.5rem !important;
     }
 
     /* Barra di Navigazione Mobile Touch (Pulsanti Chiari in Basso su Smartphone) */
@@ -669,7 +682,7 @@ USER_ROLE = st.session_state.get("auth_role", "magazzino")
 IS_ADMIN = USER_ROLE == "admin"
 
 # ==============================================================================
-# SIDEBAR: NAVIGAZIONE & STATO OPERATIVO ELEGANTE
+# NAVIGAZIONE & STATO OPERATIVO (BARRA PRINCIPALE SENZA SIDEBAR)
 # ==============================================================================
 role_info = get_role_info()
 r_color = role_info["badge_color"]
@@ -678,51 +691,11 @@ r_border = role_info["badge_border"]
 r_icon = role_info["icon"]
 r_label = st.session_state.get("auth_label", role_info["label"])
 
-st.sidebar.markdown(f"""
-<div class="sidebar-brand-card">
-    <div class="sidebar-brand-icon">🚚</div>
-    <div>
-        <div class="sidebar-brand-title">ZARA LOGISTICS</div>
-        <div class="sidebar-brand-subtitle">Hub Monterotondo (RM)</div>
-    </div>
-</div>
-
-<div class="sidebar-user-card">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-        <span style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase;">PROFILO ATTIVO</span>
-        <span class="role-badge" style="background: {r_bg}; color: {r_color}; border: 1px solid {r_border};">
-            {r_icon} {USER_ROLE.upper()}
-        </span>
-    </div>
-    <div style="font-size: 13px; font-weight: 700; color: #0F172A;">{r_label}</div>
-</div>
-""", unsafe_allow_html=True)
-
-if st.sidebar.button("🚪 Esci dalla Sessione", use_container_width=True, key="btn_logout_sidebar"):
-    for k in ["authenticated", "auth_user", "auth_role", "auth_label"]:
-        st.session_state.pop(k, None)
-    st.query_params.clear()
-    st.rerun()
-
 MENU_OPTIONS = role_info["menu_options"]
 
 # Gestione sincronizzata e robusta della navigazione
 if "active_nav" not in st.session_state or st.session_state["active_nav"] not in MENU_OPTIONS:
     st.session_state["active_nav"] = MENU_OPTIONS[0]
-
-def _sync_from_radio():
-    st.session_state["active_nav"] = st.session_state["sidebar_nav_radio"]
-    st.session_state["nav_menu"] = st.session_state["sidebar_nav_radio"]
-
-if "sidebar_nav_radio" not in st.session_state or st.session_state["sidebar_nav_radio"] != st.session_state["active_nav"]:
-    st.session_state["sidebar_nav_radio"] = st.session_state["active_nav"]
-
-st.sidebar.radio(
-    "Flusso Operativo",
-    MENU_OPTIONS,
-    key="sidebar_nav_radio",
-    on_change=_sync_from_radio,
-)
 
 menu = st.session_state["active_nav"]
 st.session_state["nav_menu"] = menu
@@ -756,36 +729,13 @@ except Exception:
 
 last_run_disp = f"#{int(runs_side.iloc[0]['id'])}" if not runs_side.empty else "—"
 
-st.sidebar.markdown(f"""
-<div class="sidebar-metrics-card">
-    <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-bottom: 8px;">📊 Stato Piattaforma</div>
-    <div class="sidebar-metric-grid">
-        <div class="sidebar-metric-box">
-            <div class="metric-val">{active_stores_cnt}</div>
-            <div class="metric-lbl">Negozi Attivi</div>
-        </div>
-        <div class="sidebar-metric-box">
-            <div class="metric-val">{sdopp_stores_cnt}</div>
-            <div class="metric-lbl">Sdopp. /9</div>
-        </div>
-        <div class="sidebar-metric-box">
-            <div class="metric-val">{last_run_disp}</div>
-            <div class="metric-lbl">Ultima Run</div>
-        </div>
-        <div class="sidebar-metric-box">
-            <div class="metric-val">{format_number_it(total_bolle_db, 0)}</div>
-            <div class="metric-lbl">Bolle DB</div>
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
 # ==============================================================================
-# TESTATA PRINCIPALE VISIBILE (DESKTOP & SMARTPHONE) & STATISTICHE PIATTAFORMA
+# TESTATA PRINCIPALE VISIBILE & CONTROLLI ACCOUNT (DESKTOP & SMARTPHONE)
 # ==============================================================================
-st.markdown(f"""
-<div style="background: linear-gradient(135deg, #1E3A8A 0%, #0F172A 100%); padding: 18px 22px; border-radius: 12px; margin-bottom: 14px; color: white; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);">
-    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+c_head_info, c_head_user = st.columns([3.2, 1.3])
+with c_head_info:
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, #1E3A8A 0%, #0F172A 100%); padding: 14px 20px; border-radius: 12px; color: white; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12); margin-bottom: 12px;">
         <div style="display: flex; align-items: center; gap: 12px;">
             <div style="font-size: 32px; line-height: 1;">🚚</div>
             <div>
@@ -793,15 +743,34 @@ st.markdown(f"""
                 <div style="font-size: 12px; font-weight: 500; color: #93C5FD; margin-top: 2px;">Hub Monterotondo (RM) • Spedizioni, Previsioni & Bolle Inditex</div>
             </div>
         </div>
-        <div>
-            <span class="role-badge" style="background: {r_bg}; color: {r_color}; border: 1.5px solid {r_border}; font-size: 11.5px; padding: 4px 12px;">
+    </div>
+    """, unsafe_allow_html=True)
+
+with c_head_user:
+    col_u_badge, col_u_out = st.columns([1.5, 1.1])
+    with col_u_badge:
+        st.markdown(f"""
+        <div style="padding-top: 4px;">
+            <span class="role-badge" style="background: {r_bg}; color: {r_color}; border: 1.5px solid {r_border}; font-size: 11px; padding: 3px 8px;">
                 {r_icon} {r_label}
             </span>
+            <div style="font-size: 11px; font-weight: 700; color: #059669; margin-top: 4px;">
+                {"🟢 Cloud Attivo" if get_cloud_url() else "⚪ Database Locale"}
+            </div>
         </div>
-    </div>
-</div>
+        """, unsafe_allow_html=True)
+    with col_u_out:
+        if st.button("🚪 Esci", key="btn_logout_top", use_container_width=True, help="Termina la sessione di lavoro"):
+            for k in ["authenticated", "auth_user", "auth_role", "auth_label", "active_nav", "nav_menu"]:
+                st.session_state.pop(k, None)
+            st.query_params.clear()
+            st.rerun()
 
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px;">
+# ==============================================================================
+# STRISCIA STATISTICHE PIATTAFORMA
+# ==============================================================================
+st.markdown(f"""
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px;">
     <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
         <div style="font-size: 20px; font-weight: 800; color: #1E3A8A;">{active_stores_cnt}</div>
         <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Negozi Attivi</div>
@@ -821,41 +790,21 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Barra Tasti Rapidi Touch Sotto la Testata
-st.markdown('<div class="mobile-top-bar">', unsafe_allow_html=True)
-mob_nav_cols = st.columns(len(MENU_OPTIONS))
+# ==============================================================================
+# BARRA DI NAVIGAZIONE SUPERIORE (DESKTOP, TABLET & MOBILE)
+# ==============================================================================
+st.markdown('<div class="hub-nav-bar">', unsafe_allow_html=True)
+nav_cols = st.columns(len(MENU_OPTIONS))
 for m_idx, m_opt in enumerate(MENU_OPTIONS):
     m_short = m_opt.split(". ")[-1] if ". " in m_opt else m_opt
     m_icon = m_opt.split(" ")[0] if " " in m_opt else "📌"
     m_is_act = (menu == m_opt)
-    with mob_nav_cols[m_idx]:
-        if st.button(f"{m_icon} {m_short}", key=f"mob_nav_top_{m_idx}", type="primary" if m_is_act else "secondary", use_container_width=True):
+    with nav_cols[m_idx]:
+        if st.button(f"{m_icon} {m_short}", key=f"nav_top_btn_{m_idx}", type="primary" if m_is_act else "secondary", use_container_width=True):
             st.session_state["active_nav"] = m_opt
-            st.session_state["sidebar_nav_radio"] = m_opt
             st.session_state["nav_menu"] = m_opt
             st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)
-
-if get_cloud_url():
-    st.sidebar.markdown("""
-    <div class="sidebar-cloud-card">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-            <span style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase;">CLOUD SYNC</span>
-            <span style="font-size: 11px; font-weight: 800; color: #059669;">🟢 CONNESSO</span>
-        </div>
-        <div style="font-size: 11px; color: #64748B;">Replica Google Sheets attiva.</div>
-    </div>
-    """, unsafe_allow_html=True)
-    if is_ufficio():
-        if st.sidebar.button("🔄 Sincronizza Cloud Ora", use_container_width=True, key="side_btn_pull_cloud", help="Ripristina tutte le run e le bolle salvate sul Foglio Google"):
-            with st.spinner("Sincronizzazione in corso da Google Sheets..."):
-                r_p = pull_all_from_cloud()
-                if r_p.get("status") == "ok":
-                    st.session_state.pop("last_run", None)
-                    st.session_state.pop("active_view_run_id", None)
-                    st.rerun()
-else:
-    st.sidebar.caption("☁️ Google Sheets Sync: *Non configurato*")
 
 
 def render_operativa_files_and_email_section(
@@ -3036,7 +2985,7 @@ elif "Anagrafica Negozi" in menu:
 
 # PAGE 5: STORICO, CANCELLAZIONE MASSIVA & BACKUP CLOUD
 # ==============================================================================
-elif menu.startswith("🗄️ 5.") or menu.startswith("⚙️ 5."):
+elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
     st.markdown('<div class="main-header">⚙️ Impostazioni, Invio Email, Cloud & Backup</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Configurazione server SMTP per invio email operative, sincronizzazione Google Sheets, archivio storico e backup database.</div>', unsafe_allow_html=True)
 
@@ -3406,7 +3355,6 @@ for mb_idx, mb_opt in enumerate(MENU_OPTIONS):
     with mob_bot_cols[mb_idx]:
         if st.button(f"{mb_icon} {mb_short}", key=f"mob_fixed_bot_{mb_idx}", type="primary" if mb_is_act else "secondary", use_container_width=True):
             st.session_state["active_nav"] = mb_opt
-            st.session_state["sidebar_nav_radio"] = mb_opt
             st.session_state["nav_menu"] = mb_opt
             st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)
