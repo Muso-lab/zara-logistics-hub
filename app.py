@@ -124,6 +124,60 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# PWA & Mobile Installation Manifest, Meta-Tags & Icons
+st.markdown("""
+<head>
+    <meta name="application-name" content="Zara Logistics Hub">
+    <meta name="apple-mobile-web-app-title" content="Zara Logistics">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#1E3A8A">
+    <link rel="manifest" href="/app/static/manifest.json">
+    <link rel="apple-touch-icon" href="/app/static/icon-192.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/app/static/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/app/static/icon-512.png">
+</head>
+<script>
+    try {
+        const topDoc = (window.parent && window.parent.document) ? window.parent.document : document;
+        topDoc.title = "Zara Logistics Hub";
+        
+        let linkManifest = topDoc.querySelector('link[rel="manifest"]');
+        if (!linkManifest) {
+            linkManifest = topDoc.createElement('link');
+            linkManifest.rel = 'manifest';
+            linkManifest.href = '/app/static/manifest.json';
+            topDoc.head.appendChild(linkManifest);
+        }
+        
+        let appleTitle = topDoc.querySelector('meta[name="apple-mobile-web-app-title"]');
+        if (!appleTitle) {
+            appleTitle = topDoc.createElement('meta');
+            appleTitle.name = 'apple-mobile-web-app-title';
+            appleTitle.content = 'Zara Logistics';
+            topDoc.head.appendChild(appleTitle);
+        }
+
+        let appName = topDoc.querySelector('meta[name="application-name"]');
+        if (!appName) {
+            appName = topDoc.createElement('meta');
+            appName.name = 'application-name';
+            appName.content = 'Zara Logistics';
+            topDoc.head.appendChild(appName);
+        }
+
+        let appleIcon = topDoc.querySelector('link[rel="apple-touch-icon"]');
+        if (!appleIcon) {
+            appleIcon = topDoc.createElement('link');
+            appleIcon.rel = 'apple-touch-icon';
+            appleIcon.href = '/app/static/icon-192.png';
+            topDoc.head.appendChild(appleIcon);
+        }
+    } catch(e) {}
+</script>
+""", unsafe_allow_html=True)
+
 st.markdown("""
 <style>
     

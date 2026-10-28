@@ -1,0 +1,25 @@
+{
+  "name": "Zara Logistics Hub",
+  "short_name": "Zara Logistics",
+  "description": "Hub Monterotondo (RM) - Gestione Spedizioni, Previsioni e Bolle Inditex",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#FFFFFF",
+  "theme_color": "#1E3A8A",
+  "icons": [
+    {
+      "src": "/app/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

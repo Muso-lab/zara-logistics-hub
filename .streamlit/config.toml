@@ -5,6 +5,7 @@ showErrorDetails = true
 headless = true
 enableCORS = false
 enableXsrfProtection = true
+enableStaticServing = true
 
 [theme]
 base = "light"
