@@ -160,6 +160,66 @@ st.markdown("""
         margin-bottom: 16px;
     }
 
+    
+    /* =========================================================================
+       FORCE GLOBAL LIGHT MODE & BRANDED CORPORATE PALETTE
+       ========================================================================= */
+    :root {
+        color-scheme: light !important;
+    }
+    html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+        background-color: #FFFFFF !important;
+        color: #0F172A !important;
+        color-scheme: light !important;
+    }
+    [data-testid="stAppViewContainer"] > .main {
+        background-color: #FFFFFF !important;
+        color: #0F172A !important;
+    }
+
+    /* Force all form inputs to readable light mode */
+    input, select, textarea, [data-baseweb="input"], [data-baseweb="select"] {
+        color: #0F172A !important;
+        background-color: #FFFFFF !important;
+        -webkit-text-fill-color: #0F172A !important;
+    }
+
+    /* Radio navigation labels in sidebar - crystal clear high contrast */
+    [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {
+        color: #64748B !important;
+        font-weight: 700 !important;
+        font-size: 11px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        margin-bottom: 6px !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] label {
+        background-color: #FFFFFF !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 8px !important;
+        padding: 6px 10px !important;
+        margin-bottom: 6px !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.02) !important;
+        display: flex !important;
+        align-items: center !important;
+        transition: all 0.15s ease !important;
+        width: 100% !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] label:hover {
+        background-color: #F1F5F9 !important;
+        border-color: #CBD5E1 !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] label p {
+        color: #0F172A !important;
+        font-size: 13.5px !important;
+        font-weight: 700 !important;
+        line-height: 1.3 !important;
+        margin: 0 !important;
+    }
+    [data-testid="stSidebar"] div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] {
+        width: 100% !important;
+    }
+
     /* Executive Sidebar Styling */
     [data-testid="stSidebar"] {
         background-color: #F8FAFC !important;
