@@ -350,6 +350,19 @@ def get_bolle(
     query.append("ORDER BY data_consegna DESC, id_store ASC, tipo_cons ASC")
     df = pd.read_sql(" ".join(query), conn, params=params)
     conn.close()
+    if not df.empty:
+        colli_cols = [c for c in ["colli_abbigl", "colli_calzat", "colli_ecom", "colli_others", "colli_vario", "colli_cont", "colli_mat_vario"] if c in df.columns]
+        df["TOT_COLLI"] = df[colli_cols].fillna(0).sum(axis=1) if colli_cols else 0.0
+        if "prev_totale" not in df.columns:
+            df["prev_totale"] = 0.0
+        if "spuntato" not in df.columns:
+            df["spuntato"] = 0
+    else:
+        df["TOT_COLLI"] = pd.Series(dtype=float)
+        if "prev_totale" not in df.columns:
+            df["prev_totale"] = pd.Series(dtype=float)
+        if "spuntato" not in df.columns:
+            df["spuntato"] = pd.Series(dtype=int)
     return df
 
 
@@ -361,7 +374,10 @@ def get_bolla_by_id(bolla_id: int, db_path: Path = DB_PATH) -> Optional[Dict[str
     row = cur.fetchone()
     conn.close()
     if row:
-        return dict(row)
+        d = dict(row)
+        colli_cols = ["colli_abbigl", "colli_calzat", "colli_ecom", "colli_others", "colli_vario", "colli_cont", "colli_mat_vario"]
+        d["TOT_COLLI"] = sum(float(d.get(c, 0) or 0) for c in colli_cols)
+        return d
     return None
 
 

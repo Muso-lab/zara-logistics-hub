@@ -73,6 +73,9 @@ def test_bolle_crud():
     df = get_bolle(data=test_date, id_store="9999")
     assert len(df) == 1
     assert df.iloc[0]["autista"] == "MARIO ROSSI"
+    assert "TOT_COLLI" in df.columns
+    assert df.iloc[0]["TOT_COLLI"] == 187.0
+    assert b_ret_up["TOT_COLLI"] == 187.0
 
     # 5. Actuals for planner
     df_act = get_actuals_for_planner(test_date)

@@ -2105,19 +2105,27 @@ elif "Spunta Banchina" in menu:
         # Quadratura Telemetrica Live Barra 0 vs Barra 9 (Previsione vs Spunta)
         df_b_quad = get_bolle(data_consegna=sel_spunta_dt)
         if not df_b_quad.empty:
+            if "TOT_COLLI" not in df_b_quad.columns:
+                colli_cols = [c for c in ["colli_abbigl", "colli_calzat", "colli_ecom", "colli_others", "colli_vario", "colli_cont", "colli_mat_vario"] if c in df_b_quad.columns]
+                df_b_quad["TOT_COLLI"] = df_b_quad[colli_cols].fillna(0).sum(axis=1) if colli_cols else 0.0
+            if "prev_totale" not in df_b_quad.columns:
+                df_b_quad["prev_totale"] = 0.0
+            if "spuntato" not in df_b_quad.columns:
+                df_b_quad["spuntato"] = 0
+
             b0_sub = df_b_quad[df_b_quad["tipo_cons"] == "STD"]
             b9_sub = df_b_quad[df_b_quad["tipo_cons"] == "DOPPIA"]
 
-            b0_eff = int(round(float(b0_sub["TOT_COLLI"].sum()))) if not b0_sub.empty else 0
-            b0_prev = int(round(float(b0_sub["prev_totale"].sum()))) if not b0_sub.empty else 0
+            b0_eff = int(round(float(b0_sub["TOT_COLLI"].sum()))) if (not b0_sub.empty and "TOT_COLLI" in b0_sub.columns) else 0
+            b0_prev = int(round(float(b0_sub["prev_totale"].sum()))) if (not b0_sub.empty and "prev_totale" in b0_sub.columns) else 0
             b0_delta = b0_eff - b0_prev
-            b0_sp_ok = int((b0_sub["spuntato"].fillna(0) == 1).sum()) if not b0_sub.empty else 0
+            b0_sp_ok = int((b0_sub["spuntato"].fillna(0) == 1).sum()) if (not b0_sub.empty and "spuntato" in b0_sub.columns) else 0
             b0_n_tot = len(b0_sub)
 
-            b9_eff = int(round(float(b9_sub["TOT_COLLI"].sum()))) if not b9_sub.empty else 0
-            b9_prev = int(round(float(b9_sub["prev_totale"].sum()))) if not b9_sub.empty else 0
+            b9_eff = int(round(float(b9_sub["TOT_COLLI"].sum()))) if (not b9_sub.empty and "TOT_COLLI" in b9_sub.columns) else 0
+            b9_prev = int(round(float(b9_sub["prev_totale"].sum()))) if (not b9_sub.empty and "prev_totale" in b9_sub.columns) else 0
             b9_delta = b9_eff - b9_prev
-            b9_sp_ok = int((b9_sub["spuntato"].fillna(0) == 1).sum()) if not b9_sub.empty else 0
+            b9_sp_ok = int((b9_sub["spuntato"].fillna(0) == 1).sum()) if (not b9_sub.empty and "spuntato" in b9_sub.columns) else 0
             b9_n_tot = len(b9_sub)
 
             t_eff = b0_eff + b9_eff
