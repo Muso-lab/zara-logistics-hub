@@ -174,6 +174,14 @@ st.markdown("""
             appleIcon.href = '/app/static/icon-192.png';
             topDoc.head.appendChild(appleIcon);
         }
+
+        // Register Service Worker for genuine PWA Installability on Mobile & Desktop Chrome
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/app/static/sw.js', { scope: '/' }).catch(() => {});
+        }
+        if (window.parent && 'serviceWorker' in window.parent.navigator) {
+            window.parent.navigator.serviceWorker.register('/app/static/sw.js', { scope: '/' }).catch(() => {});
+        }
     } catch(e) {}
 </script>
 """, unsafe_allow_html=True)
@@ -697,29 +705,27 @@ if st.sidebar.button("🚪 Esci dalla Sessione", use_container_width=True, key="
     st.rerun()
 
 MENU_OPTIONS = role_info["menu_options"]
-if st.session_state.get("nav_menu") not in MENU_OPTIONS:
-    st.session_state["nav_menu"] = MENU_OPTIONS[0]
 
-menu = st.sidebar.radio(
+# Gestione sincronizzata e robusta della navigazione
+if "active_nav" not in st.session_state or st.session_state["active_nav"] not in MENU_OPTIONS:
+    st.session_state["active_nav"] = MENU_OPTIONS[0]
+
+def _sync_from_radio():
+    st.session_state["active_nav"] = st.session_state["sidebar_nav_radio"]
+    st.session_state["nav_menu"] = st.session_state["sidebar_nav_radio"]
+
+if "sidebar_nav_radio" not in st.session_state or st.session_state["sidebar_nav_radio"] != st.session_state["active_nav"]:
+    st.session_state["sidebar_nav_radio"] = st.session_state["active_nav"]
+
+st.sidebar.radio(
     "Flusso Operativo",
     MENU_OPTIONS,
-    index=MENU_OPTIONS.index(st.session_state["nav_menu"]),
     key="sidebar_nav_radio",
+    on_change=_sync_from_radio,
 )
-st.session_state["nav_menu"] = menu
 
-# Barra Tasti Rapidi Touch per Mobile (Alternativa al menu laterale su smartphone)
-st.markdown('<div class="mobile-top-bar">', unsafe_allow_html=True)
-mob_nav_cols = st.columns(len(MENU_OPTIONS))
-for m_idx, m_opt in enumerate(MENU_OPTIONS):
-    m_short = m_opt.split(". ")[-1] if ". " in m_opt else m_opt
-    m_icon = m_opt.split(" ")[0] if " " in m_opt else "📌"
-    m_is_act = (menu == m_opt)
-    with mob_nav_cols[m_idx]:
-        if st.button(f"{m_icon} {m_short}", key=f"mob_nav_btn_{m_idx}", type="primary" if m_is_act else "secondary", use_container_width=True):
-            st.session_state["nav_menu"] = m_opt
-            st.rerun()
-st.markdown('</div>', unsafe_allow_html=True)
+menu = st.session_state["active_nav"]
+st.session_state["nav_menu"] = menu
 
 df_stores_side = get_stores_df()
 runs_side = get_all_runs()
@@ -773,6 +779,62 @@ st.sidebar.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+# ==============================================================================
+# TESTATA PRINCIPALE VISIBILE (DESKTOP & SMARTPHONE) & STATISTICHE PIATTAFORMA
+# ==============================================================================
+st.markdown(f"""
+<div style="background: linear-gradient(135deg, #1E3A8A 0%, #0F172A 100%); padding: 18px 22px; border-radius: 12px; margin-bottom: 14px; color: white; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="font-size: 32px; line-height: 1;">🚚</div>
+            <div>
+                <div style="font-size: 20px; font-weight: 800; letter-spacing: 0.5px; color: #FFFFFF;">ZARA LOGISTICS HUB</div>
+                <div style="font-size: 12px; font-weight: 500; color: #93C5FD; margin-top: 2px;">Hub Monterotondo (RM) • Spedizioni, Previsioni & Bolle Inditex</div>
+            </div>
+        </div>
+        <div>
+            <span class="role-badge" style="background: {r_bg}; color: {r_color}; border: 1.5px solid {r_border}; font-size: 11.5px; padding: 4px 12px;">
+                {r_icon} {r_label}
+            </span>
+        </div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px;">
+    <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+        <div style="font-size: 20px; font-weight: 800; color: #1E3A8A;">{active_stores_cnt}</div>
+        <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Negozi Attivi</div>
+    </div>
+    <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+        <div style="font-size: 20px; font-weight: 800; color: #B45309;">{sdopp_stores_cnt}</div>
+        <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Sdoppiamento /9</div>
+    </div>
+    <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+        <div style="font-size: 20px; font-weight: 800; color: #0369A1;">{last_run_disp}</div>
+        <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Ultima Run</div>
+    </div>
+    <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+        <div style="font-size: 20px; font-weight: 800; color: #059669;">{format_number_it(total_bolle_db, 0)}</div>
+        <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; margin-top: 2px;">Bolle a Database</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Barra Tasti Rapidi Touch Sotto la Testata
+st.markdown('<div class="mobile-top-bar">', unsafe_allow_html=True)
+mob_nav_cols = st.columns(len(MENU_OPTIONS))
+for m_idx, m_opt in enumerate(MENU_OPTIONS):
+    m_short = m_opt.split(". ")[-1] if ". " in m_opt else m_opt
+    m_icon = m_opt.split(" ")[0] if " " in m_opt else "📌"
+    m_is_act = (menu == m_opt)
+    with mob_nav_cols[m_idx]:
+        if st.button(f"{m_icon} {m_short}", key=f"mob_nav_top_{m_idx}", type="primary" if m_is_act else "secondary", use_container_width=True):
+            st.session_state["active_nav"] = m_opt
+            st.session_state["sidebar_nav_radio"] = m_opt
+            st.session_state["nav_menu"] = m_opt
+            st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
 if get_cloud_url():
     st.sidebar.markdown("""
@@ -3340,9 +3402,11 @@ mob_bot_cols = st.columns(len(MENU_OPTIONS))
 for mb_idx, mb_opt in enumerate(MENU_OPTIONS):
     mb_short = mb_opt.split(". ")[-1] if ". " in mb_opt else mb_opt
     mb_icon = mb_opt.split(" ")[0] if " " in mb_opt else "📌"
-    mb_is_act = (st.session_state.get("nav_menu") == mb_opt)
+    mb_is_act = (st.session_state.get("active_nav") == mb_opt)
     with mob_bot_cols[mb_idx]:
         if st.button(f"{mb_icon} {mb_short}", key=f"mob_fixed_bot_{mb_idx}", type="primary" if mb_is_act else "secondary", use_container_width=True):
+            st.session_state["active_nav"] = mb_opt
+            st.session_state["sidebar_nav_radio"] = mb_opt
             st.session_state["nav_menu"] = mb_opt
             st.rerun()
 st.markdown('</div>', unsafe_allow_html=True)
