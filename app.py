@@ -3177,6 +3177,7 @@ elif "Consuntivo & Planner" in menu:
             c_m4.metric("Anomalie Delta Positivo", f"{pos_deltas}", delta="OK (0 anomalie)" if pos_deltas == 0 else "Verificare", delta_color="normal" if pos_deltas == 0 else "inverse")
 
             # Esportazione immediata del file ufficiale Planning ITX_RM.xlsx
+            sel_plan_date = display_plan_date
             out_planner_path = OUTPUT_DIR / f"Planning_ITX_RM_{display_plan_date}.xlsx"
             export_planner_roma(
                 df_planner=df_planner_real,
