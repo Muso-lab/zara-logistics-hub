@@ -55,6 +55,22 @@ PROVINCIE_ITALIANE = {
 }
 
 
+_last_id_flusso_val: int = 0
+
+
+def generate_unique_id_flusso() -> str:
+    """
+    Genera un IdFlusso numerico sempre diverso (formato AAAAMMGGOOMMSS, es. dataminutisecondi).
+    Se chiamato più volte nello stesso secondo, garantisce l'unicità incrementando progressivamente il valore numerico.
+    """
+    global _last_id_flusso_val
+    now_int = int(datetime.now().strftime("%Y%m%d%H%M%S"))
+    if now_int <= _last_id_flusso_val:
+        now_int = _last_id_flusso_val + 1
+    _last_id_flusso_val = now_int
+    return str(now_int)
+
+
 def parse_store_address(raw_addr: Any, raw_prov: Any) -> Dict[str, str]:
     """
     Estrae Indirizzo, CAP, Localita e Provincia partendo dai campi liberi presenti nel database stores.
@@ -167,7 +183,7 @@ def build_tms_order_xml(
         anno = deliv_dt_str[:4]
 
     if not id_flusso:
-        id_flusso = f"{dt_compact}120000"
+        id_flusso = generate_unique_id_flusso()
 
     giro_clean = str(giro).strip().upper()
     ref_base = f"{giro_clean}-{stop_sequence}"
@@ -177,9 +193,9 @@ def build_tms_order_xml(
 
     if not elemento_id:
         if is_ritiro:
-            elemento_id = f"{dt_compact}{cod_sga:06d}R"
+            elemento_id = f"{id_flusso}R"
         else:
-            elemento_id = f"{dt_compact}{cod_sga:06d}"
+            elemento_id = str(id_flusso)
 
     # Dati merce
     if is_ritiro:
@@ -480,6 +496,7 @@ def generate_tms_xml_files(
             peso = colli * 15.0  # Fallback peso collo medio
 
         # 1. FILE CONSEGNA
+        id_flusso_c = generate_unique_id_flusso()
         xml_consegna = build_tms_order_xml(
             delivery_date=deliv_date_str,
             store_info=st_info,
@@ -489,6 +506,8 @@ def generate_tms_xml_files(
             colli=colli,
             volume_mc=mc,
             is_ritiro=False,
+            id_flusso=id_flusso_c,
+            elemento_id=id_flusso_c,
         )
         fn_consegna = f"{deliv_date_str}_{giro}_{sid}_CONSEGNA.xml"
         path_consegna = output_dir / fn_consegna
@@ -499,6 +518,7 @@ def generate_tms_xml_files(
         generated_xml_files.append(path_consegna)
 
         # 2. FILE RITIRO
+        id_flusso_r = generate_unique_id_flusso()
         xml_ritiro = build_tms_order_xml(
             delivery_date=deliv_date_str,
             store_info=st_info,
@@ -508,6 +528,8 @@ def generate_tms_xml_files(
             colli=0,
             volume_mc=0.0,
             is_ritiro=True,
+            id_flusso=id_flusso_r,
+            elemento_id=f"{id_flusso_r}R",
         )
         fn_ritiro = f"{deliv_date_str}_{giro}_{sid}_RITIRO.xml"
         path_ritiro = output_dir / fn_ritiro
@@ -588,6 +610,7 @@ def create_tms_xml_zip_bytes(records: List[Dict[str, Any]], db_path: Union[str, 
                 peso = colli * 15.0
 
             # Consegna
+            id_flusso_c = generate_unique_id_flusso()
             xml_consegna = build_tms_order_xml(
                 delivery_date=deliv_date_str,
                 store_info=st_info,
@@ -597,6 +620,8 @@ def create_tms_xml_zip_bytes(records: List[Dict[str, Any]], db_path: Union[str, 
                 colli=colli,
                 volume_mc=mc,
                 is_ritiro=False,
+                id_flusso=id_flusso_c,
+                elemento_id=id_flusso_c,
             )
             arc_c = f"{deliv_date_str}_{giro}_{sid}_CONSEGNA.xml"
             if arc_c in zf.namelist():
@@ -604,6 +629,7 @@ def create_tms_xml_zip_bytes(records: List[Dict[str, Any]], db_path: Union[str, 
             zf.writestr(arc_c, xml_consegna.encode("utf-8"))
 
             # Ritiro
+            id_flusso_r = generate_unique_id_flusso()
             xml_ritiro = build_tms_order_xml(
                 delivery_date=deliv_date_str,
                 store_info=st_info,
@@ -613,6 +639,8 @@ def create_tms_xml_zip_bytes(records: List[Dict[str, Any]], db_path: Union[str, 
                 colli=0,
                 volume_mc=0.0,
                 is_ritiro=True,
+                id_flusso=id_flusso_r,
+                elemento_id=f"{id_flusso_r}R",
             )
             arc_r = f"{deliv_date_str}_{giro}_{sid}_RITIRO.xml"
             if arc_r in zf.namelist():

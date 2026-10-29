@@ -6,7 +6,7 @@ import sqlite3
 import json
 from pathlib import Path
 from datetime import datetime, date, timedelta
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Union
 import pandas as pd
 
 from src.config import DB_PATH, DATA_DIR

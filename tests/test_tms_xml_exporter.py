@@ -15,6 +15,7 @@ from src.tms_xml_exporter import (
     get_stores_lookup,
     generate_tms_xml_files,
     create_tms_xml_zip_bytes,
+    generate_unique_id_flusso,
     LACCHI_HUB,
 )
 
@@ -200,3 +201,29 @@ def test_create_tms_xml_zip_bytes():
         assert len(namelist) == 2
         assert any("16647_CONSEGNA.xml" in n for n in namelist)
         assert any("16647_RITIRO.xml" in n for n in namelist)
+
+
+def test_unique_numeric_id_flusso():
+    # Verify that consecutive calls return strictly increasing purely numeric strings
+    ids = [generate_unique_id_flusso() for _ in range(50)]
+    assert len(set(ids)) == 50
+    for uid in ids:
+        assert uid.isdigit()
+        assert len(uid) >= 14  # YYYYMMDDHHMMSS format
+
+    # Test that batch generation gives different IdFlusso to each XML file
+    records = [
+        {"store_id": "16647", "giro": "ZA1", "delivery_date": "2026-10-28", "colli": 10},
+        {"store_id": "16351", "giro": "ZA1", "delivery_date": "2026-10-28", "colli": 20},
+    ]
+    raw_zip = create_tms_xml_zip_bytes(records)
+    import io
+    with zipfile.ZipFile(io.BytesIO(raw_zip), "r") as zf:
+        id_flusso_values = []
+        for name in zf.namelist():
+            xml_content = zf.read(name).decode("utf-8")
+            root = ET.fromstring(xml_content)
+            id_f = root.find("IdFlusso").text
+            assert id_f.isdigit()
+            id_flusso_values.append(id_f)
+        assert len(set(id_flusso_values)) == 4  # 4 files, 4 distinct numeric IDs
