@@ -1052,7 +1052,32 @@ def render_operativa_files_and_email_section(
     st.markdown('<div class="modern-section-title">📦 Download Documenti Ufficiali & Spedizione Email</div>', unsafe_allow_html=True)
     st.caption("Scarica i documenti operativi ufficiali generati per questa spedizione (Sintesi Operativa, SGA Barra 0, SGA Barra 9, Spunta ZARA) oppure espandi la sezione email per la trasmissione:")
 
-    dl_cols = st.columns(5)
+    # Generazione / Verifica file XML TMS (TrasportoEntrataOrdini_1_00 per BeOne)
+    p_tms_zip = out_dir / f"TMS_XML_Ordini_{rid}_{r_date}.zip"
+    tms_xml_dir = out_dir / "tms_xml"
+    if not p_tms_zip.exists() or not tms_xml_dir.exists():
+        tms_records = []
+        for df_sga in [s0_df, s9_df]:
+            if df_sga is not None and not df_sga.empty:
+                for _, r_sga in df_sga.iterrows():
+                    f_tipo = str(r_sga.get("flusso_tipo", "")).upper()
+                    if f_tipo in ("", "ANDATA"):
+                        tms_records.append({
+                            "store_id": str(r_sga.get("store_code", "")),
+                            "giro": str(r_sga.get("GIRO", r_sga.get("giro", ""))),
+                            "delivery_date": str(r_sga.get("DATA_SCARICO", r_sga.get("data_scarico", ""))),
+                            "colli": int(round(float(r_sga.get("COLLI", r_sga.get("colli", 0))))),
+                            "volume_mc": float(r_sga.get("VOLUME", r_sga.get("volume", 0.0))),
+                            "peso_kg": float(r_sga.get("PESO", r_sga.get("peso", 0.0))),
+                        })
+        if tms_records:
+            try:
+                from src.tms_xml_exporter import generate_tms_xml_files
+                generate_tms_xml_files(tms_records, output_dir=tms_xml_dir, zip_filename=p_tms_zip.name)
+            except Exception as e:
+                pass
+
+    dl_cols = st.columns(6)
     with dl_cols[0]:
         if p_sintesi.exists():
             with open(p_sintesi, "rb") as f_s:
@@ -1104,6 +1129,20 @@ def render_operativa_files_and_email_section(
         else:
             st.button("📄 Spunta ZARA (N.D.)", disabled=True, use_container_width=True, key=f"dl_box_zara_nd_{key_prefix}_{rid}")
     with dl_cols[4]:
+        if p_tms_zip.exists():
+            with open(p_tms_zip, "rb") as f_tz:
+                st.download_button(
+                    "📦 XML TMS BeOne (.zip)",
+                    data=f_tz.read(),
+                    file_name=p_tms_zip.name,
+                    mime="application/zip",
+                    use_container_width=True,
+                    help="File XML standard TrasportoEntrataOrdini_1_00 per TMS BeOne / Nova Systems (2 file per negozio: Consegna con merci reali + Ritiro a 0 con suffisso 'R')",
+                    key=f"dl_box_tms_zip_{key_prefix}_{rid}"
+                )
+        else:
+            st.button("📦 XML TMS (N.D.)", disabled=True, use_container_width=True, key=f"dl_box_tms_nd_{key_prefix}_{rid}")
+    with dl_cols[5]:
         if p_zip.exists():
             with open(p_zip, "rb") as f_z:
                 st.download_button(
@@ -1114,6 +1153,38 @@ def render_operativa_files_and_email_section(
                     use_container_width=True,
                     key=f"dl_box_zip_{key_prefix}_{rid}"
                 )
+
+    # Dettaglio & Esplorazione File XML per TMS
+    with st.expander("📦 Standard XML per TMS (BeOne / Nova Systems) — Info & File Singoli", expanded=False):
+        st.markdown("""
+        **Specifiche Standard XML TrasportoEntrataOrdini_1_00**:
+        - **File di Consegna**: Carico = Hub Lacchi (Codice 1), Scarico = Negozio (Codice SGA). Merci con valori reali (KG, CL, MC).
+        - **File di Ritiro**: Carico = Negozio (Codice SGA), Scarico = Hub Lacchi (Codice 1). Merci impostate a 0 (0.000 KG, 0 CL, 0.000 MC). ID flusso, ElementoId e OrdineRiferimento con suffisso **`R`**.
+        """)
+        if tms_xml_dir.exists():
+            xml_list = sorted(list(tms_xml_dir.glob("*.xml")))
+            if xml_list:
+                st.caption(f"Totale file generati: **{len(xml_list)} file XML** ({len(xml_list)//2} consegne + {len(xml_list)//2} ritiri).")
+                sel_xml = st.selectbox("Seleziona un file XML da ispezionare o scaricare singolarmente:", [f.name for f in xml_list], key=f"sel_xml_single_{key_prefix}_{rid}")
+                if sel_xml:
+                    xml_target_path = tms_xml_dir / sel_xml
+                    if xml_target_path.exists():
+                        col_x1, col_x2 = st.columns([1.5, 3.5])
+                        with col_x1:
+                            with open(xml_target_path, "rb") as fx:
+                                st.download_button(
+                                    f"📥 Scarica {sel_xml}",
+                                    data=fx.read(),
+                                    file_name=sel_xml,
+                                    mime="application/xml",
+                                    use_container_width=True,
+                                    key=f"dl_btn_single_xml_{sel_xml}"
+                                )
+                        with col_x2:
+                            with st.popover("👁️ Anteprima Codice XML", use_container_width=True):
+                                st.code(xml_target_path.read_text(encoding="utf-8")[:3000], language="xml")
+            else:
+                st.info("Nessun file XML presente nella cartella tms_xml.")
 
     email_cfg = get_email_config()
     def_to = email_cfg.get("default_to", "operativa@trasporti.it, traffico@trasporti.it")
@@ -2441,8 +2512,8 @@ elif "Bolle di Consegna" in menu:
         with p_mode_c1:
             print_direct_mode = st.toggle("⚡ Stampa Diretta (invia subito alla stampante/dialogo browser saltando l'anteprima)", value=True, key="tog_b_print_dir")
 
-        # Barra Pulsanti Stampa & Export
-        b_act1, b_act2, b_act3, b_act4, b_act5, b_act6 = st.columns([1.3, 1.3, 1.4, 1.6, 1.2, 1.2])
+        # Barra Pulsanti Stampa & Export (include esportazione XML TMS BeOne)
+        b_act1, b_act2, b_act3, b_act4, b_act5, b_act6, b_act7 = st.columns([1.2, 1.2, 1.3, 1.4, 1.1, 1.3, 1.1])
         with b_act1:
             if st.button("🖨️ Stampa STD (/0)", type="primary", use_container_width=True):
                 df_std = df_bolle[df_bolle["tipo_cons"] == "STD"] if not df_bolle.empty else pd.DataFrame()
@@ -2515,6 +2586,34 @@ elif "Bolle di Consegna" in menu:
             else:
                 st.button("📥 Esporta Excel", disabled=True, use_container_width=True)
         with b_act6:
+            if not df_bolle.empty:
+                from src.tms_xml_exporter import create_tms_xml_zip_bytes
+                tms_b_records = []
+                for _, r_b in df_bolle.iterrows():
+                    sid_b = str(r_b["id_store"]).strip()
+                    g_b = str(r_b.get("giro", "ZA1")).strip()
+                    t_c = float(r_b.get("TOT_COLLI", 0) or 0)
+                    tms_b_records.append({
+                        "store_id": sid_b,
+                        "giro": g_b,
+                        "delivery_date": str(target_date)[:10],
+                        "colli": int(round(t_c)),
+                        "volume_mc": t_c * 0.105,
+                        "peso_kg": t_c * 15.0,
+                    })
+                zip_tms_bytes = create_tms_xml_zip_bytes(tms_b_records)
+                st.download_button(
+                    "📦 XML TMS BeOne",
+                    data=zip_tms_bytes,
+                    file_name=f"TMS_XML_Bolle_{target_date}.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                    help="Scarica archivio ZIP con i file XML standard TrasportoEntrataOrdini_1_00 (2 file per negozio: Consegna e Ritiro a 0 con suffisso 'R')",
+                    key="dl_btn_bolle_tms_xml"
+                )
+            else:
+                st.button("📦 XML TMS", disabled=True, use_container_width=True)
+        with b_act7:
             if has_perm("can_delete_bolle"):
                 with st.popover("🗑️ Svota Bolle", use_container_width=True):
                     st.warning(f"Eliminare tutte le bolle del **{format_date_it(target_date)}**?")

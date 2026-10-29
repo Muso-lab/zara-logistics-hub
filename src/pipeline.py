@@ -295,6 +295,35 @@ def run_pipeline(
         "barranove_Sga.csv": path_sga9.with_suffix(".csv"),
     }, path_zip)
 
+    # 5.1 Export TMS XML Files (Standard TrasportoEntrataOrdini_1_00 per BeOne / Nova Systems)
+    path_tms_zip = None
+    tms_xml_files = []
+    try:
+        from src.tms_xml_exporter import generate_tms_xml_files
+        tms_records = []
+        for df_sga in [df_sga0, df_sga9]:
+            if df_sga is not None and not df_sga.empty:
+                for _, r_sga in df_sga.iterrows():
+                    f_tipo = str(r_sga.get("flusso_tipo", "")).upper()
+                    if f_tipo in ("", "ANDATA"):
+                        tms_records.append({
+                            "store_id": str(r_sga.get("store_code", "")),
+                            "giro": str(r_sga.get("GIRO", r_sga.get("giro", ""))),
+                            "delivery_date": str(r_sga.get("DATA_SCARICO", r_sga.get("data_scarico", ""))),
+                            "colli": int(round(float(r_sga.get("COLLI", r_sga.get("colli", 0))))),
+                            "volume_mc": float(r_sga.get("VOLUME", r_sga.get("volume", 0.0))),
+                            "peso_kg": float(r_sga.get("PESO", r_sga.get("peso", 0.0))),
+                        })
+        if tms_records:
+            tms_xml_dir = out_dir / "tms_xml"
+            tms_xml_files, path_tms_zip = generate_tms_xml_files(
+                tms_records,
+                output_dir=tms_xml_dir,
+                zip_filename=f"TMS_XML_Ordini_{run_id}_{date_formatted}.zip"
+            )
+    except Exception as e:
+        print(f"Warning: TMS XML generation skipped: {e}")
+
     exported_files = {
         "sintesi": path_sintesi,
         "sga0": path_sga0,
@@ -305,6 +334,8 @@ def run_pipeline(
         "zara": path_zara,
         "planner": path_planner
     }
+    if path_tms_zip and path_tms_zip.exists():
+        exported_files["tms_xml_zip"] = path_tms_zip
 
     if save_to_network and DEFAULT_NETWORK_OUTPUT_DIR.exists():
         try:
@@ -334,6 +365,7 @@ def run_pipeline(
         "df_planner": df_planner,
         "special_breakdowns": special_breakdowns,
         "exported_files": exported_files,
+        "tms_xml_files": tms_xml_files,
         "new_stores_alert": new_stores_alert
     }
 
