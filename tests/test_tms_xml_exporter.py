@@ -261,3 +261,44 @@ def test_unique_numeric_id_flusso():
             assert id_f.isdigit()
             id_flusso_values.append(id_f)
         assert len(set(id_flusso_values)) == 4
+
+
+def test_pull_and_bear_xml_escape_and_validation():
+    """
+    Test that store 5405 (PULL&BEAR MAC-ADRIATICO) or any brand/address with '&'
+    properly escapes '&' to '&amp;' so XML parsers do not fail with
+    'EntityRef: expecting ;'.
+    """
+    st_5405 = {
+        "store_id": "5405",
+        "brand": "PULL&BEAR",
+        "store_name": "MAC-ADRIATICO",
+        "cod_sga": 282,
+        "giro": "ZA2",
+        "ragione_sociale": "Pull&Bear Adriatico - 5405",
+        "indirizzo": "Via S. Costantino & Figli - 98",
+        "cap": "62012",
+        "localita": "Civ. M. CUORE ADRIATICO",
+        "provincia": "MC",
+        "nazione": "IT",
+    }
+    xml_consegna = build_tms_order_xml(
+        delivery_date="2026-10-27",
+        store_info=st_5405,
+        giro="ZA2",
+        stop_sequence=1,
+        peso_kg=150.0,
+        colli=10,
+        volume_mc=1.05,
+        is_ritiro=False,
+        barra=0,
+        tipo_specifica="B0",
+    )
+    # Must contain &amp; and NOT raw &
+    assert "&amp;" in xml_consegna
+    assert "Pull&amp;Bear" in xml_consegna
+    # Must parse successfully with ElementTree without raising XML parse errors
+    root = ET.fromstring(xml_consegna)
+    dest_rs = root.find("Ordini/Ordine/CarichiScarichi/CaricoScarico/ScaricoDestinatarioInformazioniAnagrafiche/RagioneSociale")
+    assert dest_rs is not None
+    assert dest_rs.text == "Pull&Bear Adriatico - 5405"

@@ -71,6 +71,19 @@ def generate_unique_id_flusso() -> str:
     return str(now_int)
 
 
+def xml_escape(val: Any) -> str:
+    """
+    Effettua l'escape dei caratteri speciali XML (&, <, >) per il contenuto testuale dei nodi.
+    Garantisce che stringhe come 'PULL&BEAR' o 'MEGALO'' vengano serializzate correttamente come
+    'PULL&amp;BEAR', prevenendo errori di parsing XML (es. 'EntityRef: expecting ;').
+    """
+    if val is None:
+        return ""
+    s = str(val).strip()
+    s = re.sub(r"&(?!(amp|lt|gt|quot|apos);)", "&amp;", s)
+    return s.replace("<", "&lt;").replace(">", "&gt;")
+
+
 def parse_store_address(raw_addr: Any, raw_prov: Any) -> Dict[str, str]:
     """
     Estrae Indirizzo, CAP, Localita e Provincia partendo dai campi liberi presenti nel database stores.
@@ -258,6 +271,30 @@ def build_tms_order_xml(
         dest_loc = LACCHI_HUB["localita"]
         dest_prv = LACCHI_HUB["provincia"]
         dest_naz = LACCHI_HUB["nazione"]
+
+    # Escape XML sicuro su tutti i campi per prevenire EntityRef error (es. PULL&BEAR -> PULL&amp;BEAR)
+    id_flusso = xml_escape(id_flusso)
+    elemento_id = xml_escape(elemento_id)
+    order_ref = xml_escape(order_ref)
+    ts_clean = xml_escape(ts_clean)
+    anno = xml_escape(anno)
+    deliv_dt_str = xml_escape(deliv_dt_str)
+
+    mittente_cod = xml_escape(mittente_cod)
+    mittente_rs = xml_escape(mittente_rs)
+    mittente_addr = xml_escape(mittente_addr)
+    mittente_cap = xml_escape(mittente_cap)
+    mittente_loc = xml_escape(mittente_loc)
+    mittente_prv = xml_escape(mittente_prv)
+    mittente_naz = xml_escape(mittente_naz)
+
+    dest_cod = xml_escape(dest_cod)
+    dest_rs = xml_escape(dest_rs)
+    dest_addr = xml_escape(dest_addr)
+    dest_cap = xml_escape(dest_cap)
+    dest_loc = xml_escape(dest_loc)
+    dest_prv = xml_escape(dest_prv)
+    dest_naz = xml_escape(dest_naz)
 
     xml_lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
