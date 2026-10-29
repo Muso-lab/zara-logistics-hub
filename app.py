@@ -1823,11 +1823,11 @@ elif "Bolle di Consegna" in menu:
                             mon_d = r_dt_obj - timedelta(days=r_dt_obj.weekday())
                             is_mid = ("LUN" in r_cyc or r_dt_obj.weekday() <= 2)
                             if is_mid:
-                                date_dop_calc = mon_d + timedelta(days=2) # Mercoledi (/9)
-                                date_std_calc = mon_d + timedelta(days=3) # Giovedi (/0)
+                                date_std_calc = mon_d + timedelta(days=2) # Mercoledi (/0 STD)
+                                date_dop_calc = mon_d + timedelta(days=3) # Giovedi (/9 DOPPIA)
                             else:
-                                date_dop_calc = mon_d + timedelta(days=5) # Sabato (/9)
-                                date_std_calc = mon_d + timedelta(days=6) # Domenica (/0)
+                                date_std_calc = mon_d + timedelta(days=5) # Sabato (/0 STD)
+                                date_dop_calc = mon_d + timedelta(days=6) # Domenica (/9 DOPPIA)
                     else:
                         date_dop_calc = date.today()
                         date_std_calc = date.today() + timedelta(days=1)
@@ -1867,9 +1867,9 @@ elif "Bolle di Consegna" in menu:
         with tab_b_form:
             target_dt_obj = parse_date_obj(target_date)
             # Regola Consegne Inditex:
-            # - Consegne /0 (STD / Standard): SEMPRE Giovedi (weekday 3) e Domenica (weekday 6)
-            # - Consegne /9 (DOPPIA / 2a Uscita): SEMPRE Mercoledi (weekday 2) e Sabato (weekday 5)
-            is_dop_date = (target_dt_obj.weekday() in (2, 5))
+            # - Consegne /0 (STD / Standard): SEMPRE Mercoledi (weekday 2) e Sabato (weekday 5)
+            # - Consegne /9 (DOPPIA / 2a Uscita): SEMPRE Giovedi (weekday 3) e Domenica (weekday 6)
+            is_dop_date = (target_dt_obj.weekday() in (3, 6))
 
             # Query delle bolle precompilate per questa specifica data di consegna
             df_bolle_date = get_bolle(data_consegna=str(target_date))
@@ -3008,12 +3008,37 @@ elif "Consuntivo & Planner" in menu:
                 format_func=lambda rid: run_opts_p[rid],
                 key="plan_comp_run",
             )
+        # Calcolo date del ciclo operativo della Run selezionata
+        r_sel_rows = runs_side[runs_side["id"] == sel_plan_run]
+        r_run_dt_str = str(r_sel_rows.iloc[0].get("run_date", ""))[:10] if not r_sel_rows.empty else ""
+        r_cycle_type = str(r_sel_rows.iloc[0].get("cycle_type", "LUN-MER")).strip().upper() if not r_sel_rows.empty else "LUN-MER"
+        try:
+            r_run_dt_obj = datetime.strptime(r_run_dt_str, "%Y-%m-%d").date()
+            p_dop, p_std = compute_inditex_delivery_dates(r_run_dt_obj, r_cycle_type)
+            p_std_str = str(p_std)[:10]
+            p_dop_str = str(p_dop)[:10]
+        except Exception:
+            p_std_str = ""
+            p_dop_str = ""
+
+        # Costruisce le opzioni di confronto: Intero Ciclo (default consigliato) oppure singole uscite
+        plan_date_options = {}
+        if p_std_str and p_dop_str:
+            opt_cycle_key = f"{p_std_str}___{p_dop_str}"
+            plan_date_options[opt_cycle_key] = f"⭐ Intero Ciclo (/0 {format_date_it(p_std_str)} + /9 {format_date_it(p_dop_str)})"
+            plan_date_options[p_std_str] = f"🚚 Solo 1ª Uscita /0 STD — {format_date_it(p_std_str)} ({p_std_str})"
+            plan_date_options[p_dop_str] = f"🚚 Solo 2ª Uscita /9 DOPPIA — {format_date_it(p_dop_str)} ({p_dop_str})"
+
+        for b_d in bolle_dates_plan:
+            if b_d not in plan_date_options:
+                plan_date_options[b_d] = f"📅 Data Consegna {format_date_it(b_d)} ({b_d})"
+
         with col_p2:
-            sel_plan_date = st.selectbox(
-                "2. Data Consegna Bolle (Uscite Reali)",
-                bolle_dates_plan,
-                format_func=lambda d: f"{format_date_it(d)} ({d})",
-                key="plan_comp_date",
+            sel_plan_choice = st.selectbox(
+                "2. Uscite Reali Bolle di Consegna",
+                list(plan_date_options.keys()),
+                format_func=lambda k: plan_date_options[k],
+                key="plan_comp_choice",
             )
         with col_p3:
             only_diff = st.checkbox("Mostra solo differenze (Delta ≠ 0)", value=False, key="chk_only_diff")
@@ -3021,12 +3046,22 @@ elif "Consuntivo & Planner" in menu:
 
         det_plan = get_run_details(sel_plan_run)
         df_a_target = det_plan.get("planning_results")
-        df_actuals_bolle = get_actuals_for_planner(sel_plan_date)
+
+        if "___" in str(sel_plan_choice):
+            target_query_dates = sel_plan_choice.split("___")
+            display_plan_date = target_query_dates[0]
+            display_label_date = f"Intero Ciclo ({format_date_it(target_query_dates[0])} + {format_date_it(target_query_dates[1])})"
+        else:
+            target_query_dates = sel_plan_choice
+            display_plan_date = sel_plan_choice
+            display_label_date = format_date_it(sel_plan_choice)
+
+        df_actuals_bolle = get_actuals_for_planner(target_query_dates)
 
         if df_a_target is None or df_a_target.empty:
             st.warning("Dati previsionali non trovati per la Run selezionata.")
         elif df_actuals_bolle.empty:
-            st.info(f"ℹ️ Nessuna bolla trovata per la data **{format_date_it(sel_plan_date)}**.")
+            st.info(f"ℹ️ Nessuna bolla trovata per **{display_label_date}**.")
         else:
             df_planner_real = compute_planning_roma(df_a_target, df_actuals_bolle, df_stores=df_stores_side)
             df_planner_real["delta_crts"] = (df_planner_real["total_received_crts"] - df_planner_real["total_planned_crts"]).round(1)
@@ -3043,7 +3078,7 @@ elif "Consuntivo & Planner" in menu:
             c_m4.metric("Anomalie Delta Positivo", f"{pos_deltas}", delta="OK (0 anomalie)" if pos_deltas == 0 else "Verificare", delta_color="normal" if pos_deltas == 0 else "inverse")
 
             # Esportazione immediata del file ufficiale Planning ITX_RM.xlsx
-            out_planner_path = OUTPUT_DIR / f"Planning_ITX_RM_{sel_plan_date}.xlsx"
+            out_planner_path = OUTPUT_DIR / f"Planning_ITX_RM_{display_plan_date}.xlsx"
             export_planner_roma(
                 df_planner=df_planner_real,
                 output_path=out_planner_path,

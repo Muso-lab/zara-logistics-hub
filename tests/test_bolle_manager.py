@@ -321,15 +321,19 @@ def test_compute_inditex_delivery_dates():
     from src.bolle_manager import compute_inditex_delivery_dates
 
     # 1. Ciclo LUN-MER: Base 26 Ottobre 2026 (Lunedi)
+    # /0 (Standard / STD) = Mercoledi (28 Ottobre, weekday 2)
+    # /9 (DOPPIA / 2a Uscita) = Giovedi (29 Ottobre, weekday 3)
     d9_lun, d0_lun = compute_inditex_delivery_dates("2026-10-26", "LUN-MER")
-    assert d9_lun.strftime("%Y-%m-%d") == "2026-10-28"  # Mercoledi (weekday 2)
-    assert d0_lun.strftime("%Y-%m-%d") == "2026-10-29"  # Giovedi (weekday 3)
-    assert d9_lun.weekday() == 2  # /9 SEMPRE Mercoledi
-    assert d0_lun.weekday() == 3  # /0 SEMPRE Giovedi
+    assert d0_lun.strftime("%Y-%m-%d") == "2026-10-28"  # Mercoledi (weekday 2)
+    assert d9_lun.strftime("%Y-%m-%d") == "2026-10-29"  # Giovedi (weekday 3)
+    assert d0_lun.weekday() == 2  # /0 STD SEMPRE Mercoledi
+    assert d9_lun.weekday() == 3  # /9 DOPPIA SEMPRE Giovedi
 
     # 2. Ciclo GIOV-DOM: Base 29 Ottobre 2026 (Giovedi)
+    # /0 (Standard / STD) = Sabato (31 Ottobre, weekday 5)
+    # /9 (DOPPIA / 2a Uscita) = Domenica (1 Novembre, weekday 6)
     d9_gio, d0_gio = compute_inditex_delivery_dates("2026-10-29", "GIO-DOM")
-    assert d9_gio.strftime("%Y-%m-%d") == "2026-10-31"  # Sabato (weekday 5)
-    assert d0_gio.strftime("%Y-%m-%d") == "2026-11-01"  # Domenica (weekday 6)
-    assert d9_gio.weekday() == 5  # /9 SEMPRE Sabato
-    assert d0_gio.weekday() == 6  # /0 SEMPRE Domenica
+    assert d0_gio.strftime("%Y-%m-%d") == "2026-10-31"  # Sabato (weekday 5)
+    assert d9_gio.strftime("%Y-%m-%d") == "2026-11-01"  # Domenica (weekday 6)
+    assert d0_gio.weekday() == 5  # /0 STD SEMPRE Sabato
+    assert d9_gio.weekday() == 6  # /9 DOPPIA SEMPRE Domenica

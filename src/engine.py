@@ -736,6 +736,8 @@ def compute_planning_roma(
                     if (sid_raw, is_sho) not in map_a_brand:
                         map_a_brand[(sid_raw, is_sho)] = r_dict
 
+                if sid_raw not in map_a:
+                    map_a[sid_raw] = r_dict.copy()
                 if base_sid not in map_a:
                     map_a[base_sid] = r_dict.copy()
                 else:
@@ -849,7 +851,12 @@ def compute_planning_roma(
 
         elif is_shoes_row:
             # Dedicated shoes row (e.g. ZARA SHOES)
-            pl_sho = int(round(_safe_float(a_data.get("planned_shoes", 0.0))))
+            is_sdop = map_sdoppia.get(base_sid, "SI" if base_sid in tpl_b9_stores else "NO") == "SI"
+            tot_s_raw = int(round(_safe_float(a_data.get("planned_shoes", 0.0))))
+            if is_sdop and base_sid in tpl_b9_stores:
+                pl_sho = tot_s_raw - int(round(tot_s_raw * PERCENTUALE_BARRA9_SPLIT))
+            else:
+                pl_sho = tot_s_raw
             act_s = map_act_std.get(base_sid, {}) if base_sid in tpl_b9_stores else map_act_tot.get(base_sid, {})
             rec_sho = int(round(_safe_float(act_s.get("tot_calzat", 0.0))))
             vol_sho = round(_safe_float(a_data.get("vol_shoes", 0.0)), 2)
@@ -867,7 +874,11 @@ def compute_planning_roma(
                 b9_mult = 1.0 if already_split else PERCENTUALE_BARRA9_SPLIT
 
                 pl_text = int(round(_safe_float(a_data.get("planned_textile", 0.0)) * b9_mult))
-                if base_sid not in stores_with_shoes_row:
+                if base_sid in stores_with_shoes_row:
+                    sho_source = map_a_brand.get((base_sid, True), map_a.get(base_sid, {}))
+                    tot_sho_raw = _safe_float(sho_source.get("planned_shoes", 0.0))
+                    pl_sho = int(round(tot_sho_raw * PERCENTUALE_BARRA9_SPLIT))
+                else:
                     pl_sho = int(round(_safe_float(a_data.get("planned_shoes", 0.0)) * b9_mult))
                 pl_oth = int(round(_safe_float(a_data.get("planned_others", 0.0)) * b9_mult))
                 if pl_oth == 0:
@@ -878,8 +889,7 @@ def compute_planning_roma(
 
                 act_d = map_act_doppia.get(base_sid, {})
                 rec_text = int(round(_safe_float(act_d.get("tot_abbigl", 0.0))))
-                if base_sid not in stores_with_shoes_row:
-                    rec_sho = int(round(_safe_float(act_d.get("tot_calzat", 0.0))))
+                rec_sho = int(round(_safe_float(act_d.get("tot_calzat", 0.0))))
                 rec_oth = int(round(_safe_float(act_d.get("tot_others", 0.0))))
                 rec_eco = int(round(_safe_float(act_d.get("tot_ecom", 0.0))))
             else:
@@ -895,15 +905,21 @@ def compute_planning_roma(
         else:
             # Standard store row
             is_sdop = map_sdoppia.get(base_sid, "SI" if base_sid in tpl_b9_stores else "NO") == "SI"
+            has_b_row_in_input = (f"{base_sid}B" in map_a)
             # If store has active sdoppiamento and is in tpl_b9_stores or has a DOPPIA delivery
             if is_sdop and (base_sid in tpl_b9_stores or base_sid in map_act_doppia):
                 act_row = map_act_std.get(base_sid, {})
                 tot_t = int(round(_safe_float(a_data.get("planned_textile", 0.0))))
                 tot_o = int(round(_safe_float(a_data.get("planned_others", 0.0))))
                 tot_e = int(round(_safe_float(a_data.get("planned_ecom", 0.0))))
-                pl_text = tot_t - int(round(tot_t * PERCENTUALE_BARRA9_SPLIT))
-                pl_oth = tot_o - int(round(tot_o * PERCENTUALE_BARRA9_SPLIT))
-                pl_eco = tot_e - int(round(tot_e * PERCENTUALE_BARRA9_SPLIT))
+                if has_b_row_in_input:
+                    pl_text = tot_t
+                    pl_oth = tot_o
+                    pl_eco = tot_e
+                else:
+                    pl_text = tot_t - int(round(tot_t * PERCENTUALE_BARRA9_SPLIT))
+                    pl_oth = tot_o - int(round(tot_o * PERCENTUALE_BARRA9_SPLIT))
+                    pl_eco = tot_e - int(round(tot_e * PERCENTUALE_BARRA9_SPLIT))
             else:
                 act_row = map_act_tot.get(base_sid, {})
                 pl_text = int(round(_safe_float(a_data.get("planned_textile", 0.0))))
@@ -927,7 +943,9 @@ def compute_planning_roma(
                 wt_sho = 0
             else:
                 tot_s = int(round(_safe_float(a_data.get("planned_shoes", 0.0))))
-                if is_sdop and (base_sid in tpl_b9_stores or base_sid in map_act_doppia):
+                if has_b_row_in_input:
+                    pl_sho = tot_s
+                elif is_sdop and (base_sid in tpl_b9_stores or base_sid in map_act_doppia):
                     pl_sho = tot_s - int(round(tot_s * PERCENTUALE_BARRA9_SPLIT))
                 else:
                     pl_sho = tot_s

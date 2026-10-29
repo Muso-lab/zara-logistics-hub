@@ -634,12 +634,12 @@ def delete_bolle_by_date(date_str: str, db_path: Path = DB_PATH) -> int:
 def compute_inditex_delivery_dates(dt_base: Any, cycle_type: str = "LUN-MER") -> Tuple[date, date]:
     """
     Calcola le date di consegna operative Inditex con rigorosa corrispondenza:
-    - Ciclo LUN-MER (periodo estrazione 26-28 Ottobre):
-        - Consegna /9 (Barra 9 - DOPPIA / 2a Uscita): Mercoledi (monday + 2 giorni)
-        - Consegna /0 (Barra 0 - STD / Consegna Standard): Giovedi (monday + 3 giorni)
-    - Ciclo GIOV-DOM (periodo estrazione Giovedi-Domenica):
-        - Consegna /0 (Barra 0 - STD / Consegna Standard): Sabato (monday + 5 giorni)
-        - Consegna /9 (Barra 9 - DOPPIA / 2a Uscita): Domenica (monday + 6 giorni)
+    - /0 (Standard / STD) e SEMPRE il Mercoledi e il Sabato:
+        - Ciclo LUN-MER: Mercoledi (monday + 2 giorni)
+        - Ciclo GIOV-DOM: Sabato (monday + 5 giorni)
+    - /9 (DOPPIA / 2a Uscita) e SEMPRE il Giovedi e la Domenica:
+        - Ciclo LUN-MER: Giovedi (monday + 3 giorni)
+        - Ciclo GIOV-DOM: Domenica (monday + 6 giorni)
     Ritorna: (date_b9, date_b0)
     """
     if isinstance(dt_base, str):
@@ -656,13 +656,17 @@ def compute_inditex_delivery_dates(dt_base: Any, cycle_type: str = "LUN-MER") ->
     is_midweek = ("LUN" in str(cycle_type).upper() or dt_base.weekday() <= 2)
 
     if is_midweek:
-        # LUN-MER: Mercoledi (/9) e Giovedi (/0)
-        date_b9 = monday + timedelta(days=2)  # Mercoledì (/9 DOPPIA)
-        date_b0 = monday + timedelta(days=3)  # Giovedì (/0 STD)
+        # LUN-MER:
+        # /0 (Standard / STD) = Mercoledi (monday + 2 giorni)
+        # /9 (DOPPIA / 2a Uscita) = Giovedi (monday + 3 giorni)
+        date_b0 = monday + timedelta(days=2)  # Mercoledi (/0 STD)
+        date_b9 = monday + timedelta(days=3)  # Giovedi (/9 DOPPIA)
     else:
-        # GIOV-DOM: Sabato (/9 DOPPIA) e Domenica (/0 STD)
-        date_b9 = monday + timedelta(days=5)  # Sabato (/9 DOPPIA)
-        date_b0 = monday + timedelta(days=6)  # Domenica (/0 STD)
+        # GIOV-DOM:
+        # /0 (Standard / STD) = Sabato (monday + 5 giorni)
+        # /9 (DOPPIA / 2a Uscita) = Domenica (monday + 6 giorni)
+        date_b0 = monday + timedelta(days=5)  # Sabato (/0 STD)
+        date_b9 = monday + timedelta(days=6)  # Domenica (/9 DOPPIA)
 
     return date_b9, date_b0
 
@@ -702,15 +706,15 @@ def generate_bolle_from_forecast(
     elif delivery_date:
         try:
             dt_given = datetime.strptime(str(delivery_date)[:10], "%Y-%m-%d").date()
-            if dt_given.weekday() in (2, 5):
-                # Data /9 (Mercoledi 2 o Sabato 5): /0 STD e il giorno successivo (Giovedi 3 o Domenica 6)
+            if dt_given.weekday() in (3, 6):
+                # Data /9 (Giovedi 3 o Domenica 6): /0 STD e il giorno precedente (Mercoledi 2 o Sabato 5)
                 deliv_date_dop = dt_given.strftime("%Y-%m-%d")
-                deliv_date_std = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")
+                deliv_date_std = (dt_given - timedelta(days=1)).strftime("%Y-%m-%d")
             else:
-                # Data /0 (Giovedi 3 o Domenica 6 o altro): /9 DOPPIA e il giorno precedente (Mercoledi 2 o Sabato 5)
+                # Data /0 (Mercoledi 2 o Sabato 5 o altro): /9 DOPPIA e il giorno successivo (Giovedi 3 o Domenica 6)
                 deliv_date_std = dt_given.strftime("%Y-%m-%d")
-                if dt_given.weekday() in (3, 6):
-                    deliv_date_dop = (dt_given - timedelta(days=1)).strftime("%Y-%m-%d")
+                if dt_given.weekday() in (2, 5):
+                    deliv_date_dop = (dt_given + timedelta(days=1)).strftime("%Y-%m-%d")
                 else:
                     deliv_date_dop = dt_given.strftime("%Y-%m-%d")
         except:
@@ -962,28 +966,51 @@ def generate_bolle_from_forecast(
     return created, skipped
 
 
-def get_actuals_for_planner(target_date: str, db_path: Path = DB_PATH) -> pd.DataFrame:
+def get_actuals_for_planner(target_date: Union[str, List[str], Tuple[str, ...]], db_path: Path = DB_PATH) -> pd.DataFrame:
     """
     Extracts actual delivered totals and intershops directly from SQLite bolle
-    for the specified delivery date (or cargo date), ready for compute_planning_roma().
+    for the specified delivery date(s), ready for compute_planning_roma().
+    Supports a single date string or a list/tuple of dates (e.g. both /0 and /9 dates of an operative cycle).
     Returns DataFrame with columns: ID_STORE, tipo_cons, TOT_ABBIGL, TOT_CALZAT, TOT_ECOM, TOT_OTHERS, stringa.
     """
     conn = get_db_connection(db_path)
-    query = """
-    SELECT 
-        id_store AS ID_STORE,
-        tipo_cons,
-        colli_abbigl AS TOT_ABBIGL,
-        colli_calzat AS TOT_CALZAT,
-        colli_ecom AS TOT_ECOM,
-        colli_others AS TOT_OTHERS,
-        colli_vario AS TOT_VARIO,
-        stringa
-    FROM bolle
-    WHERE (data_consegna = ? OR data = ?)
-      AND id_store NOT IN ('NEGOZIO', 'Store ID', 'EXTRA', 'TOTAL', 'TOTALE', '')
-    """
-    df = pd.read_sql(query, conn, params=(target_date, target_date))
+    if isinstance(target_date, (list, tuple, set)):
+        date_list = [str(d)[:10] for d in target_date]
+        placeholders = ",".join("?" for _ in date_list)
+        query = f"""
+        SELECT 
+            id_store AS ID_STORE,
+            tipo_cons,
+            colli_abbigl AS TOT_ABBIGL,
+            colli_calzat AS TOT_CALZAT,
+            colli_ecom AS TOT_ECOM,
+            colli_others AS TOT_OTHERS,
+            colli_vario AS TOT_VARIO,
+            stringa
+        FROM bolle
+        WHERE (data_consegna IN ({placeholders}) OR data IN ({placeholders}))
+          AND id_store NOT IN ('NEGOZIO', 'Store ID', 'EXTRA', 'TOTAL', 'TOTALE', '')
+        """
+        params = tuple(date_list + date_list)
+    else:
+        t_dt = str(target_date)[:10]
+        query = """
+        SELECT 
+            id_store AS ID_STORE,
+            tipo_cons,
+            colli_abbigl AS TOT_ABBIGL,
+            colli_calzat AS TOT_CALZAT,
+            colli_ecom AS TOT_ECOM,
+            colli_others AS TOT_OTHERS,
+            colli_vario AS TOT_VARIO,
+            stringa
+        FROM bolle
+        WHERE (data_consegna = ? OR data = ?)
+          AND id_store NOT IN ('NEGOZIO', 'Store ID', 'EXTRA', 'TOTAL', 'TOTALE', '')
+        """
+        params = (t_dt, t_dt)
+
+    df = pd.read_sql(query, conn, params=params)
     conn.close()
 
     if df.empty:
