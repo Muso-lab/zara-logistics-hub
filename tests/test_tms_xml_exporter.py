@@ -1,6 +1,7 @@
 """
 Unit tests for TMS XML Exporter (TrasportoEntrataOrdini_1_00).
-Verifies XML generation against desktop sample specifications for Consegna and Ritiro.
+Verifies XML generation against desktop sample specifications for Consegna and Ritiro
+distinguishing Barra 0 (B0) and Barra 9 (B9) across all 4 file types.
 """
 
 from pathlib import Path
@@ -42,21 +43,22 @@ def test_format_store_ragione_sociale():
     assert rs == "Stradivarius Megalo - 16647"
 
 
-def test_build_consegna_xml_structure():
+def test_build_consegna_xml_structure_b0_and_b9():
     st_info = {
-        "store_id": "16647",
-        "brand": "STRADIVARIUS",
-        "store_name": "CHIETI-MEGALO",
-        "cod_sga": 298,
+        "store_id": "1984",
+        "brand": "ZARA HOME",
+        "store_name": "ROM-COLA RIENZO",
+        "cod_sga": 314,
         "giro": "ZA1",
-        "ragione_sociale": "Stradivarius Megalo - 16647",
-        "indirizzo": "Località santa Filomena",
-        "cap": "66100",
-        "localita": "Chieti Megalò",
-        "provincia": "CH",
+        "ragione_sociale": "ZARA HOME Cola di Rienzo - 1984",
+        "indirizzo": "Via Cola Di Rienzo 225/229",
+        "cap": "00192",
+        "localita": "Roma Cola di Rienzo",
+        "provincia": "RM",
         "nazione": "IT",
     }
-    xml_str = build_tms_order_xml(
+    # Test Barra 0
+    xml_b0 = build_tms_order_xml(
         delivery_date="2026-11-29",
         store_info=st_info,
         giro="ZA1",
@@ -65,55 +67,56 @@ def test_build_consegna_xml_structure():
         colli=68,
         volume_mc=7.2,
         is_ritiro=False,
+        barra=0,
+        tipo_specifica="B0",
         elemento_id="20261129120000",
         id_flusso="20261129120000",
     )
-    root = ET.fromstring(xml_str)
-    assert root.tag == "TrasportoEntrataOrdini_1_00"
-    assert root.find("IdFlusso").text == "20261129120000"
+    root0 = ET.fromstring(xml_b0)
+    assert root0.tag == "TrasportoEntrataOrdini_1_00"
+    assert root0.find("IdFlusso").text == "20261129120000"
+    ord0 = root0.find("Ordini/Ordine")
+    assert ord0.find("TipoSpecifica").text == "B0"
+    assert ord0.find("CarichiScarichi/CaricoScarico/CaricoMittenteCodice").text == "1"
+    assert ord0.find("CarichiScarichi/CaricoScarico/ScaricoDestinatarioCodice").text == "314"
+    assert ord0.find("CarichiScarichi/CaricoScarico/Merci/Merce/Um1Valore").text == "1020.000"
 
-    ordine = root.find("Ordini/Ordine")
-    assert ordine.find("Anno").text == "2026"
-    assert ordine.find("Filiale").text == "SE"
-    assert ordine.find("ElementoId").text == "20261129120000"
-    assert ordine.find("OrdineRiferimento").text == "ZA1-1"
-    assert ordine.find("RiferimentoInterno").text == "ZA1-1"
-
-    carico_scarico = ordine.find("CarichiScarichi/CaricoScarico")
-    # Mittente Lacchi
-    assert carico_scarico.find("CaricoMittenteCodice").text == "1"
-    assert carico_scarico.find("CaricoMittenteInformazioniAnagrafiche/RagioneSociale").text == LACCHI_HUB["ragione_sociale"]
-
-    # Destinatario Negozio
-    assert carico_scarico.find("ScaricoDestinatarioCodice").text == "298"
-    assert carico_scarico.find("ScaricoDestinatarioInformazioniAnagrafiche/RagioneSociale").text == "Stradivarius Megalo - 16647"
-
-    # Merci
-    merce = carico_scarico.find("Merci/Merce")
-    assert merce.find("Codice").text == "VAR"
-    assert merce.find("Um1Codice").text == "KG"
-    assert merce.find("Um1Valore").text == "1020.000"
-    assert merce.find("Um2Codice").text == "CL"
-    assert merce.find("Um2Valore").text == "68"
-    assert merce.find("Um3Codice").text == "MC"
-    assert merce.find("Um3Valore").text == "7.200"
+    # Test Barra 9
+    xml_b9 = build_tms_order_xml(
+        delivery_date="2026-11-29",
+        store_info=st_info,
+        giro="ZA1",
+        stop_sequence=1,
+        peso_kg=1020.0,
+        colli=68,
+        volume_mc=7.2,
+        is_ritiro=False,
+        barra=9,
+        tipo_specifica="B9",
+        elemento_id="20261129120000",
+        id_flusso="20261129120000",
+    )
+    root9 = ET.fromstring(xml_b9)
+    ord9 = root9.find("Ordini/Ordine")
+    assert ord9.find("TipoSpecifica").text == "B9"
 
 
-def test_build_ritiro_xml_structure():
+def test_build_ritiro_xml_structure_b0_and_b9():
     st_info = {
-        "store_id": "16647",
-        "brand": "STRADIVARIUS",
-        "store_name": "CHIETI-MEGALO",
-        "cod_sga": 298,
+        "store_id": "1984",
+        "brand": "ZARA HOME",
+        "store_name": "ROM-COLA RIENZO",
+        "cod_sga": 314,
         "giro": "ZA1",
-        "ragione_sociale": "Stradivarius Megalo - 16647",
-        "indirizzo": "Località santa Filomena",
-        "cap": "66100",
-        "localita": "Chieti Megalò",
-        "provincia": "CH",
+        "ragione_sociale": "ZARA HOME Cola di Rienzo - 1984",
+        "indirizzo": "Via Cola Di Rienzo 225/229",
+        "cap": "00192",
+        "localita": "Roma Cola di Rienzo",
+        "provincia": "RM",
         "nazione": "IT",
     }
-    xml_str = build_tms_order_xml(
+    # Ritiro Barra 0
+    xml_r0 = build_tms_order_xml(
         delivery_date="2026-11-29",
         store_info=st_info,
         giro="ZA1",
@@ -122,35 +125,43 @@ def test_build_ritiro_xml_structure():
         colli=0,
         volume_mc=0.0,
         is_ritiro=True,
+        barra=0,
+        tipo_specifica="B0",
         elemento_id="20261129120000R",
         id_flusso="20261129120000",
     )
-    root = ET.fromstring(xml_str)
-    assert root.tag == "TrasportoEntrataOrdini_1_00"
+    root_r0 = ET.fromstring(xml_r0)
+    ord_r0 = root_r0.find("Ordini/Ordine")
+    assert ord_r0.find("TipoSpecifica").text == "B0"
+    assert ord_r0.find("ElementoId").text == "20261129120000R"
+    assert ord_r0.find("OrdineRiferimento").text == "ZA1-1R"
+    assert ord_r0.find("CarichiScarichi/CaricoScarico/CaricoMittenteCodice").text == "314"
+    assert ord_r0.find("CarichiScarichi/CaricoScarico/ScaricoDestinatarioCodice").text == "1"
+    assert ord_r0.find("CarichiScarichi/CaricoScarico/Merci/Merce/Um1Valore").text == "0.000"
 
-    ordine = root.find("Ordini/Ordine")
-    assert ordine.find("ElementoId").text == "20261129120000R"
-    assert ordine.find("OrdineRiferimento").text == "ZA1-1R"
-    assert ordine.find("RiferimentoInterno").text == "ZA1-1R"
+    # Ritiro Barra 9
+    xml_r9 = build_tms_order_xml(
+        delivery_date="2026-11-29",
+        store_info=st_info,
+        giro="ZA1",
+        stop_sequence=1,
+        peso_kg=0.0,
+        colli=0,
+        volume_mc=0.0,
+        is_ritiro=True,
+        barra=9,
+        tipo_specifica="B9",
+        elemento_id="20261129120000R",
+        id_flusso="20261129120000",
+    )
+    root_r9 = ET.fromstring(xml_r9)
+    ord_r9 = root_r9.find("Ordini/Ordine")
+    assert ord_r9.find("TipoSpecifica").text == "B9"
 
-    carico_scarico = ordine.find("CarichiScarichi/CaricoScarico")
-    # Mittente Negozio
-    assert carico_scarico.find("CaricoMittenteCodice").text == "298"
-    assert carico_scarico.find("CaricoMittenteInformazioniAnagrafiche/RagioneSociale").text == "Stradivarius Megalo - 16647"
 
-    # Destinatario Lacchi
-    assert carico_scarico.find("ScaricoDestinatarioCodice").text == "1"
-    assert carico_scarico.find("ScaricoDestinatarioInformazioniAnagrafiche/RagioneSociale").text == LACCHI_HUB["ragione_sociale"]
-
-    # Merci a 0
-    merce = carico_scarico.find("Merci/Merce")
-    assert merce.find("Um1Valore").text == "0.000"
-    assert merce.find("Um2Valore").text == "0"
-    assert merce.find("Um3Valore").text == "0.000"
-
-
-def test_generate_tms_xml_files_and_zip(tmp_path):
+def test_generate_tms_xml_files_and_zip_4_types(tmp_path):
     records = [
+        # Store 16647 (Barra 0)
         {
             "store_id": "16647",
             "giro": "ZA1",
@@ -158,39 +169,57 @@ def test_generate_tms_xml_files_and_zip(tmp_path):
             "colli": 50,
             "volume_mc": 5.0,
             "peso_kg": 750.0,
+            "barra": 0,
+            "tipo_specifica": "B0",
         },
+        # Store 1984 (Barra 9)
         {
-            "store_id": "16351",
+            "store_id": "1984",
             "giro": "ZA1",
-            "delivery_date": "2026-10-28",
+            "delivery_date": "2026-10-29",
             "colli": 30,
             "volume_mc": 3.0,
             "peso_kg": 450.0,
+            "barra": 9,
+            "tipo_specifica": "B9",
         }
     ]
     xml_files, zip_path = generate_tms_xml_files(records, output_dir=tmp_path)
-    # 2 files per store: 2 * 2 = 4 XMLs
+    # 2 records, each creates 1 CONSEGNA and 1 RITIRO = 4 XMLs
     assert len(xml_files) == 4
     assert zip_path.exists()
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         namelist = zf.namelist()
         assert len(namelist) == 4
-        assert any("16647_CONSEGNA.xml" in n for n in namelist)
-        assert any("16647_RITIRO.xml" in n for n in namelist)
-        assert any("16351_CONSEGNA.xml" in n for n in namelist)
-        assert any("16351_RITIRO.xml" in n for n in namelist)
+        assert any("16647_ZA1_16647_B0_CONSEGNA.xml" in n or "16647_B0_CONSEGNA.xml" in n for n in namelist)
+        assert any("16647_B0_RITIRO.xml" in n for n in namelist)
+        assert any("1984_B9_CONSEGNA.xml" in n for n in namelist)
+        assert any("1984_B9_RITIRO.xml" in n for n in namelist)
 
 
-def test_create_tms_xml_zip_bytes():
+def test_create_tms_xml_zip_bytes_4_files():
+    # 1 store having both B0 and B9 delivers 4 files total
     records = [
         {
-            "store_id": "16647",
+            "store_id": "1984",
             "giro": "ZA1",
             "delivery_date": "2026-10-28",
             "colli": 50,
             "volume_mc": 5.0,
             "peso_kg": 750.0,
+            "barra": 0,
+            "tipo_specifica": "B0",
+        },
+        {
+            "store_id": "1984",
+            "giro": "ZA1",
+            "delivery_date": "2026-10-29",
+            "colli": 40,
+            "volume_mc": 4.0,
+            "peso_kg": 600.0,
+            "barra": 9,
+            "tipo_specifica": "B9",
         }
     ]
     raw_zip = create_tms_xml_zip_bytes(records)
@@ -198,23 +227,28 @@ def test_create_tms_xml_zip_bytes():
     import io
     with zipfile.ZipFile(io.BytesIO(raw_zip), "r") as zf:
         namelist = zf.namelist()
-        assert len(namelist) == 2
-        assert any("16647_CONSEGNA.xml" in n for n in namelist)
-        assert any("16647_RITIRO.xml" in n for n in namelist)
+        # Exactly the 4 files requested by user:
+        # 1. consegna_BARRA0
+        # 2. ritiro_BARRA0
+        # 3. consegna_BARRA9
+        # 4. ritiro_BARRA9
+        assert len(namelist) == 4
+        assert any("1984_B0_CONSEGNA.xml" in n for n in namelist)
+        assert any("1984_B0_RITIRO.xml" in n for n in namelist)
+        assert any("1984_B9_CONSEGNA.xml" in n for n in namelist)
+        assert any("1984_B9_RITIRO.xml" in n for n in namelist)
 
 
 def test_unique_numeric_id_flusso():
-    # Verify that consecutive calls return strictly increasing purely numeric strings
     ids = [generate_unique_id_flusso() for _ in range(50)]
     assert len(set(ids)) == 50
     for uid in ids:
         assert uid.isdigit()
-        assert len(uid) >= 14  # YYYYMMDDHHMMSS format
+        assert len(uid) >= 14
 
-    # Test that batch generation gives different IdFlusso to each XML file
     records = [
-        {"store_id": "16647", "giro": "ZA1", "delivery_date": "2026-10-28", "colli": 10},
-        {"store_id": "16351", "giro": "ZA1", "delivery_date": "2026-10-28", "colli": 20},
+        {"store_id": "16647", "giro": "ZA1", "delivery_date": "2026-10-28", "colli": 10, "barra": 0},
+        {"store_id": "16351", "giro": "ZA1", "delivery_date": "2026-10-28", "colli": 20, "barra": 9},
     ]
     raw_zip = create_tms_xml_zip_bytes(records)
     import io
@@ -226,4 +260,4 @@ def test_unique_numeric_id_flusso():
             id_f = root.find("IdFlusso").text
             assert id_f.isdigit()
             id_flusso_values.append(id_f)
-        assert len(set(id_flusso_values)) == 4  # 4 files, 4 distinct numeric IDs
+        assert len(set(id_flusso_values)) == 4

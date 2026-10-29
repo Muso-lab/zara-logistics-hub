@@ -1057,7 +1057,7 @@ def render_operativa_files_and_email_section(
     tms_xml_dir = out_dir / "tms_xml"
     if not p_tms_zip.exists() or not tms_xml_dir.exists():
         tms_records = []
-        for df_sga in [s0_df, s9_df]:
+        for df_sga, bar_num in [(s0_df, 0), (s9_df, 9)]:
             if df_sga is not None and not df_sga.empty:
                 for _, r_sga in df_sga.iterrows():
                     f_tipo = str(r_sga.get("flusso_tipo", "")).upper()
@@ -1069,6 +1069,8 @@ def render_operativa_files_and_email_section(
                             "colli": int(round(float(r_sga.get("COLLI", r_sga.get("colli", 0))))),
                             "volume_mc": float(r_sga.get("VOLUME", r_sga.get("volume", 0.0))),
                             "peso_kg": float(r_sga.get("PESO", r_sga.get("peso", 0.0))),
+                            "barra": bar_num,
+                            "tipo_specifica": f"B{bar_num}",
                         })
         if tms_records:
             try:
@@ -1132,7 +1134,7 @@ def render_operativa_files_and_email_section(
         if p_tms_zip.exists():
             with open(p_tms_zip, "rb") as f_tz:
                 st.download_button(
-                    "📦 XML TMS BeOne (.zip)",
+                    "📦 Download Massivo XML TMS (.zip)",
                     data=f_tz.read(),
                     file_name=p_tms_zip.name,
                     mime="application/zip",
@@ -1155,17 +1157,44 @@ def render_operativa_files_and_email_section(
                 )
 
     # Dettaglio & Esplorazione File XML per TMS
-    with st.expander("📦 Standard XML per TMS (BeOne / Nova Systems) — Info & File Singoli", expanded=False):
+    with st.expander("📦 Standard XML per TMS (BeOne / Nova Systems) — Specifiche B0/B9 & Download Massivo", expanded=False):
         st.markdown("""
-        **Specifiche Standard XML TrasportoEntrataOrdini_1_00**:
-        - **File di Consegna**: Carico = Hub Lacchi (Codice 1), Scarico = Negozio (Codice SGA). Merci con valori reali (KG, CL, MC).
-        - **File di Ritiro**: Carico = Negozio (Codice SGA), Scarico = Hub Lacchi (Codice 1). Merci impostate a 0 (0.000 KG, 0 CL, 0.000 MC). ID flusso, ElementoId e OrdineRiferimento con suffisso **`R`**.
+        **Specifiche Standard XML TrasportoEntrataOrdini_1_00 (4 Tipologie Distinte)**:
+        - **1. Consegna Barra 0 (B0)**: `<TipoSpecifica>B0</TipoSpecifica>`, Carico Lacchi (Cod. 1), Scarico Negozio, Merci reali.
+        - **2. Ritiro Barra 0 (B0)**: `<TipoSpecifica>B0</TipoSpecifica>`, Carico Negozio, Scarico Lacchi, Merci a 0, ID e Rif con suffisso **`R`**.
+        - **3. Consegna Barra 9 (B9)**: `<TipoSpecifica>B9</TipoSpecifica>`, Carico Lacchi (Cod. 1), Scarico Negozio, Merci reali.
+        - **4. Ritiro Barra 9 (B9)**: `<TipoSpecifica>B9</TipoSpecifica>`, Carico Negozio, Scarico Lacchi, Merci a 0, ID e Rif con suffisso **`R`**.
         """)
         if tms_xml_dir.exists():
             xml_list = sorted(list(tms_xml_dir.glob("*.xml")))
             if xml_list:
-                st.caption(f"Totale file generati: **{len(xml_list)} file XML** ({len(xml_list)//2} consegne + {len(xml_list)//2} ritiri).")
-                sel_xml = st.selectbox("Seleziona un file XML da ispezionare o scaricare singolarmente:", [f.name for f in xml_list], key=f"sel_xml_single_{key_prefix}_{rid}")
+                nb_b0_c = sum(1 for f in xml_list if "_B0_CONSEGNA" in f.name)
+                nb_b0_r = sum(1 for f in xml_list if "_B0_RITIRO" in f.name)
+                nb_b9_c = sum(1 for f in xml_list if "_B9_CONSEGNA" in f.name)
+                nb_b9_r = sum(1 for f in xml_list if "_B9_RITIRO" in f.name)
+                st.info(f"📁 **Totale {len(xml_list)} file XML generati**: {nb_b0_c} Consegne B0, {nb_b0_r} Ritiri B0, {nb_b9_c} Consegne B9, {nb_b9_r} Ritiri B9.")
+                
+                if p_tms_zip.exists():
+                    with open(p_tms_zip, "rb") as f_tz_all:
+                        st.download_button(
+                            f"📥 DOWNLOAD MASSIVO DI TUTTI I {len(xml_list)} FILE XML (ZIP)",
+                            data=f_tz_all.read(),
+                            file_name=p_tms_zip.name,
+                            mime="application/zip",
+                            type="primary",
+                            use_container_width=True,
+                            key=f"dl_box_tms_zip_massivo_{key_prefix}_{rid}"
+                        )
+                
+                f_filter = st.radio("Filtra elenco file per tipologia:", ["TUTTI", "SOLO B0 (Barra 0)", "SOLO B9 (Barra 9)"], horizontal=True, key=f"rad_tms_filt_{key_prefix}_{rid}")
+                if f_filter == "SOLO B0 (Barra 0)":
+                    filtered_xml = [f for f in xml_list if "_B0_" in f.name]
+                elif f_filter == "SOLO B9 (Barra 9)":
+                    filtered_xml = [f for f in xml_list if "_B9_" in f.name]
+                else:
+                    filtered_xml = xml_list
+
+                sel_xml = st.selectbox("Seleziona un singolo file XML da ispezionare o scaricare:", [f.name for f in filtered_xml], key=f"sel_xml_single_{key_prefix}_{rid}")
                 if sel_xml:
                     xml_target_path = tms_xml_dir / sel_xml
                     if xml_target_path.exists():
@@ -2593,22 +2622,29 @@ elif "Bolle di Consegna" in menu:
                     sid_b = str(r_b["id_store"]).strip()
                     g_b = str(r_b.get("giro", "ZA1")).strip()
                     t_c = float(r_b.get("TOT_COLLI", 0) or 0)
+                    t_cons = str(r_b.get("tipo_cons", "STD")).strip().upper()
+                    is_b9 = (t_cons in ("DOPPIA", "9", "B9"))
+                    b_val = 9 if is_b9 else 0
+                    b_lbl = "B9" if is_b9 else "B0"
+                    d_dt = str(r_b.get("data_consegna") or r_b.get("data") or target_date)[:10]
                     tms_b_records.append({
                         "store_id": sid_b,
                         "giro": g_b,
-                        "delivery_date": str(target_date)[:10],
+                        "delivery_date": d_dt,
                         "colli": int(round(t_c)),
                         "volume_mc": t_c * 0.105,
                         "peso_kg": t_c * 15.0,
+                        "barra": b_val,
+                        "tipo_specifica": b_lbl,
                     })
                 zip_tms_bytes = create_tms_xml_zip_bytes(tms_b_records)
                 st.download_button(
-                    "📦 XML TMS BeOne",
+                    "📦 Download Massivo XML TMS",
                     data=zip_tms_bytes,
-                    file_name=f"TMS_XML_Bolle_{target_date}.zip",
+                    file_name=f"TMS_XML_Bolle_Massivo_{target_date}.zip",
                     mime="application/zip",
                     use_container_width=True,
-                    help="Scarica archivio ZIP con i file XML standard TrasportoEntrataOrdini_1_00 (2 file per negozio: Consegna e Ritiro a 0 con suffisso 'R')",
+                    help="Scarica archivio ZIP con tutti i file XML standard TrasportoEntrataOrdini_1_00 differenziati per Barra 0 (B0) e Barra 9 (B9)",
                     key="dl_btn_bolle_tms_xml"
                 )
             else:
@@ -3187,15 +3223,49 @@ elif "Consuntivo & Planner" in menu:
                 df_stores=df_stores_side
             )
             if out_planner_path.exists():
-                with open(out_planner_path, "rb") as f_pl:
-                    st.download_button(
-                        "📥 SCARICA MODULO UFFICIALE INDITEX COMPILATO (Planning_ITX_RM.xlsx)",
-                        data=f_pl.read(),
-                        file_name=f"Planning_ITX_RM_{sel_plan_date}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        type="primary",
-                        use_container_width=True,
-                    )
+                c_dl_p1, c_dl_p2 = st.columns([1.6, 1.4])
+                with c_dl_p1:
+                    with open(out_planner_path, "rb") as f_pl:
+                        st.download_button(
+                            "📥 MODULO UFFICIALE INDITEX (Planning_ITX_RM.xlsx)",
+                            data=f_pl.read(),
+                            file_name=f"Planning_ITX_RM_{sel_plan_date}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            type="primary",
+                            use_container_width=True,
+                        )
+                with c_dl_p2:
+                    from src.tms_xml_exporter import create_tms_xml_zip_bytes
+                    tms_plan_recs = []
+                    for _, r_b in df_actuals_bolle.iterrows():
+                        sid_b = str(r_b["id_store"]).strip()
+                        g_b = str(r_b.get("giro", "ZA1")).strip()
+                        t_c = float(r_b.get("tot_colli", 0) or 0)
+                        t_cons = str(r_b.get("tipo_cons", "STD")).strip().upper()
+                        is_b9 = (t_cons in ("DOPPIA", "9", "B9"))
+                        b_val = 9 if is_b9 else 0
+                        b_lbl = "B9" if is_b9 else "B0"
+                        d_dt = str(r_b.get("data_consegna") or r_b.get("data") or display_plan_date)[:10]
+                        tms_plan_recs.append({
+                            "store_id": sid_b,
+                            "giro": g_b,
+                            "delivery_date": d_dt,
+                            "colli": int(round(t_c)),
+                            "volume_mc": t_c * 0.105,
+                            "peso_kg": t_c * 15.0,
+                            "barra": b_val,
+                            "tipo_specifica": b_lbl,
+                        })
+                    if tms_plan_recs:
+                        plan_tms_zip = create_tms_xml_zip_bytes(tms_plan_recs)
+                        st.download_button(
+                            "📦 DOWNLOAD MASSIVO XML TMS (B0 + B9 ZIP)",
+                            data=plan_tms_zip,
+                            file_name=f"TMS_XML_Ciclo_{display_plan_date}.zip",
+                            mime="application/zip",
+                            use_container_width=True,
+                            key="btn_dl_tms_plan_zip"
+                        )
 
             disp_cols = [
                 "store_code", "store_name", "brand", "delivery_day",

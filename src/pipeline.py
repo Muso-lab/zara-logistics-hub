@@ -301,7 +301,7 @@ def run_pipeline(
     try:
         from src.tms_xml_exporter import generate_tms_xml_files
         tms_records = []
-        for df_sga in [df_sga0, df_sga9]:
+        for df_sga, bar_num in [(df_sga0, 0), (df_sga9, 9)]:
             if df_sga is not None and not df_sga.empty:
                 for _, r_sga in df_sga.iterrows():
                     f_tipo = str(r_sga.get("flusso_tipo", "")).upper()
@@ -313,6 +313,8 @@ def run_pipeline(
                             "colli": int(round(float(r_sga.get("COLLI", r_sga.get("colli", 0))))),
                             "volume_mc": float(r_sga.get("VOLUME", r_sga.get("volume", 0.0))),
                             "peso_kg": float(r_sga.get("PESO", r_sga.get("peso", 0.0))),
+                            "barra": bar_num,
+                            "tipo_specifica": f"B{bar_num}",
                         })
         if tms_records:
             tms_xml_dir = out_dir / "tms_xml"

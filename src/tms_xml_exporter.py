@@ -167,6 +167,8 @@ def build_tms_order_xml(
     colli: int = 0,
     volume_mc: float = 0.0,
     is_ritiro: bool = False,
+    barra: Union[int, str] = 0,
+    tipo_specifica: Optional[str] = None,
     id_flusso: Optional[str] = None,
     elemento_id: Optional[str] = None,
 ) -> str:
@@ -184,6 +186,13 @@ def build_tms_order_xml(
 
     if not id_flusso:
         id_flusso = generate_unique_id_flusso()
+
+    if tipo_specifica:
+        ts_clean = str(tipo_specifica).strip().upper()
+    elif str(barra).strip().upper() in ("9", "B9", "DOPPIA"):
+        ts_clean = "B9"
+    else:
+        ts_clean = "B0" 
 
     giro_clean = str(giro).strip().upper()
     ref_base = f"{giro_clean}-{stop_sequence}"
@@ -269,7 +278,7 @@ def build_tms_order_xml(
         f'      <RiferimentoInterno>{order_ref}</RiferimentoInterno>',
         '      <Descrizione/>',
         '      <TipoServizio>DI</TipoServizio>',
-        '      <TipoSpecifica/>',
+        f'      <TipoSpecifica>{ts_clean}</TipoSpecifica>',
         '      <TipoMotriceTrattore/>',
         '      <TipoRimorchioSemirimorchio/>',
         '      <Priorita/>',
@@ -495,7 +504,16 @@ def generate_tms_xml_files(
         if peso <= 0 and colli > 0:
             peso = colli * 15.0  # Fallback peso collo medio
 
-        # 1. FILE CONSEGNA
+        barra_val = rec.get("barra", 0)
+        tipo_spec_val = rec.get("tipo_specifica")
+        if tipo_spec_val:
+            barra_lbl = str(tipo_spec_val).strip().upper()
+        elif str(barra_val).strip().upper() in ("9", "B9", "DOPPIA"):
+            barra_lbl = "B9"
+        else:
+            barra_lbl = "B0"
+
+        # 1. FILE CONSEGNA (B0 o B9)
         id_flusso_c = generate_unique_id_flusso()
         xml_consegna = build_tms_order_xml(
             delivery_date=deliv_date_str,
@@ -506,18 +524,20 @@ def generate_tms_xml_files(
             colli=colli,
             volume_mc=mc,
             is_ritiro=False,
+            barra=barra_val,
+            tipo_specifica=barra_lbl,
             id_flusso=id_flusso_c,
             elemento_id=id_flusso_c,
         )
-        fn_consegna = f"{deliv_date_str}_{giro}_{sid}_CONSEGNA.xml"
+        fn_consegna = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_CONSEGNA.xml"
         path_consegna = output_dir / fn_consegna
         if path_consegna.exists():
-            fn_consegna = f"{deliv_date_str}_{giro}_{sid}_{stop_seq}_CONSEGNA.xml"
+            fn_consegna = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_{stop_seq}_CONSEGNA.xml"
             path_consegna = output_dir / fn_consegna
         path_consegna.write_text(xml_consegna, encoding="utf-8")
         generated_xml_files.append(path_consegna)
 
-        # 2. FILE RITIRO
+        # 2. FILE RITIRO (B0 o B9)
         id_flusso_r = generate_unique_id_flusso()
         xml_ritiro = build_tms_order_xml(
             delivery_date=deliv_date_str,
@@ -528,13 +548,15 @@ def generate_tms_xml_files(
             colli=0,
             volume_mc=0.0,
             is_ritiro=True,
+            barra=barra_val,
+            tipo_specifica=barra_lbl,
             id_flusso=id_flusso_r,
             elemento_id=f"{id_flusso_r}R",
         )
-        fn_ritiro = f"{deliv_date_str}_{giro}_{sid}_RITIRO.xml"
+        fn_ritiro = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_RITIRO.xml"
         path_ritiro = output_dir / fn_ritiro
         if path_ritiro.exists():
-            fn_ritiro = f"{deliv_date_str}_{giro}_{sid}_{stop_seq}_RITIRO.xml"
+            fn_ritiro = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_{stop_seq}_RITIRO.xml"
             path_ritiro = output_dir / fn_ritiro
         path_ritiro.write_text(xml_ritiro, encoding="utf-8")
         generated_xml_files.append(path_ritiro)
@@ -609,6 +631,15 @@ def create_tms_xml_zip_bytes(records: List[Dict[str, Any]], db_path: Union[str, 
             if peso <= 0 and colli > 0:
                 peso = colli * 15.0
 
+            barra_val = rec.get("barra", 0)
+            tipo_spec_val = rec.get("tipo_specifica")
+            if tipo_spec_val:
+                barra_lbl = str(tipo_spec_val).strip().upper()
+            elif str(barra_val).strip().upper() in ("9", "B9", "DOPPIA"):
+                barra_lbl = "B9"
+            else:
+                barra_lbl = "B0"
+
             # Consegna
             id_flusso_c = generate_unique_id_flusso()
             xml_consegna = build_tms_order_xml(
@@ -620,12 +651,14 @@ def create_tms_xml_zip_bytes(records: List[Dict[str, Any]], db_path: Union[str, 
                 colli=colli,
                 volume_mc=mc,
                 is_ritiro=False,
+                barra=barra_val,
+                tipo_specifica=barra_lbl,
                 id_flusso=id_flusso_c,
                 elemento_id=id_flusso_c,
             )
-            arc_c = f"{deliv_date_str}_{giro}_{sid}_CONSEGNA.xml"
+            arc_c = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_CONSEGNA.xml"
             if arc_c in zf.namelist():
-                arc_c = f"{deliv_date_str}_{giro}_{sid}_{stop_seq}_CONSEGNA.xml"
+                arc_c = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_{stop_seq}_CONSEGNA.xml"
             zf.writestr(arc_c, xml_consegna.encode("utf-8"))
 
             # Ritiro
@@ -639,39 +672,52 @@ def create_tms_xml_zip_bytes(records: List[Dict[str, Any]], db_path: Union[str, 
                 colli=0,
                 volume_mc=0.0,
                 is_ritiro=True,
+                barra=barra_val,
+                tipo_specifica=barra_lbl,
                 id_flusso=id_flusso_r,
                 elemento_id=f"{id_flusso_r}R",
             )
-            arc_r = f"{deliv_date_str}_{giro}_{sid}_RITIRO.xml"
+            arc_r = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_RITIRO.xml"
             if arc_r in zf.namelist():
-                arc_r = f"{deliv_date_str}_{giro}_{sid}_{stop_seq}_RITIRO.xml"
+                arc_r = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_{stop_seq}_RITIRO.xml"
             zf.writestr(arc_r, xml_ritiro.encode("utf-8"))
 
     return zip_buffer.getvalue()
 
 
 def generate_tms_xml_from_bolle(
-    delivery_date: str,
+    delivery_date: Union[str, List[str], Tuple[str, ...]],
     output_dir: Optional[Union[str, Path]] = None,
     db_path: Union[str, Path] = DB_PATH,
 ) -> Tuple[List[Path], Path]:
     """
     Estrae le bolle registrate per una specifica data di consegna (o per entrambe le date di un ciclo)
-    e genera tutti i file XML Consegna + Ritiro e relativo archivio ZIP.
+    e genera tutti i file XML Consegna + Ritiro (B0 e B9) e relativo archivio ZIP.
     """
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("""
+    if isinstance(delivery_date, (list, tuple)):
+        target_dates = [str(d)[:10] for d in delivery_date]
+    elif "___" in str(delivery_date):
+        target_dates = [str(d)[:10] for d in str(delivery_date).split("___")]
+    else:
+        target_dates = [str(delivery_date)[:10]]
+
+    placeholders = ",".join(["?"] * len(target_dates))
+    query = f"""
         SELECT b.id, b.data_consegna, b.data, b.id_store, b.tipo_cons,
                b.colli_abbigl, b.colli_calzat, b.colli_ecom, b.colli_others, b.colli_vario, b.colli_cont, b.colli_mat_vario,
                b.prev_totale,
                s.giro, s.cod_sga, s.brand, s.store_name
         FROM bolle b
         LEFT JOIN stores s ON b.id_store = s.store_id
-        WHERE b.data_consegna = ? OR b.data = ?
-        ORDER BY s.giro ASC, b.id_store ASC
-    """, (delivery_date, delivery_date))
+        WHERE b.data_consegna IN ({placeholders}) OR b.data IN ({placeholders})
+        ORDER BY b.tipo_cons ASC, s.giro ASC, b.id_store ASC
+    """
+    params = target_dates + target_dates
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(query, params)
     rows = cur.fetchall()
     conn.close()
 
@@ -685,17 +731,25 @@ def generate_tms_xml_from_bolle(
         if tot_c <= 0:
             tot_c = int(round(float(r["prev_totale"] or 0)))
 
-        # Volume e Peso
         mc = tot_c * 0.105 if tot_c > 0 else 0.0
         peso = tot_c * 15.0 if tot_c > 0 else 0.0
+
+        t_cons = str(r["tipo_cons"] or "STD").strip().upper()
+        is_b9 = (t_cons in ("DOPPIA", "9", "B9"))
+        b_val = 9 if is_b9 else 0
+        b_lbl = "B9" if is_b9 else "B0"
+
+        d_date = str(r["data_consegna"] or r["data"] or target_dates[0])[:10]
 
         records.append({
             "store_id": str(r["id_store"]),
             "giro": str(r["giro"] or "ZA1"),
-            "delivery_date": str(r["data_consegna"] or r["data"] or delivery_date)[:10],
+            "delivery_date": d_date,
             "colli": tot_c,
             "volume_mc": mc,
             "peso_kg": peso,
+            "barra": b_val,
+            "tipo_specifica": b_lbl,
         })
 
     return generate_tms_xml_files(records, output_dir=output_dir, db_path=db_path)
@@ -714,18 +768,20 @@ def generate_tms_xml_from_run(
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
-    # Prendi i flussi di ANDATA da sga_flows
+    # Prendi i flussi di ANDATA da sga_flows (con barra)
     cur.execute("""
-        SELECT store_code, giro, data_scarico, peso, volume, colli
+        SELECT store_code, giro, data_scarico, peso, volume, colli, barra
         FROM sga_flows
         WHERE run_id = ? AND UPPER(flusso_tipo) = 'ANDATA'
-        ORDER BY giro ASC, store_code ASC
+        ORDER BY barra ASC, giro ASC, store_code ASC
     """, (run_id,))
     rows = cur.fetchall()
     conn.close()
 
     records = []
     for r in rows:
+        b_val = r["barra"]
+        b_lbl = "B9" if str(b_val).strip() in ("9", "B9") else "B0"
         records.append({
             "store_id": str(r["store_code"]),
             "giro": str(r["giro"]),
@@ -733,6 +789,8 @@ def generate_tms_xml_from_run(
             "colli": int(round(float(r["colli"] or 0))),
             "volume_mc": float(r["volume"] or 0.0),
             "peso_kg": float(r["peso"] or 0.0),
+            "barra": b_val,
+            "tipo_specifica": b_lbl,
         })
 
     return generate_tms_xml_files(records, output_dir=output_dir, db_path=db_path)
