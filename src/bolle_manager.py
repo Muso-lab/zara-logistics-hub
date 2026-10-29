@@ -810,7 +810,7 @@ def generate_bolle_from_forecast(
                 store_planned[base_sid]["shoes"] += _safe_float(r.get("planned_shoes", 0.0))
             else:
                 store_planned[base_sid]["textile"] += _safe_float(r.get("planned_textile", 0.0))
-                if base_sid not in stores_with_shoes:
+                if base_sid not in stores_with_shoes or raw_code.endswith("B"):
                     store_planned[base_sid]["shoes"] += _safe_float(r.get("planned_shoes", 0.0))
                 store_planned[base_sid]["others"] += _safe_float(r.get("planned_others", 0.0))
                 store_planned[base_sid]["ecom"] += _safe_float(r.get("planned_ecom", 0.0))

@@ -299,6 +299,56 @@ def test_sdoppiamento_volume_split():
     assert abs(p_b9["total_planned_crts"] - 30.0) < 1e-1   # 30%
 
 
+def test_zara_shoes_sdoppiamento_no_double_split():
+    """
+    Verifies that Zara stores with dedicated SHOES rows (like 3503, 3680)
+    do not have their shoes split twice when compute_planning_roma is re-run
+    over planning_results with actuals from bolle.
+    """
+    from src.engine import compute_planning_roma
+    # Simulate a raw store analysis with 40 shoes
+    df_analisi_zara = pd.DataFrame([{
+        "store_id": "3503",
+        "store_name": "CHIETI-MEGALO",
+        "brand": "ZARA",
+        "total_vol": 50.0,
+        "planned_textile": 366.0,
+        "planned_others": 16.0,
+        "planned_shoes": 40.0,
+        "planned_ecom": 0.0,
+        "total_planned_crts": 422.0,
+        "giro": "ZA1"
+    }])
+    df_stores_zara = pd.DataFrame([{
+        "store_id": "3503",
+        "sdoppiamento_b9": "SI",
+        "formula": "MC/1,9"
+    }])
+    # Step 1: Initial planning run
+    df_actuals_empty = pd.DataFrame(columns=["ID_STORE", "tipo_cons", "TOT_ABBIGL", "TOT_CALZAT", "TOT_ECOM", "TOT_OTHERS"])
+    df_plan_1 = compute_planning_roma(df_analisi_zara, df_actuals_empty, df_stores=df_stores_zara)
+    p_sho_std = df_plan_1[(df_plan_1["store_code"] == "3503") & (df_plan_1["brand"] == "ZARA SHOES")].iloc[0]
+    p_sho_b9 = df_plan_1[df_plan_1["store_code"] == "3503B"].iloc[0]
+
+    assert p_sho_std["planned_shoes"] == 28.0  # 70% of 40
+    assert p_sho_b9["planned_shoes"] == 12.0   # 30% of 40
+
+    # Step 2: Actuals generated from bolle (STD=28, DOPPIA=12)
+    df_actuals_bolle = pd.DataFrame([
+        {"ID_STORE": "3503", "tipo_cons": "STD", "TOT_CALZAT": 28.0, "TOT_ABBIGL": 256.0, "TOT_OTHERS": 11.0},
+        {"ID_STORE": "3503", "tipo_cons": "DOPPIA", "TOT_CALZAT": 12.0, "TOT_ABBIGL": 110.0, "TOT_OTHERS": 5.0},
+    ])
+    # Step 3: Re-running compute_planning_roma on df_plan_1 must keep planned_shoes at 28 and 12, exactly matching received_shoes!
+    df_plan_2 = compute_planning_roma(df_plan_1, df_actuals_bolle, df_stores=df_stores_zara)
+    p2_sho_std = df_plan_2[(df_plan_2["store_code"] == "3503") & (df_plan_2["brand"] == "ZARA SHOES")].iloc[0]
+    p2_sho_b9 = df_plan_2[df_plan_2["store_code"] == "3503B"].iloc[0]
+
+    assert p2_sho_std["planned_shoes"] == 28.0
+    assert p2_sho_std["received_shoes"] == 28.0
+    assert p2_sho_b9["planned_shoes"] == 12.0
+    assert p2_sho_b9["received_shoes"] == 12.0
+
+
 def test_classify_uploaded_files():
     import zipfile
     import io

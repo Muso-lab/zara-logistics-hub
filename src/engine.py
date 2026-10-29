@@ -853,8 +853,12 @@ def compute_planning_roma(
             # Dedicated shoes row (e.g. ZARA SHOES)
             is_sdop = map_sdoppia.get(base_sid, "SI" if base_sid in tpl_b9_stores else "NO") == "SI"
             tot_s_raw = int(round(_safe_float(a_data.get("planned_shoes", 0.0))))
+            has_b_row_in_input = (f"{base_sid}B" in map_a)
             if is_sdop and base_sid in tpl_b9_stores:
-                pl_sho = tot_s_raw - int(round(tot_s_raw * PERCENTUALE_BARRA9_SPLIT))
+                if has_b_row_in_input:
+                    pl_sho = tot_s_raw
+                else:
+                    pl_sho = tot_s_raw - int(round(tot_s_raw * PERCENTUALE_BARRA9_SPLIT))
             else:
                 pl_sho = tot_s_raw
             act_s = map_act_std.get(base_sid, {}) if base_sid in tpl_b9_stores else map_act_tot.get(base_sid, {})
@@ -870,14 +874,17 @@ def compute_planning_roma(
             # Barra 9 row (e.g. 5349B, 6525B, 3680B, 3503B)
             is_sdop = map_sdoppia.get(base_sid, "SI" if base_sid in tpl_b9_stores else "NO") == "SI"
             if is_sdop:
-                already_split = str(a_data.get("store_code", "")).endswith("B")
+                already_split = str(a_data.get("store_code", "")).endswith("B") or (f"{base_sid}B" in map_a)
                 b9_mult = 1.0 if already_split else PERCENTUALE_BARRA9_SPLIT
 
                 pl_text = int(round(_safe_float(a_data.get("planned_textile", 0.0)) * b9_mult))
                 if base_sid in stores_with_shoes_row:
-                    sho_source = map_a_brand.get((base_sid, True), map_a.get(base_sid, {}))
-                    tot_sho_raw = _safe_float(sho_source.get("planned_shoes", 0.0))
-                    pl_sho = int(round(tot_sho_raw * PERCENTUALE_BARRA9_SPLIT))
+                    if already_split:
+                        pl_sho = int(round(_safe_float(a_data.get("planned_shoes", 0.0))))
+                    else:
+                        sho_source = map_a_brand.get((base_sid, True), map_a.get(base_sid, {}))
+                        tot_sho_raw = _safe_float(sho_source.get("planned_shoes", 0.0))
+                        pl_sho = int(round(tot_sho_raw * PERCENTUALE_BARRA9_SPLIT))
                 else:
                     pl_sho = int(round(_safe_float(a_data.get("planned_shoes", 0.0)) * b9_mult))
                 pl_oth = int(round(_safe_float(a_data.get("planned_others", 0.0)) * b9_mult))
