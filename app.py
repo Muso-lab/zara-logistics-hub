@@ -2616,28 +2616,8 @@ elif "Bolle di Consegna" in menu:
                 st.button("📥 Esporta Excel", disabled=True, use_container_width=True)
         with b_act6:
             if not df_bolle.empty:
-                from src.tms_xml_exporter import create_tms_xml_zip_bytes
-                tms_b_records = []
-                for _, r_b in df_bolle.iterrows():
-                    sid_b = str(r_b["id_store"]).strip()
-                    g_b = str(r_b.get("giro", "ZA1")).strip()
-                    t_c = float(r_b.get("TOT_COLLI", 0) or 0)
-                    t_cons = str(r_b.get("tipo_cons", "STD")).strip().upper()
-                    is_b9 = (t_cons in ("DOPPIA", "9", "B9"))
-                    b_val = 9 if is_b9 else 0
-                    b_lbl = "B9" if is_b9 else "B0"
-                    d_dt = str(r_b.get("data_consegna") or r_b.get("data") or target_date)[:10]
-                    tms_b_records.append({
-                        "store_id": sid_b,
-                        "giro": g_b,
-                        "delivery_date": d_dt,
-                        "colli": int(round(t_c)),
-                        "volume_mc": t_c * 0.105,
-                        "peso_kg": t_c * 15.0,
-                        "barra": b_val,
-                        "tipo_specifica": b_lbl,
-                    })
-                zip_tms_bytes = create_tms_xml_zip_bytes(tms_b_records)
+                from src.tms_xml_exporter import create_tms_xml_zip_bytes_from_bolle
+                zip_tms_bytes = create_tms_xml_zip_bytes_from_bolle(target_date)
                 st.download_button(
                     "📦 Download Massivo XML TMS",
                     data=zip_tms_bytes,
@@ -3235,29 +3215,9 @@ elif "Consuntivo & Planner" in menu:
                             use_container_width=True,
                         )
                 with c_dl_p2:
-                    from src.tms_xml_exporter import create_tms_xml_zip_bytes
-                    tms_plan_recs = []
-                    for _, r_b in df_actuals_bolle.iterrows():
-                        sid_b = str(r_b["id_store"]).strip()
-                        g_b = str(r_b.get("giro", "ZA1")).strip()
-                        t_c = float(r_b.get("tot_colli", 0) or 0)
-                        t_cons = str(r_b.get("tipo_cons", "STD")).strip().upper()
-                        is_b9 = (t_cons in ("DOPPIA", "9", "B9"))
-                        b_val = 9 if is_b9 else 0
-                        b_lbl = "B9" if is_b9 else "B0"
-                        d_dt = str(r_b.get("data_consegna") or r_b.get("data") or display_plan_date)[:10]
-                        tms_plan_recs.append({
-                            "store_id": sid_b,
-                            "giro": g_b,
-                            "delivery_date": d_dt,
-                            "colli": int(round(t_c)),
-                            "volume_mc": t_c * 0.105,
-                            "peso_kg": t_c * 15.0,
-                            "barra": b_val,
-                            "tipo_specifica": b_lbl,
-                        })
-                    if tms_plan_recs:
-                        plan_tms_zip = create_tms_xml_zip_bytes(tms_plan_recs)
+                    from src.tms_xml_exporter import create_tms_xml_zip_bytes_from_bolle
+                    plan_tms_zip = create_tms_xml_zip_bytes_from_bolle(target_query_dates)
+                    if plan_tms_zip:
                         st.download_button(
                             "📦 DOWNLOAD MASSIVO XML TMS (B0 + B9 ZIP)",
                             data=plan_tms_zip,

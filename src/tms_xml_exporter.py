@@ -755,6 +755,113 @@ def generate_tms_xml_from_bolle(
     return generate_tms_xml_files(records, output_dir=output_dir, db_path=db_path)
 
 
+def create_tms_xml_zip_bytes_from_bolle(
+    delivery_date: Union[str, List[str], Tuple[str, ...]],
+    db_path: Union[str, Path] = DB_PATH,
+) -> bytes:
+    """
+    Estrae le bolle per la/le data/e specificata/e e restituisce il contenuto
+    dell'archivio ZIP con tutti i file XML B0 e B9 direttamente in memoria.
+    """
+    if isinstance(delivery_date, (list, tuple)):
+        target_dates = [str(d)[:10] for d in delivery_date]
+    elif "___" in str(delivery_date):
+        target_dates = [str(d)[:10] for d in str(delivery_date).split("___")]
+    else:
+        target_dates = [str(delivery_date)[:10]]
+
+    placeholders = ",".join(["?"] * len(target_dates))
+    query = f"""
+        SELECT b.id, b.data_consegna, b.data, b.id_store, b.tipo_cons,
+               b.colli_abbigl, b.colli_calzat, b.colli_ecom, b.colli_others, b.colli_vario, b.colli_cont, b.colli_mat_vario,
+               b.prev_totale,
+               s.giro, s.cod_sga, s.brand, s.store_name
+        FROM bolle b
+        LEFT JOIN stores s ON b.id_store = s.store_id
+        WHERE b.data_consegna IN ({placeholders}) OR b.data IN ({placeholders})
+        ORDER BY b.tipo_cons ASC, s.giro ASC, b.id_store ASC
+    """
+    params = target_dates + target_dates
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    conn.close()
+
+    records = []
+    for r in rows:
+        tot_c = (
+            (r["colli_abbigl"] or 0) + (r["colli_calzat"] or 0) + (r["colli_ecom"] or 0) +
+            (r["colli_others"] or 0) + (r["colli_vario"] or 0) + (r["colli_cont"] or 0) +
+            (r["colli_mat_vario"] or 0)
+        )
+        if tot_c <= 0:
+            tot_c = int(round(float(r["prev_totale"] or 0)))
+
+        mc = tot_c * 0.105 if tot_c > 0 else 0.0
+        peso = tot_c * 15.0 if tot_c > 0 else 0.0
+
+        t_cons = str(r["tipo_cons"] or "STD").strip().upper()
+        is_b9 = (t_cons in ("DOPPIA", "9", "B9"))
+        b_val = 9 if is_b9 else 0
+        b_lbl = "B9" if is_b9 else "B0"
+
+        d_date = str(r["data_consegna"] or r["data"] or target_dates[0])[:10]
+
+        records.append({
+            "store_id": str(r["id_store"]),
+            "giro": str(r["giro"] or "ZA1"),
+            "delivery_date": d_date,
+            "colli": tot_c,
+            "volume_mc": mc,
+            "peso_kg": peso,
+            "barra": b_val,
+            "tipo_specifica": b_lbl,
+        })
+
+    return create_tms_xml_zip_bytes(records, db_path=db_path)
+
+
+def create_tms_xml_zip_bytes_from_run(
+    run_id: str,
+    db_path: Union[str, Path] = DB_PATH,
+) -> bytes:
+    """
+    Estrae i flussi dell'operativa per il run_id indicato e restituisce il contenuto
+    dell'archivio ZIP con tutti i file XML B0 e B9 direttamente in memoria.
+    """
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT store_code, giro, data_scarico, peso, volume, colli, barra
+        FROM sga_flows
+        WHERE run_id = ? AND UPPER(flusso_tipo) = 'ANDATA'
+        ORDER BY barra ASC, giro ASC, store_code ASC
+    """, (run_id,))
+    rows = cur.fetchall()
+    conn.close()
+
+    records = []
+    for r in rows:
+        b_val = r["barra"]
+        b_lbl = "B9" if str(b_val).strip() in ("9", "B9") else "B0"
+        records.append({
+            "store_id": str(r["store_code"]),
+            "giro": str(r["giro"]),
+            "delivery_date": str(r["data_scarico"]),
+            "colli": int(round(float(r["colli"] or 0))),
+            "volume_mc": float(r["volume"] or 0.0),
+            "peso_kg": float(r["peso"] or 0.0),
+            "barra": b_val,
+            "tipo_specifica": b_lbl,
+        })
+
+    return create_tms_xml_zip_bytes(records, db_path=db_path)
+
+
 def generate_tms_xml_from_run(
     run_id: str,
     output_dir: Optional[Union[str, Path]] = None,
