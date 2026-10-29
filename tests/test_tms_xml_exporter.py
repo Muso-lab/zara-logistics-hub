@@ -5,6 +5,7 @@ distinguishing Barra 0 (B0) and Barra 9 (B9) across all 4 file types.
 """
 
 from pathlib import Path
+import re
 import xml.etree.ElementTree as ET
 import pytest
 import zipfile
@@ -302,3 +303,91 @@ def test_pull_and_bear_xml_escape_and_validation():
     dest_rs = root.find("Ordini/Ordine/CarichiScarichi/CaricoScarico/ScaricoDestinatarioInformazioniAnagrafiche/RagioneSociale")
     assert dest_rs is not None
     assert dest_rs.text == "Pull&Bear Adriatico - 5405"
+
+
+def test_exact_116_files_no_duplicate_or_numeric_suffix(tmp_path):
+    """
+    Test standard cycle: 48 B0 stores + 10 B9 stores = 58 stores.
+    Must generate exactly 116 files:
+      - 48 Consegne B0
+      - 48 Ritiri B0
+      - 10 Consegne B9
+      - 10 Ritiri B9
+    Filenames must NEVER contain stop_sequence or numeric suffixes like _1_ or _2_.
+    Calling generate_tms_xml_files twice on the same directory MUST NOT create 232 files.
+    """
+    records = []
+    # 48 stores Barra 0
+    for i in range(1, 49):
+        records.append({
+            "store_id": f"100{i:02d}",
+            "giro": f"ZA{(i % 8) + 1}",
+            "delivery_date": "2026-10-28",
+            "colli": 50 + i,
+            "volume_mc": 5.0,
+            "peso_kg": 750.0,
+            "barra": 0,
+            "tipo_specifica": "B0",
+        })
+    # 10 stores Barra 9
+    for i in range(1, 11):
+        records.append({
+            "store_id": f"200{i:02d}",
+            "giro": f"ZA{(i % 4) + 1}",
+            "delivery_date": "2026-10-29",
+            "colli": 30 + i,
+            "volume_mc": 3.0,
+            "peso_kg": 450.0,
+            "barra": 9,
+            "tipo_specifica": "B9",
+        })
+
+    assert len(records) == 58
+
+    # Prima generazione
+    files1, zip_path1 = generate_tms_xml_files(records, output_dir=tmp_path)
+    assert len(files1) == 116
+    assert zip_path1.exists()
+
+    xml_files_in_dir = list(tmp_path.glob("*.xml"))
+    assert len(xml_files_in_dir) == 116
+
+    b0_c = [f for f in xml_files_in_dir if "_B0_CONSEGNA.xml" in f.name]
+    b0_r = [f for f in xml_files_in_dir if "_B0_RITIRO.xml" in f.name]
+    b9_c = [f for f in xml_files_in_dir if "_B9_CONSEGNA.xml" in f.name]
+    b9_r = [f for f in xml_files_in_dir if "_B9_RITIRO.xml" in f.name]
+
+    assert len(b0_c) == 48
+    assert len(b0_r) == 48
+    assert len(b9_c) == 10
+    assert len(b9_r) == 10
+
+    # Verifica assenza assoluta di suffissi numerici intermedi come _1_ o _2_
+    for f in xml_files_in_dir:
+        stem = f.stem
+        # Non deve contenere _B0_1_ o _B0_2_ o simili
+        assert not re.search(r"_(B0|B9)_\d+_(CONSEGNA|RITIRO)", stem), f"File has unexpected numeric suffix: {f.name}"
+        # Deve terminare rigorosamente con _B0_CONSEGNA, _B0_RITIRO, _B9_CONSEGNA, _B9_RITIRO
+        assert stem.endswith(("_B0_CONSEGNA", "_B0_RITIRO", "_B9_CONSEGNA", "_B9_RITIRO")), f"Invalid name ending: {f.name}"
+
+    # SECONDA GENERAZIONE SULLA STESSA CARTELLA (simulazione refresh / rerun Streamlit)
+    files2, zip_path2 = generate_tms_xml_files(records, output_dir=tmp_path)
+    xml_files_after_rerun = list(tmp_path.glob("*.xml"))
+    # NON deve raddoppiare a 232! Deve rimanere esattamente a 116 file puliti
+    assert len(xml_files_after_rerun) == 116
+    assert len(files2) == 116
+
+    # Verifica contenuto archivio ZIP
+    with zipfile.ZipFile(zip_path2, "r") as zf:
+        zip_names = zf.namelist()
+        assert len(zip_names) == 116
+        for name in zip_names:
+            assert not re.search(r"_(B0|B9)_\d+_(CONSEGNA|RITIRO)", name), f"ZIP entry has numeric suffix: {name}"
+
+    # Verifica anche la generazione diretta in memoria tramite create_tms_xml_zip_bytes
+    zip_bytes = create_tms_xml_zip_bytes(records)
+    import io
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf_mem:
+        mem_names = zf_mem.namelist()
+        assert len(mem_names) == 116
+

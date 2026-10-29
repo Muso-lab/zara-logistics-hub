@@ -1053,9 +1053,14 @@ def render_operativa_files_and_email_section(
     st.caption("Scarica i documenti operativi ufficiali generati per questa spedizione (Sintesi Operativa, SGA Barra 0, SGA Barra 9, Spunta ZARA) oppure espandi la sezione email per la trasmissione:")
 
     # Generazione / Verifica file XML TMS (TrasportoEntrataOrdini_1_00 per BeOne)
-    p_tms_zip = out_dir / f"TMS_XML_Ordini_{rid}_{r_date}.zip"
+    p_tms_zip_name = f"TMS_XML_Ordini_{rid}_{r_date}.zip"
+    p_tms_zip = out_dir / p_tms_zip_name
     tms_xml_dir = out_dir / "tms_xml"
-    if not p_tms_zip.exists() or not tms_xml_dir.exists():
+    p_tms_zip_in_dir = tms_xml_dir / p_tms_zip_name
+
+    active_tms_zip = p_tms_zip if p_tms_zip.exists() else (p_tms_zip_in_dir if p_tms_zip_in_dir.exists() else None)
+
+    if active_tms_zip is None or not tms_xml_dir.exists():
         tms_records = []
         for df_sga, bar_num in [(s0_df, 0), (s9_df, 9)]:
             if df_sga is not None and not df_sga.empty:
@@ -1075,7 +1080,8 @@ def render_operativa_files_and_email_section(
         if tms_records:
             try:
                 from src.tms_xml_exporter import generate_tms_xml_files
-                generate_tms_xml_files(tms_records, output_dir=tms_xml_dir, zip_filename=p_tms_zip.name)
+                _, gen_zip = generate_tms_xml_files(tms_records, output_dir=tms_xml_dir, zip_filename=p_tms_zip_name)
+                active_tms_zip = gen_zip if gen_zip.exists() else (p_tms_zip if p_tms_zip.exists() else None)
             except Exception as e:
                 pass
 
@@ -1131,17 +1137,29 @@ def render_operativa_files_and_email_section(
         else:
             st.button("📄 Spunta ZARA (N.D.)", disabled=True, use_container_width=True, key=f"dl_box_zara_nd_{key_prefix}_{rid}")
     with dl_cols[4]:
-        if p_tms_zip.exists():
-            with open(p_tms_zip, "rb") as f_tz:
-                st.download_button(
-                    "📦 Download Massivo XML TMS (.zip)",
-                    data=f_tz.read(),
-                    file_name=p_tms_zip.name,
-                    mime="application/zip",
-                    use_container_width=True,
-                    help="File XML standard TrasportoEntrataOrdini_1_00 per TMS BeOne / Nova Systems (2 file per negozio: Consegna con merci reali + Ritiro a 0 con suffisso 'R')",
-                    key=f"dl_box_tms_zip_{key_prefix}_{rid}"
-                )
+        tms_zip_bytes = None
+        if active_tms_zip and active_tms_zip.exists():
+            try:
+                tms_zip_bytes = active_tms_zip.read_bytes()
+            except Exception:
+                tms_zip_bytes = None
+        if tms_zip_bytes is None:
+            try:
+                from src.tms_xml_exporter import create_tms_xml_zip_bytes_from_run
+                tms_zip_bytes = create_tms_xml_zip_bytes_from_run(rid)
+            except Exception:
+                tms_zip_bytes = None
+
+        if tms_zip_bytes:
+            st.download_button(
+                "📦 Download Massivo XML TMS (.zip)",
+                data=tms_zip_bytes,
+                file_name=p_tms_zip_name,
+                mime="application/zip",
+                use_container_width=True,
+                help="File XML standard TrasportoEntrataOrdini_1_00 per TMS BeOne / Nova Systems (Consegna con merci reali + Ritiro a 0 con suffisso 'R')",
+                key=f"dl_box_tms_zip_{key_prefix}_{rid}"
+            )
         else:
             st.button("📦 XML TMS (N.D.)", disabled=True, use_container_width=True, key=f"dl_box_tms_nd_{key_prefix}_{rid}")
     with dl_cols[5]:
@@ -1174,17 +1192,22 @@ def render_operativa_files_and_email_section(
                 nb_b9_r = sum(1 for f in xml_list if "_B9_RITIRO" in f.name)
                 st.info(f"📁 **Totale {len(xml_list)} file XML generati**: {nb_b0_c} Consegne B0, {nb_b0_r} Ritiri B0, {nb_b9_c} Consegne B9, {nb_b9_r} Ritiri B9.")
                 
-                if p_tms_zip.exists():
-                    with open(p_tms_zip, "rb") as f_tz_all:
-                        st.download_button(
-                            f"📥 DOWNLOAD MASSIVO DI TUTTI I {len(xml_list)} FILE XML (ZIP)",
-                            data=f_tz_all.read(),
-                            file_name=p_tms_zip.name,
-                            mime="application/zip",
-                            type="primary",
-                            use_container_width=True,
-                            key=f"dl_box_tms_zip_massivo_{key_prefix}_{rid}"
-                        )
+                if tms_zip_bytes is None and active_tms_zip and active_tms_zip.exists():
+                    try:
+                        tms_zip_bytes = active_tms_zip.read_bytes()
+                    except Exception:
+                        tms_zip_bytes = None
+
+                if tms_zip_bytes:
+                    st.download_button(
+                        f"📥 DOWNLOAD MASSIVO DI TUTTI I {len(xml_list)} FILE XML (ZIP)",
+                        data=tms_zip_bytes,
+                        file_name=p_tms_zip_name,
+                        mime="application/zip",
+                        type="primary",
+                        use_container_width=True,
+                        key=f"dl_box_tms_zip_massivo_{key_prefix}_{rid}"
+                    )
                 
                 f_filter = st.radio("Filtra elenco file per tipologia:", ["TUTTI", "SOLO B0 (Barra 0)", "SOLO B9 (Barra 9)"], horizontal=True, key=f"rad_tms_filt_{key_prefix}_{rid}")
                 if f_filter == "SOLO B0 (Barra 0)":
@@ -2541,8 +2564,9 @@ elif "Bolle di Consegna" in menu:
         with p_mode_c1:
             print_direct_mode = st.toggle("⚡ Stampa Diretta (invia subito alla stampante/dialogo browser saltando l'anteprima)", value=True, key="tog_b_print_dir")
 
-        # Barra Pulsanti Stampa & Export (include esportazione XML TMS BeOne)
-        b_act1, b_act2, b_act3, b_act4, b_act5, b_act6, b_act7 = st.columns([1.2, 1.2, 1.3, 1.4, 1.1, 1.3, 1.1])
+        # Barra Pulsanti Stampa & Export (Organizzata su 2 righe spaziose)
+        # Riga 1: Azioni di Stampa
+        b_act1, b_act2, b_act3, b_act4 = st.columns([1.2, 1.2, 1.4, 1.4])
         with b_act1:
             if st.button("🖨️ Stampa STD (/0)", type="primary", use_container_width=True):
                 df_std = df_bolle[df_bolle["tipo_cons"] == "STD"] if not df_bolle.empty else pd.DataFrame()
@@ -2602,34 +2626,39 @@ elif "Bolle di Consegna" in menu:
                             st.rerun()
                 else:
                     st.info("Nessuna bolla disponibile nella selezione.")
-        with b_act5:
+
+        # Riga 2: Esportazioni Dati & Gestione Bolle
+        st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+        b_exp1, b_exp2, b_exp3 = st.columns([1.3, 2.2, 1.1])
+        with b_exp1:
             if not df_bolle.empty:
                 excel_bytes = export_bolle_excel(df_bolle, target_date)
                 st.download_button(
-                    "📥 Esporta Excel",
+                    "📊 Esporta Riepilogo Excel (.xlsx)",
                     data=excel_bytes,
                     file_name=f"Riepilogo_Bolle_{target_date}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                 )
             else:
-                st.button("📥 Esporta Excel", disabled=True, use_container_width=True)
-        with b_act6:
+                st.button("📊 Esporta Excel (N.D.)", disabled=True, use_container_width=True)
+        with b_exp2:
             if not df_bolle.empty:
                 from src.tms_xml_exporter import create_tms_xml_zip_bytes_from_bolle
                 zip_tms_bytes = create_tms_xml_zip_bytes_from_bolle(target_date)
                 st.download_button(
-                    "📦 Download Massivo XML TMS",
+                    "📦 DOWNLOAD MASSIVO TUTTI I FILE XML TMS (.ZIP)",
                     data=zip_tms_bytes,
                     file_name=f"TMS_XML_Bolle_Massivo_{target_date}.zip",
                     mime="application/zip",
+                    type="primary",
                     use_container_width=True,
-                    help="Scarica archivio ZIP con tutti i file XML standard TrasportoEntrataOrdini_1_00 differenziati per Barra 0 (B0) e Barra 9 (B9)",
+                    help="Scarica archivio ZIP con tutti i file XML standard TrasportoEntrataOrdini_1_00 differenziati per Barra 0 (B0) e Barra 9 (B9) (Consegne con merci reali + Ritiri a 0)",
                     key="dl_btn_bolle_tms_xml"
                 )
             else:
-                st.button("📦 XML TMS", disabled=True, use_container_width=True)
-        with b_act7:
+                st.button("📦 XML TMS (N.D.)", disabled=True, use_container_width=True)
+        with b_exp3:
             if has_perm("can_delete_bolle"):
                 with st.popover("🗑️ Svota Bolle", use_container_width=True):
                     st.warning(f"Eliminare tutte le bolle del **{format_date_it(target_date)}**?")

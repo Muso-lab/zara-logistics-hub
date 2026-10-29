@@ -482,20 +482,62 @@ def generate_tms_xml_files(
     else:
         output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Rimuovi file XML preesistenti nella cartella di destinazione per evitare accumulo di duplicati
+    for old_f in output_dir.glob("*.xml"):
+        try:
+            old_f.unlink()
+        except Exception:
+            pass
 
     stores_lookup = get_stores_lookup(db_path)
 
-    # Raggruppa o ordina per giro per calcolare la corretta sequenza di fermata
-    # Manteniamo un contatore di stop per ciascun (giro, delivery_date)
-    giro_stop_counters: Dict[Tuple[str, str], int] = {}
-    
-    generated_xml_files: List[Path] = []
-
+    # Deduplicazione rigorosa per (store_id, barra_lbl)
+    # Ciascun negozio in un ciclo/operativa genera esattamente 1 Consegna e 1 Ritiro per tipologia barra
+    dedup_map: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for rec in records:
         sid = str(rec.get("store_id") or rec.get("store_code") or "").strip()
         giro = str(rec.get("giro") or "").strip().upper()
         if not sid or not giro or giro in ("DA ASSEGNARE", "NON ASSEGNATO", "NONE", "NAN", "-"):
             continue
+
+        barra_val = rec.get("barra", 0)
+        tipo_spec_val = rec.get("tipo_specifica")
+        if tipo_spec_val:
+            barra_lbl = str(tipo_spec_val).strip().upper()
+        elif str(barra_val).strip().upper() in ("9", "B9", "DOPPIA"):
+            barra_lbl = "B9"
+        else:
+            barra_lbl = "B0"
+
+        key = (sid, barra_lbl)
+        if key not in dedup_map:
+            entry = dict(rec)
+            entry["_sid"] = sid
+            entry["_giro"] = giro
+            entry["_barra_lbl"] = barra_lbl
+            entry["_barra_val"] = barra_val
+            dedup_map[key] = entry
+        else:
+            # Se duplicato nello stesso input, sommiamo i colli e volumi
+            prev = dedup_map[key]
+            c_prev = int(round(float(prev.get("colli") or 0)))
+            c_curr = int(round(float(rec.get("colli") or 0)))
+            prev["colli"] = c_prev + c_curr
+            prev["volume_mc"] = float(prev.get("volume_mc") or 0.0) + float(rec.get("volume_mc") or 0.0)
+            prev["peso_kg"] = float(prev.get("peso_kg") or 0.0) + float(rec.get("peso_kg") or 0.0)
+
+    # Ordina i record: B0 prima poi B9, poi per giro, poi per store_id
+    sorted_recs = sorted(dedup_map.values(), key=lambda r: (r["_barra_lbl"], r["_giro"], r["_sid"]))
+
+    # Manteniamo un contatore di stop per ciascun (giro, delivery_date)
+    giro_stop_counters: Dict[Tuple[str, str], int] = {}
+    generated_xml_files: List[Path] = []
+
+    for rec in sorted_recs:
+        sid = rec["_sid"]
+        giro = rec["_giro"]
+        barra_lbl = rec["_barra_lbl"]
+        barra_val = rec["_barra_val"]
 
         deliv_date_raw = rec.get("delivery_date") or rec.get("data_consegna") or rec.get("data_scarico") or datetime.now().strftime("%Y-%m-%d")
         deliv_date_str = str(deliv_date_raw).strip()
@@ -505,7 +547,6 @@ def generate_tms_xml_files(
             if len(parts) == 3 and len(parts[2]) == 4:
                 deliv_date_str = f"{parts[2]}-{parts[1]}-{parts[0]}"
         deliv_date_str = deliv_date_str[:10]
-        dt_compact = deliv_date_str.replace("-", "")
 
         giro_key = (giro, deliv_date_str)
         if "stop_sequence" in rec and rec["stop_sequence"]:
@@ -518,7 +559,6 @@ def generate_tms_xml_files(
         # Anagrafica store
         st_info = stores_lookup.get(sid)
         if not st_info:
-            # Fallback se non censito in stores
             base_sid = sid[:-1] if sid.endswith("B") else sid
             cod_sga_fb = int(base_sid) if base_sid.isdigit() else 0
             st_info = {
@@ -539,16 +579,7 @@ def generate_tms_xml_files(
         mc = float(rec.get("volume_mc") or rec.get("volume") or rec.get("mc") or 0.0)
         peso = float(rec.get("peso_kg") or rec.get("peso") or 0.0)
         if peso <= 0 and colli > 0:
-            peso = colli * 15.0  # Fallback peso collo medio
-
-        barra_val = rec.get("barra", 0)
-        tipo_spec_val = rec.get("tipo_specifica")
-        if tipo_spec_val:
-            barra_lbl = str(tipo_spec_val).strip().upper()
-        elif str(barra_val).strip().upper() in ("9", "B9", "DOPPIA"):
-            barra_lbl = "B9"
-        else:
-            barra_lbl = "B0"
+            peso = colli * 15.0
 
         # 1. FILE CONSEGNA (B0 o B9)
         id_flusso_c = generate_unique_id_flusso()
@@ -568,9 +599,6 @@ def generate_tms_xml_files(
         )
         fn_consegna = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_CONSEGNA.xml"
         path_consegna = output_dir / fn_consegna
-        if path_consegna.exists():
-            fn_consegna = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_{stop_seq}_CONSEGNA.xml"
-            path_consegna = output_dir / fn_consegna
         path_consegna.write_text(xml_consegna, encoding="utf-8")
         generated_xml_files.append(path_consegna)
 
@@ -592,9 +620,6 @@ def generate_tms_xml_files(
         )
         fn_ritiro = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_RITIRO.xml"
         path_ritiro = output_dir / fn_ritiro
-        if path_ritiro.exists():
-            fn_ritiro = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_{stop_seq}_RITIRO.xml"
-            path_ritiro = output_dir / fn_ritiro
         path_ritiro.write_text(xml_ritiro, encoding="utf-8")
         generated_xml_files.append(path_ritiro)
 
@@ -609,6 +634,15 @@ def generate_tms_xml_files(
         for f in generated_xml_files:
             zf.write(f, arcname=f.name)
 
+    # Se output_dir è una sottocartella (es. tms_xml), copia lo zip anche nel genitore
+    try:
+        if output_dir.name == "tms_xml" and output_dir.parent.exists():
+            parent_zip = output_dir.parent / zip_filename
+            import shutil
+            shutil.copy2(zip_path, parent_zip)
+    except Exception:
+        pass
+
     return generated_xml_files, zip_path
 
 
@@ -618,15 +652,50 @@ def create_tms_xml_zip_bytes(records: List[Dict[str, Any]], db_path: Union[str, 
     il contenuto dell'archivio ZIP in formato bytes, ideale per Streamlit download button.
     """
     stores_lookup = get_stores_lookup(db_path)
+
+    # Deduplicazione rigorosa per (store_id, barra_lbl)
+    dedup_map: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for rec in records:
+        sid = str(rec.get("store_id") or rec.get("store_code") or "").strip()
+        giro = str(rec.get("giro") or "").strip().upper()
+        if not sid or not giro or giro in ("DA ASSEGNARE", "NON ASSEGNATO", "NONE", "NAN", "-"):
+            continue
+
+        barra_val = rec.get("barra", 0)
+        tipo_spec_val = rec.get("tipo_specifica")
+        if tipo_spec_val:
+            barra_lbl = str(tipo_spec_val).strip().upper()
+        elif str(barra_val).strip().upper() in ("9", "B9", "DOPPIA"):
+            barra_lbl = "B9"
+        else:
+            barra_lbl = "B0"
+
+        key = (sid, barra_lbl)
+        if key not in dedup_map:
+            entry = dict(rec)
+            entry["_sid"] = sid
+            entry["_giro"] = giro
+            entry["_barra_lbl"] = barra_lbl
+            entry["_barra_val"] = barra_val
+            dedup_map[key] = entry
+        else:
+            prev = dedup_map[key]
+            c_prev = int(round(float(prev.get("colli") or 0)))
+            c_curr = int(round(float(rec.get("colli") or 0)))
+            prev["colli"] = c_prev + c_curr
+            prev["volume_mc"] = float(prev.get("volume_mc") or 0.0) + float(rec.get("volume_mc") or 0.0)
+            prev["peso_kg"] = float(prev.get("peso_kg") or 0.0) + float(rec.get("peso_kg") or 0.0)
+
+    sorted_recs = sorted(dedup_map.values(), key=lambda r: (r["_barra_lbl"], r["_giro"], r["_sid"]))
+
     giro_stop_counters: Dict[Tuple[str, str], int] = {}
-    
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for rec in records:
-            sid = str(rec.get("store_id") or rec.get("store_code") or "").strip()
-            giro = str(rec.get("giro") or "").strip().upper()
-            if not sid or not giro or giro in ("DA ASSEGNARE", "NON ASSEGNATO", "NONE", "NAN", "-"):
-                continue
+        for rec in sorted_recs:
+            sid = rec["_sid"]
+            giro = rec["_giro"]
+            barra_lbl = rec["_barra_lbl"]
+            barra_val = rec["_barra_val"]
 
             deliv_date_raw = rec.get("delivery_date") or rec.get("data_consegna") or rec.get("data_scarico") or datetime.now().strftime("%Y-%m-%d")
             deliv_date_str = str(deliv_date_raw).strip()
@@ -668,15 +737,6 @@ def create_tms_xml_zip_bytes(records: List[Dict[str, Any]], db_path: Union[str, 
             if peso <= 0 and colli > 0:
                 peso = colli * 15.0
 
-            barra_val = rec.get("barra", 0)
-            tipo_spec_val = rec.get("tipo_specifica")
-            if tipo_spec_val:
-                barra_lbl = str(tipo_spec_val).strip().upper()
-            elif str(barra_val).strip().upper() in ("9", "B9", "DOPPIA"):
-                barra_lbl = "B9"
-            else:
-                barra_lbl = "B0"
-
             # Consegna
             id_flusso_c = generate_unique_id_flusso()
             xml_consegna = build_tms_order_xml(
@@ -694,8 +754,6 @@ def create_tms_xml_zip_bytes(records: List[Dict[str, Any]], db_path: Union[str, 
                 elemento_id=id_flusso_c,
             )
             arc_c = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_CONSEGNA.xml"
-            if arc_c in zf.namelist():
-                arc_c = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_{stop_seq}_CONSEGNA.xml"
             zf.writestr(arc_c, xml_consegna.encode("utf-8"))
 
             # Ritiro
@@ -715,8 +773,6 @@ def create_tms_xml_zip_bytes(records: List[Dict[str, Any]], db_path: Union[str, 
                 elemento_id=f"{id_flusso_r}R",
             )
             arc_r = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_RITIRO.xml"
-            if arc_r in zf.namelist():
-                arc_r = f"{deliv_date_str}_{giro}_{sid}_{barra_lbl}_{stop_seq}_RITIRO.xml"
             zf.writestr(arc_r, xml_ritiro.encode("utf-8"))
 
     return zip_buffer.getvalue()
@@ -746,7 +802,12 @@ def generate_tms_xml_from_bolle(
                s.giro, s.cod_sga, s.brand, s.store_name
         FROM bolle b
         LEFT JOIN stores s ON b.id_store = s.store_id
-        WHERE b.data_consegna IN ({placeholders}) OR b.data IN ({placeholders})
+        WHERE b.id IN (
+            SELECT MAX(b2.id)
+            FROM bolle b2
+            WHERE b2.data_consegna IN ({placeholders}) OR b2.data IN ({placeholders})
+            GROUP BY b2.id_store, b2.tipo_cons
+        )
         ORDER BY b.tipo_cons ASC, s.giro ASC, b.id_store ASC
     """
     params = target_dates + target_dates
@@ -815,7 +876,12 @@ def create_tms_xml_zip_bytes_from_bolle(
                s.giro, s.cod_sga, s.brand, s.store_name
         FROM bolle b
         LEFT JOIN stores s ON b.id_store = s.store_id
-        WHERE b.data_consegna IN ({placeholders}) OR b.data IN ({placeholders})
+        WHERE b.id IN (
+            SELECT MAX(b2.id)
+            FROM bolle b2
+            WHERE b2.data_consegna IN ({placeholders}) OR b2.data IN ({placeholders})
+            GROUP BY b2.id_store, b2.tipo_cons
+        )
         ORDER BY b.tipo_cons ASC, s.giro ASC, b.id_store ASC
     """
     params = target_dates + target_dates
