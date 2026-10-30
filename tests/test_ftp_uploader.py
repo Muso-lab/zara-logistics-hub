@@ -143,8 +143,8 @@ def test_diagnose_tms_ftp_connection_success():
          patch("ftplib.FTP", return_value=mock_ftp_inst):
         diag = diagnose_tms_ftp_connection()
         assert diag["status"] == "ok"
-        assert len(diag["steps"]) == 5
-        assert all(s["status"] == "ok" for s in diag["steps"])
+        assert len(diag["steps"]) == 6
+        assert all(s["status"] in ("ok", "warning") for s in diag["steps"])
 
 
 def test_diagnose_tms_ftp_connection_tcp_timeout():

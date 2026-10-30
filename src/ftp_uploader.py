@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import urllib.request
 from typing import Any, Dict, List, Optional, Tuple, Union
 import streamlit as st
 
@@ -116,6 +117,59 @@ def get_tms_ftp_config() -> Dict[str, Any]:
 
     return cfg
 
+
+
+
+def get_outbound_ip_info() -> Dict[str, Any]:
+    """
+    Rileva l'indirizzo IP pubblico effettivo con cui l'applicazione esce su Internet,
+    il reverse DNS e il provider di rete.
+    """
+    detected_ip = "Non rilevabile"
+    for url in ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "curl/7.68.0"})
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                val = resp.read().decode("utf-8").strip()
+                if val and len(val) <= 45:
+                    detected_ip = val
+                    break
+        except Exception:
+            continue
+
+    reverse_host = ""
+    is_static = True
+    provider_hint = "Rete Locale / Server"
+
+    if detected_ip and detected_ip != "Non rilevabile":
+        try:
+            reverse_host = socket.gethostbyaddr(detected_ip)[0]
+        except Exception:
+            reverse_host = "Nessun record PTR"
+
+        low_rev = reverse_host.lower()
+        if "welcomeitalia" in low_rev or "vianova" in low_rev:
+            provider_hint = "Vianova / Welcome Italia (Fibra Aziendale Lacchi)"
+            is_static = True
+        elif "compute.amazonaws.com" in low_rev or "aws" in low_rev:
+            provider_hint = "Amazon AWS (Streamlit Community Cloud)"
+            is_static = False
+        elif "google" in low_rev or "gcp" in low_rev:
+            provider_hint = "Google Cloud Platform"
+            is_static = False
+        elif "cloudflare" in low_rev:
+            provider_hint = "Cloudflare"
+            is_static = False
+        elif "render" in low_rev:
+            provider_hint = "Render Cloud"
+            is_static = False
+
+    return {
+        "ip": detected_ip,
+        "reverse_dns": reverse_host,
+        "provider": provider_hint,
+        "is_static": is_static,
+    }
 
 def save_tms_ftp_config(cfg: Dict[str, Any]) -> bool:
     """Salva le impostazioni FTP su file di configurazione permanente."""
@@ -330,6 +384,16 @@ def diagnose_tms_ftp_connection(config: Optional[Dict[str, Any]] = None) -> Dict
     use_tls = bool(cfg.get("use_tls", False))
 
     steps: List[Dict[str, str]] = []
+
+    # Step 0: Rilevamento IP di Uscita
+    egress = get_outbound_ip_info()
+    st_egress = "ok" if egress["ip"] != "Non rilevabile" else "warning"
+    st_type = "🟢 Statico" if egress["is_static"] else "🟡 Dinamico (Cloud)"
+    steps.append({
+        "step": "0. IP Pubblico di Uscita dell'Applicazione",
+        "status": st_egress,
+        "detail": f"IP: <b>{egress['ip']}</b> ({egress['provider']}) • Reverse DNS: <code>{egress['reverse_dns']}</code> • Tipo: <b>{st_type}</b>"
+    })
 
     # Step 1: Risoluzione DNS
     resolved_ip = None

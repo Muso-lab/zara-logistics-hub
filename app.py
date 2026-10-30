@@ -4140,8 +4140,28 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
             "non compressi direttamente nella cartella di ricezione ordini del TMS."
         )
 
-        from src.ftp_uploader import get_tms_ftp_config, save_tms_ftp_config, diagnose_tms_ftp_connection
+        from src.ftp_uploader import get_tms_ftp_config, save_tms_ftp_config, diagnose_tms_ftp_connection, get_outbound_ip_info
         ftp_cfg_view = get_tms_ftp_config()
+        egress_info = get_outbound_ip_info()
+
+        st_stat_badge = "🟢 IP STATICO AZIENDALE" if egress_info["is_static"] else "🟡 IP DINAMICO (POOL CLOUD)"
+        st.markdown(f"""
+        <div style="background: #F0F9FF; border: 2px solid #BAE6FD; border-radius: 10px; padding: 14px 18px; margin: 12px 0 16px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <span style="font-size: 13px; font-weight: 800; color: #0369A1; text-transform: uppercase;">🌐 TELEMETRIA IP PUBBLICO DI USCITA (PER WHITELIST FIREWALL)</span>
+                <span style="font-size: 11.5px; font-weight: 800; background: {'#DCFCE7' if egress_info['is_static'] else '#FEF3C7'}; color: {'#15803D' if egress_info['is_static'] else '#B45309'}; padding: 2px 10px; border-radius: 9999px;">{st_stat_badge}</span>
+            </div>
+            <div style="font-size: 24px; font-weight: 900; color: #0F172A; margin-top: 4px; letter-spacing: -0.5px;">
+                {egress_info['ip']}
+            </div>
+            <div style="font-size: 12.5px; color: #334155; margin-top: 3px;">
+                Provider Rilevato: <strong>{egress_info['provider']}</strong> &nbsp;|&nbsp; Reverse DNS: <code>{egress_info['reverse_dns']}</code>
+            </div>
+            <div style="font-size: 11.5px; color: #64748B; margin-top: 6px;">
+                Se il server FTP aziendale di Lacchi è protetto da firewall perimetrale, questo è l'indirizzo IP da autorizzare (whitelisting) per accettare le connessioni in ingresso sulla porta {ftp_cfg_view['port']}.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         with st.form("form_ftp_settings"):
             cf1, cf2 = st.columns([1.5, 1.5])
