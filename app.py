@@ -1215,10 +1215,7 @@ def render_operativa_files_and_email_section(
                             from src.ftp_uploader import upload_xml_files_to_ftp
                             res = upload_xml_files_to_ftp(xml_list)
                             if res["status"] == "ok":
-                                st.success(f"🎉 **{res['uploaded_count']} / {res['total_count']}** file XML caricati con successo su FTP!
-
-**Server**: `{res['host']}:{res['port']}`
-**Cartella**: `{res['remote_dir']}`")
+                                st.success(f"🎉 **{res['uploaded_count']} / {res['total_count']}** file XML caricati con successo su FTP!\n\n**Server**: `{res['host']}:{res['port']}` | **Cartella**: `{res['remote_dir']}`")
                             elif res["status"] == "partial":
                                 st.warning(f"⚠️ Caricati {res['uploaded_count']} su {res['total_count']} file XML.")
                             else:
@@ -2711,10 +2708,7 @@ elif "Bolle di Consegna" in menu:
                             from src.ftp_uploader import upload_tms_xml_from_bolle
                             res_b = upload_tms_xml_from_bolle(target_date)
                             if res_b["status"] == "ok":
-                                st.success(f"🎉 **{res_b['uploaded_count']} / {res_b['total_count']}** file XML caricati con successo su FTP!
-
-**Server**: `{res_b['host']}:{res_b['port']}`
-**Cartella**: `{res_b['remote_dir']}`")
+                                st.success(f"🎉 **{res_b['uploaded_count']} / {res_b['total_count']}** file XML caricati con successo su FTP!\n\n**Server**: `{res_b['host']}:{res_b['port']}` | **Cartella**: `{res_b['remote_dir']}`")
                             elif res_b["status"] == "partial":
                                 st.warning(f"⚠️ Caricati {res_b['uploaded_count']} su {res_b['total_count']} file XML.")
                             else:
@@ -3359,10 +3353,7 @@ elif "Consuntivo & Planner" in menu:
                             from src.ftp_uploader import upload_tms_xml_from_bolle
                             res_p = upload_tms_xml_from_bolle(target_query_dates)
                             if res_p["status"] == "ok":
-                                st.success(f"🎉 **{res_p['uploaded_count']} / {res_p['total_count']}** file XML caricati con successo su FTP!
-
-**Server**: `{res_p['host']}:{res_p['port']}`
-**Cartella**: `{res_p['remote_dir']}`")
+                                st.success(f"🎉 **{res_p['uploaded_count']} / {res_p['total_count']}** file XML caricati con successo su FTP!\n\n**Server**: `{res_p['host']}:{res_p['port']}` | **Cartella**: `{res_p['remote_dir']}`")
                             elif res_p["status"] == "partial":
                                 st.warning(f"⚠️ Caricati {res_p['uploaded_count']} su {res_p['total_count']} file XML.")
                             else:
