@@ -1,19 +1,23 @@
 """
 Modulo di Caricamento FTP per File XML TMS (BeOne / Nova Systems).
 Supporta il caricamento diretto a singolo clic di file XML non compressi
-sul server FTP aziendale Lacchi.
+sul server FTP aziendale Lacchi con diagnostica di rete avanzata.
 """
 
 from datetime import datetime
 import ftplib
 import io
+import json
 import os
 from pathlib import Path
 import socket
 from typing import Any, Dict, List, Optional, Tuple, Union
 import streamlit as st
 
-from src.config import DB_PATH, OUTPUT_DIR
+from src.config import DATA_DIR, DB_PATH, OUTPUT_DIR
+
+# File di persistenza configurazione FTP locale
+FTP_CONFIG_FILE = DATA_DIR / "ftp_tms_config.json"
 
 # Configurazione predefinita server FTP TMS Lacchi
 DEFAULT_FTP_CONFIG = {
@@ -24,6 +28,7 @@ DEFAULT_FTP_CONFIG = {
     "remote_dir": "/IMPORT_SGA/RICEZIONE_ORDINI/ZARA",
     "timeout": 30,
     "passive_mode": True,
+    "use_tls": False,
 }
 
 
@@ -31,9 +36,10 @@ def get_tms_ftp_config() -> Dict[str, Any]:
     """
     Recupera i parametri di connessione FTP unificando (in ordine di priorità):
     1. Session state Streamlit (se modificati dall'utente nell'interfaccia)
-    2. Streamlit secrets (st.secrets["ftp_tms"])
-    3. Variabili d'ambiente (TMS_FTP_HOST, TMS_FTP_PORT, etc.)
-    4. Valori standard aziendali Lacchi
+    2. File locale DATA_DIR / "ftp_tms_config.json"
+    3. Streamlit secrets (st.secrets["ftp_tms"])
+    4. Variabili d'ambiente (TMS_FTP_HOST, TMS_FTP_PORT, etc.)
+    5. Valori standard aziendali Lacchi
     """
     cfg = dict(DEFAULT_FTP_CONFIG)
 
@@ -51,40 +57,87 @@ def get_tms_ftp_config() -> Dict[str, Any]:
         cfg["password"] = os.getenv("TMS_FTP_PASS")
     if os.getenv("TMS_FTP_DIR"):
         cfg["remote_dir"] = os.getenv("TMS_FTP_DIR")
+    if os.getenv("TMS_FTP_TLS"):
+        cfg["use_tls"] = os.getenv("TMS_FTP_TLS").lower() in ("1", "true", "si", "yes")
 
-    # 2. Streamlit secrets
+    # 2. File di configurazione locale
+    if FTP_CONFIG_FILE.exists():
+        try:
+            disk_cfg = json.loads(FTP_CONFIG_FILE.read_text(encoding="utf-8"))
+            if isinstance(disk_cfg, dict):
+                for k, v in disk_cfg.items():
+                    if k == "port":
+                        try:
+                            cfg[k] = int(v)
+                        except ValueError:
+                            pass
+                    elif k in ("passive_mode", "use_tls"):
+                        cfg[k] = bool(v)
+                    else:
+                        cfg[k] = str(v)
+        except Exception:
+            pass
+
+    # 3. Streamlit secrets
     try:
         if hasattr(st, "secrets") and "ftp_tms" in st.secrets:
             sec = st.secrets["ftp_tms"]
-            for k in ["host", "port", "user", "password", "remote_dir", "timeout"]:
+            for k in ["host", "port", "user", "password", "remote_dir", "timeout", "use_tls"]:
                 if k in sec:
-                    cfg[k] = int(sec[k]) if k == "port" else str(sec[k])
+                    if k in ("port", "timeout"):
+                        cfg[k] = int(sec[k])
+                    elif k == "use_tls":
+                        cfg[k] = bool(sec[k])
+                    else:
+                        cfg[k] = str(sec[k])
     except Exception:
         pass
 
-    # 3. Session state overrides
+    # 4. Session state overrides
     try:
         if hasattr(st, "session_state"):
-            if "override_ftp_host" in st.session_state and st.session_state["override_ftp_host"]:
-                cfg["host"] = str(st.session_state["override_ftp_host"]).strip()
-            if "override_ftp_port" in st.session_state and st.session_state["override_ftp_port"]:
+            if "cfg_ftp_host" in st.session_state and st.session_state["cfg_ftp_host"]:
+                cfg["host"] = str(st.session_state["cfg_ftp_host"]).strip()
+            if "cfg_ftp_port" in st.session_state and st.session_state["cfg_ftp_port"]:
                 try:
-                    cfg["port"] = int(st.session_state["override_ftp_port"])
+                    cfg["port"] = int(st.session_state["cfg_ftp_port"])
                 except ValueError:
                     pass
-            if "override_ftp_user" in st.session_state and st.session_state["override_ftp_user"]:
-                cfg["user"] = str(st.session_state["override_ftp_user"]).strip()
-            if "override_ftp_pass" in st.session_state and st.session_state["override_ftp_pass"]:
-                cfg["password"] = str(st.session_state["override_ftp_pass"]).strip()
-            if "override_ftp_dir" in st.session_state and st.session_state["override_ftp_dir"]:
-                cfg["remote_dir"] = str(st.session_state["override_ftp_dir"]).strip()
+            if "cfg_ftp_user" in st.session_state and st.session_state["cfg_ftp_user"]:
+                cfg["user"] = str(st.session_state["cfg_ftp_user"]).strip()
+            if "cfg_ftp_pass" in st.session_state and st.session_state["cfg_ftp_pass"]:
+                cfg["password"] = str(st.session_state["cfg_ftp_pass"]).strip()
+            if "cfg_ftp_dir" in st.session_state and st.session_state["cfg_ftp_dir"]:
+                cfg["remote_dir"] = str(st.session_state["cfg_ftp_dir"]).strip()
+            if "cfg_ftp_tls" in st.session_state:
+                cfg["use_tls"] = bool(st.session_state["cfg_ftp_tls"])
     except Exception:
         pass
 
     return cfg
 
 
-def ensure_ftp_directory(ftp: ftplib.FTP, remote_dir: str):
+def save_tms_ftp_config(cfg: Dict[str, Any]) -> bool:
+    """Salva le impostazioni FTP su file di configurazione permanente."""
+    try:
+        to_save = {
+            "host": str(cfg.get("host", "servizi.lacchi.com")).strip(),
+            "port": int(cfg.get("port", 2121)),
+            "user": str(cfg.get("user", "")).strip(),
+            "password": str(cfg.get("password", "")).strip(),
+            "remote_dir": str(cfg.get("remote_dir", "/IMPORT_SGA/RICEZIONE_ORDINI/ZARA")).strip(),
+            "timeout": int(cfg.get("timeout", 30)),
+            "passive_mode": bool(cfg.get("passive_mode", True)),
+            "use_tls": bool(cfg.get("use_tls", False)),
+        }
+        FTP_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        FTP_CONFIG_FILE.write_text(json.dumps(to_save, indent=2, ensure_ascii=False), encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
+def ensure_ftp_directory(ftp: Union[ftplib.FTP, ftplib.FTP_TLS], remote_dir: str):
     """
     Assicura che il percorso remoto esista creandolo cartella per cartella se necessario,
     e posiziona la sessione FTP all'interno di esso.
@@ -95,7 +148,10 @@ def ensure_ftp_directory(ftp: ftplib.FTP, remote_dir: str):
 
     parts = [p for p in remote_dir.split("/") if p]
     if remote_dir.startswith("/"):
-        ftp.cwd("/")
+        try:
+            ftp.cwd("/")
+        except Exception:
+            pass
 
     for part in parts:
         try:
@@ -118,19 +174,6 @@ def upload_xml_files_to_ftp(
     Parametri:
     - files: lista di percorsi Path/str oppure tuple (filename, bytes_o_str)
     - config: dizionario parametri FTP (se None, usa get_tms_ftp_config())
-
-    Ritorna:
-    {
-        "status": "ok" | "partial" | "error",
-        "uploaded_count": int,
-        "total_count": int,
-        "uploaded_files": List[str],
-        "failed_files": List[Tuple[str, str]],
-        "remote_dir": str,
-        "host": str,
-        "port": int,
-        "message": str
-    }
     """
     cfg = config or get_tms_ftp_config()
     host = cfg.get("host", "servizi.lacchi.com")
@@ -140,6 +183,7 @@ def upload_xml_files_to_ftp(
     remote_dir = cfg.get("remote_dir", "/IMPORT_SGA/RICEZIONE_ORDINI/ZARA")
     timeout = int(cfg.get("timeout", 30))
     passive = bool(cfg.get("passive_mode", True))
+    use_tls = bool(cfg.get("use_tls", False))
 
     if not files:
         return {
@@ -157,10 +201,12 @@ def upload_xml_files_to_ftp(
     uploaded_files: List[str] = []
     failed_files: List[Tuple[str, str]] = []
 
-    ftp = ftplib.FTP()
+    ftp: Union[ftplib.FTP, ftplib.FTP_TLS] = ftplib.FTP_TLS() if use_tls else ftplib.FTP()
     try:
         ftp.connect(host, port, timeout=timeout)
         ftp.login(user, password)
+        if use_tls and hasattr(ftp, "prot_p"):
+            ftp.prot_p()
         ftp.set_pasv(passive)
         ensure_ftp_directory(ftp, remote_dir)
 
@@ -265,9 +311,14 @@ def upload_tms_xml_from_bolle(
     return upload_xml_files_to_ftp(xml_paths, config=config)
 
 
-def test_tms_ftp_connection(config: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
+def diagnose_tms_ftp_connection(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    Verifica rapida della connessione e login al server FTP senza caricare file.
+    Diagnostica avanzata passo-passo della connettività FTP:
+    1. Risoluzione DNS (mostra IP risolto)
+    2. Raggiungibilità porta TCP (socket test)
+    3. Handshake protocollo FTP / FTPS
+    4. Autenticazione (User & Password)
+    5. Accesso e permessi sulla cartella remota
     """
     cfg = config or get_tms_ftp_config()
     host = cfg.get("host", "servizi.lacchi.com")
@@ -275,20 +326,154 @@ def test_tms_ftp_connection(config: Optional[Dict[str, Any]] = None) -> Tuple[bo
     user = cfg.get("user", "")
     password = cfg.get("password", "")
     remote_dir = cfg.get("remote_dir", "/IMPORT_SGA/RICEZIONE_ORDINI/ZARA")
-    timeout = int(cfg.get("timeout", 15))
+    timeout = int(cfg.get("timeout", 10))
+    use_tls = bool(cfg.get("use_tls", False))
 
-    ftp = ftplib.FTP()
+    steps: List[Dict[str, str]] = []
+
+    # Step 1: Risoluzione DNS
+    resolved_ip = None
+    try:
+        resolved_ip = socket.gethostbyname(host)
+        steps.append({
+            "step": "1. Risoluzione DNS",
+            "status": "ok",
+            "detail": f"Host '{host}' risolto all'indirizzo IP: {resolved_ip}"
+        })
+    except Exception as e:
+        steps.append({
+            "step": "1. Risoluzione DNS",
+            "status": "error",
+            "detail": f"Impossibile risolvere l'host '{host}': {e}"
+        })
+        return {
+            "status": "error",
+            "steps": steps,
+            "error_phase": "DNS",
+            "message": f"Errore di risoluzione DNS per '{host}': {e}"
+        }
+
+    # Step 2: Raggiungibilità Socket TCP
+    try:
+        sock = socket.create_connection((resolved_ip, port), timeout=timeout)
+        sock.close()
+        steps.append({
+            "step": "2. Raggiungibilità Porta TCP",
+            "status": "ok",
+            "detail": f"Porta TCP {port} su {resolved_ip} aperta e raggiungibile."
+        })
+    except socket.timeout:
+        steps.append({
+            "step": "2. Raggiungibilità Porta TCP",
+            "status": "error",
+            "detail": f"TIMEOUT: Il server {resolved_ip}:{port} non risponde. La porta {port} è bloccata dal firewall o la connessione richiede VPN / IP abilitato."
+        })
+        return {
+            "status": "error",
+            "steps": steps,
+            "error_phase": "TCP_TIMEOUT",
+            "message": f"Timeout porta TCP {port} su {host} ({resolved_ip}). Il server non risponde entro {timeout}s: la porta è filtrata o bloccata da firewall."
+        }
+    except Exception as e:
+        steps.append({
+            "step": "2. Raggiungibilità Porta TCP",
+            "status": "error",
+            "detail": f"Connessione TCP non riuscita verso {resolved_ip}:{port}: {e}"
+        })
+        return {
+            "status": "error",
+            "steps": steps,
+            "error_phase": "TCP_ERROR",
+            "message": f"Errore connessione socket {resolved_ip}:{port}: {e}"
+        }
+
+    # Step 3: Handshake FTP
+    ftp: Union[ftplib.FTP, ftplib.FTP_TLS] = ftplib.FTP_TLS() if use_tls else ftplib.FTP()
     try:
         ftp.connect(host, port, timeout=timeout)
-        ftp.login(user, password)
-        ftp.set_pasv(True)
-        ensure_ftp_directory(ftp, remote_dir)
-        curr = ftp.pwd()
-        ftp.quit()
-        return True, f"Connessione FTP stabilita con successo a {host}:{port}. Directory remota: {curr}"
+        banner = ftp.getwelcome()[:120] if hasattr(ftp, "getwelcome") else "OK"
+        steps.append({
+            "step": "3. Handshake Protocollo FTP",
+            "status": "ok",
+            "detail": f"Connesso con successo ({'FTPS TLS' if use_tls else 'FTP Standard'}). Banner: {banner}"
+        })
     except Exception as e:
+        steps.append({
+            "step": "3. Handshake Protocollo FTP",
+            "status": "error",
+            "detail": f"Errore handshake FTP: {e}"
+        })
+        return {
+            "status": "error",
+            "steps": steps,
+            "error_phase": "FTP_HANDSHAKE",
+            "message": f"Errore handshake FTP con {host}:{port}: {e}"
+        }
+
+    # Step 4: Login Utente & Password
+    try:
+        ftp.login(user, password)
+        if use_tls and hasattr(ftp, "prot_p"):
+            ftp.prot_p()
+        steps.append({
+            "step": "4. Autenticazione Credenziali",
+            "status": "ok",
+            "detail": f"Login effettuato con successo come '{user}'."
+        })
+    except Exception as e:
+        steps.append({
+            "step": "4. Autenticazione Credenziali",
+            "status": "error",
+            "detail": f"Autenticazione fallita per '{user}': {e}"
+        })
         try:
-            ftp.close()
+            ftp.quit()
         except Exception:
             pass
-        return False, f"Impossibile connettersi al server FTP {host}:{port}: {e}"
+        return {
+            "status": "error",
+            "steps": steps,
+            "error_phase": "FTP_AUTH",
+            "message": f"Errore autenticazione credenziali per utente '{user}': {e}"
+        }
+
+    # Step 5: Verifica Cartella Remota
+    try:
+        ensure_ftp_directory(ftp, remote_dir)
+        curr = ftp.pwd()
+        steps.append({
+            "step": "5. Accesso Cartella Remota",
+            "status": "ok",
+            "detail": f"Cartella verificata: {curr}"
+        })
+        ftp.quit()
+    except Exception as e:
+        steps.append({
+            "step": "5. Accesso Cartella Remota",
+            "status": "error",
+            "detail": f"Impossibile accedere alla cartella '{remote_dir}': {e}"
+        })
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+        return {
+            "status": "error",
+            "steps": steps,
+            "error_phase": "REMOTE_DIR",
+            "message": f"Errore di accesso alla cartella remota '{remote_dir}': {e}"
+        }
+
+    return {
+        "status": "ok",
+        "steps": steps,
+        "message": f"Connessione FTP stabilita con successo a {host}:{port} ({resolved_ip}). Cartella: {remote_dir}"
+    }
+
+
+def test_tms_ftp_connection(config: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
+    """
+    Verifica rapida della connessione e login al server FTP senza caricare file.
+    """
+    diag = diagnose_tms_ftp_connection(config=config)
+    return (diag["status"] == "ok", diag["message"])

@@ -1232,11 +1232,17 @@ def render_operativa_files_and_email_section(
                         st.text_input("Cartella Remota", value=cfg_ftp['remote_dir'], disabled=True, key=f"ftp_d_{key_prefix}_{rid}")
                         if st.button("🔌 Verifica Connessione", key=f"btn_test_ftp_{key_prefix}_{rid}", use_container_width=True):
                             with st.spinner("Test connessione in corso..."):
-                                ok, msg = test_tms_ftp_connection()
-                                if ok:
-                                    st.success(f"✅ {msg}")
+                                from src.ftp_uploader import diagnose_tms_ftp_connection
+                                diag = diagnose_tms_ftp_connection()
+                                for s in diag["steps"]:
+                                    if s["status"] == "ok":
+                                        st.caption(f"✅ {s['step']}: {s['detail']}")
+                                    else:
+                                        st.caption(f"❌ {s['step']}: {s['detail']}")
+                                if diag["status"] == "ok":
+                                    st.success(f"✅ {diag['message']}")
                                 else:
-                                    st.error(f"❌ {msg}")
+                                    st.error(f"❌ {diag['message']}")
                 
                 f_filter = st.radio("Filtra elenco file per tipologia:", ["TUTTI", "SOLO B0 (Barra 0)", "SOLO B9 (Barra 9)"], horizontal=True, key=f"rad_tms_filt_{key_prefix}_{rid}")
                 if f_filter == "SOLO B0 (Barra 0)":
@@ -4134,27 +4140,63 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
             "non compressi direttamente nella cartella di ricezione ordini del TMS."
         )
 
-        from src.ftp_uploader import get_tms_ftp_config, test_tms_ftp_connection
+        from src.ftp_uploader import get_tms_ftp_config, save_tms_ftp_config, diagnose_tms_ftp_connection
         ftp_cfg_view = get_tms_ftp_config()
 
-        cf1, cf2 = st.columns([1.5, 1.5])
-        with cf1:
-            st.text_input("Server Host FTP", value=ftp_cfg_view["host"], disabled=True, key="cfg_view_ftp_host")
-            st.text_input("Porta FTP", value=str(ftp_cfg_view["port"]), disabled=True, key="cfg_view_ftp_port")
-            st.text_input("Nome Utente", value=ftp_cfg_view["user"], disabled=True, key="cfg_view_ftp_user")
-        with cf2:
-            st.text_input("Password", value="••••••••••••••••••••", type="password", disabled=True, key="cfg_view_ftp_pw")
-            st.text_input("Cartella Remota Destinazione", value=ftp_cfg_view["remote_dir"], disabled=True, key="cfg_view_ftp_dir")
-            st.caption("ℹ️ Formato di trasferimento: singoli file `.xml` non compressi (Consegna e Ritiro per ciascun negozio).")
+        with st.form("form_ftp_settings"):
+            cf1, cf2 = st.columns([1.5, 1.5])
+            with cf1:
+                in_f_host = st.text_input("Server Host FTP / Indirizzo IP", value=ftp_cfg_view["host"], key="cfg_view_ftp_host", help="Nome host (es. servizi.lacchi.com) oppure IP pubblico/interno (es. 46.44.235.41)")
+                in_f_port = st.number_input("Porta FTP", min_value=1, max_value=65535, value=int(ftp_cfg_view["port"]), key="cfg_view_ftp_port")
+                in_f_user = st.text_input("Nome Utente", value=ftp_cfg_view["user"], key="cfg_view_ftp_user")
+            with cf2:
+                in_f_pw = st.text_input("Password FTP", value=ftp_cfg_view["password"], type="password", key="cfg_view_ftp_pw")
+                in_f_dir = st.text_input("Cartella Remota Destinazione", value=ftp_cfg_view["remote_dir"], key="cfg_view_ftp_dir")
+                in_f_tls = st.checkbox("Usa crittografia FTPS (TLS/SSL esplicito)", value=bool(ftp_cfg_view.get("use_tls", False)), key="cfg_view_ftp_tls")
+            
+            c_btn_f1, c_btn_f2 = st.columns([1.5, 1.5])
+            with c_btn_f1:
+                btn_save_ftp = st.form_submit_button("💾 SALVA CONFIGURAZIONE FTP", type="primary", use_container_width=True)
+            with c_btn_f2:
+                btn_test_ftp = st.form_submit_button("🔌 ESEGUI DIAGNOSTICA DI RETE & FTP", use_container_width=True)
 
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-        if st.button("🔌 TEST CONNETTIVITÀ SERVER FTP ORA", type="primary", use_container_width=True, key="btn_test_ftp_settings"):
-            with st.spinner(f"Verifica connessione a {ftp_cfg_view['host']}:{ftp_cfg_view['port']} in corso..."):
-                ok_f, msg_f = test_tms_ftp_connection()
-                if ok_f:
-                    st.success(f"✅ {msg_f}")
+        if btn_save_ftp:
+            new_ftp_data = {
+                "host": in_f_host.strip(),
+                "port": int(in_f_port),
+                "user": in_f_user.strip(),
+                "password": in_f_pw.strip(),
+                "remote_dir": in_f_dir.strip(),
+                "use_tls": in_f_tls,
+                "timeout": 30,
+                "passive_mode": True
+            }
+            save_tms_ftp_config(new_ftp_data)
+            st.success("✅ Configurazione FTP salvata con successo!")
+            st.rerun()
+
+        if btn_test_ftp:
+            test_cfg = {
+                "host": in_f_host.strip(),
+                "port": int(in_f_port),
+                "user": in_f_user.strip(),
+                "password": in_f_pw.strip(),
+                "remote_dir": in_f_dir.strip(),
+                "use_tls": in_f_tls,
+                "timeout": 15
+            }
+            with st.spinner(f"Diagnostica di rete verso {test_cfg['host']}:{test_cfg['port']} in corso..."):
+                diag = diagnose_tms_ftp_connection(test_cfg)
+                st.markdown("##### 🔍 Risultati Diagnostica di Rete Passo-Passo:")
+                for s in diag["steps"]:
+                    if s["status"] == "ok":
+                        st.markdown(f"✅ **{s['step']}**: {s['detail']}")
+                    else:
+                        st.markdown(f"❌ **{s['step']}**: <span style='color:#DC2626; font-weight:700;'>{s['detail']}</span>", unsafe_allow_html=True)
+                if diag["status"] == "ok":
+                    st.success(f"🎉 {diag['message']}")
                 else:
-                    st.error(f"❌ {msg_f}")
+                    st.error(f"❌ {diag['message']}")
 
     with tab_cloud_gs:
         st.markdown("#### 🟢 Collegamento Permanente a Google Sheets (tramite Apps Script)")
