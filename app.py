@@ -1810,7 +1810,11 @@ if "Previsione & Arrivi" in menu:
                             st.session_state["active_view_run_id"] = res["run_id"]
                             st.session_state["p1_subview"] = "view"
                             st.session_state[f"show_op_panel_{res['run_id']}"] = True
-                            st.session_state["flash_run_msg"] = f"Elaborazione Extranet Run #{res['run_id']} completata con successo! Visualizzazione aperta."
+                            gcs_info = res.get("gcs_upload")
+                            extra_gcs_msg = ""
+                            if gcs_info and gcs_info.get("status") in ("ok", "partial"):
+                                extra_gcs_msg = f" ☁️ {gcs_info.get('uploaded_count')} file XML caricati su Google Cloud Storage!"
+                            st.session_state["flash_run_msg"] = f"Elaborazione Extranet Run #{res['run_id']} completata con successo!{extra_gcs_msg} Visualizzazione aperta."
                             st.rerun()
 
                         except Exception as e:
@@ -1900,7 +1904,11 @@ if "Previsione & Arrivi" in menu:
                             st.session_state["active_view_run_id"] = res["run_id"]
                             st.session_state["p1_subview"] = "view"
                             st.session_state[f"show_op_panel_{res['run_id']}"] = True
-                            st.session_state["flash_run_msg"] = f"Elaborazione Run #{res['run_id']} completata con successo! Visualizzazione aperta."
+                            gcs_info = res.get("gcs_upload")
+                            extra_gcs_msg = ""
+                            if gcs_info and gcs_info.get("status") in ("ok", "partial"):
+                                extra_gcs_msg = f" ☁️ {gcs_info.get('uploaded_count')} file XML caricati su Google Cloud Storage!"
+                            st.session_state["flash_run_msg"] = f"Elaborazione Run #{res['run_id']} completata con successo!{extra_gcs_msg} Visualizzazione aperta."
                             st.rerun()
 
                         except Exception as e:

@@ -298,6 +298,7 @@ def run_pipeline(
     # 5.1 Export TMS XML Files (Standard TrasportoEntrataOrdini_1_00 per BeOne / Nova Systems)
     path_tms_zip = None
     tms_xml_files = []
+    gcs_upload_result = None
     try:
         from src.tms_xml_exporter import generate_tms_xml_files
         tms_records = []
@@ -323,6 +324,14 @@ def run_pipeline(
                 output_dir=tms_xml_dir,
                 zip_filename=f"TMS_XML_Ordini_{run_id}_{date_formatted}.zip"
             )
+            # Caricamento automatico immediato su Google Cloud Storage
+            # Rimuove i file XML precedenti dal bucket per mantenere solo l'operativa attuale
+            try:
+                from src.gcs_storage import upload_xml_files_to_gcs
+                gcs_upload_result = upload_xml_files_to_gcs(tms_xml_files, clean_remote=True)
+                print(f"Auto-upload GCS completato: {gcs_upload_result.get('message')}")
+            except Exception as gcs_err:
+                print(f"Warning: Auto-upload to GCS failed: {gcs_err}")
     except Exception as e:
         print(f"Warning: TMS XML generation skipped: {e}")
 
@@ -368,6 +377,7 @@ def run_pipeline(
         "special_breakdowns": special_breakdowns,
         "exported_files": exported_files,
         "tms_xml_files": tms_xml_files,
+        "gcs_upload": gcs_upload_result,
         "new_stores_alert": new_stores_alert
     }
 

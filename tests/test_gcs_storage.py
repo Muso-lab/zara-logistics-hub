@@ -7,6 +7,7 @@ from src.gcs_storage import (
     DEFAULT_GCS_CONFIG,
     get_gcs_config,
     save_gcs_config,
+    delete_remote_prefix_files,
     upload_xml_files_to_gcs,
     generate_windows_download_script,
     generate_windows_unpacker_script,
@@ -55,21 +56,42 @@ def test_generate_windows_unpacker_script():
     assert "ExtractToFile" in bat
 
 
+def test_delete_remote_prefix_files_rest_mocked():
+    mock_get = MagicMock()
+    mock_get.status_code = 200
+    mock_get.json.return_value = {
+        "items": [
+            {"name": "PREFIX/old_1.xml"},
+            {"name": "PREFIX/old_2.xml"},
+            {"name": "PREFIX/other.txt"},
+        ]
+    }
+    mock_del = MagicMock()
+    mock_del.status_code = 204
+
+    with patch("requests.get", return_value=mock_get), patch("requests.delete", return_value=mock_del):
+        cnt = delete_remote_prefix_files("test-bkt", "PREFIX")
+        assert cnt == 2
+
+
 def test_upload_xml_files_to_gcs_empty():
     res = upload_xml_files_to_gcs([])
     assert res["status"] == "error"
     assert res["uploaded_count"] == 0
 
 
-def test_upload_xml_files_to_gcs_rest_mocked(tmp_path):
+def test_upload_xml_files_to_gcs_rest_mocked_with_clean(tmp_path):
     f1 = tmp_path / "3680_B0_CONSEGNA.xml"
     f1.write_text("<test/>", encoding="utf-8")
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
 
-    with patch("requests.post", return_value=mock_resp):
-        res = upload_xml_files_to_gcs([f1], config={"bucket_name": "test-bkt", "remote_prefix": "TEST"})
+    with patch("src.gcs_storage.delete_remote_prefix_files", return_value=3) as mock_clean, \
+         patch("requests.post", return_value=mock_resp):
+        res = upload_xml_files_to_gcs([f1], config={"bucket_name": "test-bkt", "remote_prefix": "TEST"}, clean_remote=True)
         assert res["status"] == "ok"
         assert res["uploaded_count"] == 1
-        assert res["bucket"] == "test-bkt"
+        assert res["deleted_previous_count"] == 3
+        assert "rimossi 3 file precedenti" in res["message"]
+        mock_clean.assert_called_once()
