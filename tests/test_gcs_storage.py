@@ -9,6 +9,7 @@ from src.gcs_storage import (
     save_gcs_config,
     upload_xml_files_to_gcs,
     generate_windows_download_script,
+    generate_windows_unpacker_script,
 )
 
 
@@ -43,6 +44,15 @@ def test_generate_windows_download_script():
     assert "$RemotePrefix = \"MIA/CARTELLA\"" in ps1
     assert "C:\\MIA_CARTELLA_TMS" in ps1
     assert "powershell" in bat
+
+
+def test_generate_windows_unpacker_script():
+    bat = generate_windows_unpacker_script({
+        "local_destination_dir": r"C:\IMPORT_SGA\RICEZIONE_ORDINI\ZARA"
+    })
+    assert "TMS_XML*.zip" in bat
+    assert "C:\\IMPORT_SGA\\RICEZIONE_ORDINI\\ZARA" in bat
+    assert "ExtractToFile" in bat
 
 
 def test_upload_xml_files_to_gcs_empty():

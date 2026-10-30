@@ -218,48 +218,51 @@ def generate_windows_download_script(config: Optional[Dict[str, Any]] = None) ->
     """
     Genera il codice per due file nativi per Windows:
     1. scarica_xml_tms.ps1 (Script PowerShell nativo che preleva i file dal bucket e li deposita in C:\\IMPORT_SGA\\...)
-    2. scarica_xml_tms.bat (Lanciatore 1-click da doppio clic o per Utilità di Pianificazione Windows)
+    2. scarica_xml_tms.bat (Lanciatore 1-click ibrido ed autosufficiente che non si chiude automaticamente in caso di errori)
     """
     cfg = config or get_gcs_config()
     bucket = cfg.get("bucket_name", "lacchi-tms-zara").strip()
     prefix = cfg.get("remote_prefix", "IMPORT_SGA/RICEZIONE_ORDINI/ZARA").strip().strip("/")
     loc_dir = cfg.get("local_destination_dir", r"C:\IMPORT_SGA\RICEZIONE_ORDINI\ZARA").strip()
 
-    ps1_content = f"""<#
-===============================================================================
- Sincronizzatore Automatico XML TMS da Google Cloud Storage a Cartella BeOne
- Generato automaticamente da Zara Logistics Hub
-===============================================================================
-#>
-
-$BucketName = "{bucket}"
+    ps_core = f"""$BucketName = "{bucket}"
 $RemotePrefix = "{prefix}"
 $LocalDir = "{loc_dir}"
 
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "   SINCRONIZZAZIONE XML TMS DA GOOGLE CLOUD STORAGE" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
-Write-Host "Bucket Remoto : gs://$BucketName/$RemotePrefix"
+Write-Host "Bucket Remoto   : gs://$BucketName/$RemotePrefix"
 Write-Host "Cartella Locale : $LocalDir"
 Write-Host ""
 
-# Crea cartella locale se non presente
+# 1. Crea cartella locale di destinazione se non presente
 if (-not (Test-Path -Path $LocalDir)) {{
-    New-Item -ItemType Directory -Path $LocalDir -Force | Out-Null
-    Write-Host "[OK] Cartella locale creata: $LocalDir" -ForegroundColor Green
+    try {{
+        New-Item -ItemType Directory -Path $LocalDir -Force | Out-Null
+        Write-Host "[OK] Cartella locale creata: $LocalDir" -ForegroundColor Green
+    }} catch {{
+        Write-Host "[ERRORE] Impossibile creare la cartella locale $LocalDir : $_" -ForegroundColor Red
+        return
+    }}
 }}
 
-# Metodo 1: Se gcloud CLI e installato nel sistema, usa gcloud storage rsync
+# Metodo 1: Se gcloud CLI e presente nel sistema, usa gcloud storage rsync
 $hasGcloud = (Get-Command gcloud -ErrorAction SilentlyContinue)
 if ($hasGcloud) {{
-    Write-Host "-> Rilevato Google Cloud CLI (gcloud). Avvio sincronizzazione veloce..." -ForegroundColor Yellow
-    & gcloud storage rsync "gs://$BucketName/$RemotePrefix" "$LocalDir"
-    Write-Host "[OK] Sincronizzazione completata con successo tramite gcloud!" -ForegroundColor Green
-    exit 0
+    Write-Host "-> Rilevato Google Cloud CLI (gcloud). Avvio sincronizzazione rapida..." -ForegroundColor Yellow
+    try {{
+        & gcloud storage rsync "gs://$BucketName/$RemotePrefix" "$LocalDir"
+        Write-Host ""
+        Write-Host "[OK] Sincronizzazione completata con successo tramite gcloud!" -ForegroundColor Green
+        return
+    }} catch {{
+        Write-Host "[AVVISO] gcloud rsync ha segnalato un errore, tentativo con HTTPS diretto..." -ForegroundColor Yellow
+    }}
 }}
 
-# Metodo 2: Download diretto HTTP HTTPS nativo PowerShell (senza installare nessun software)
-Write-Host "-> Download diretto HTTPS da Google Cloud Storage..." -ForegroundColor Yellow
+# Metodo 2: Download diretto HTTPS da Google Cloud Storage API
+Write-Host "-> Connessione HTTPS a Google Cloud Storage..." -ForegroundColor Yellow
 $apiUrl = "https://storage.googleapis.com/storage/v1/b/$BucketName/o?prefix=$RemotePrefix"
 
 try {{
@@ -273,35 +276,155 @@ try {{
                 $destPath = Join-Path $LocalDir $fileName
                 $downloadUrl = "https://storage.googleapis.com/$BucketName/$blobName"
                 Invoke-WebRequest -Uri $downloadUrl -OutFile $destPath -UseBasicParsing
-                Write-Host " [+] Scaricato: $fileName" -ForegroundColor Green
+                Write-Host " [+] Scaricato con successo: $fileName" -ForegroundColor Green
                 $count++
             }}
         }}
         Write-Host ""
-        Write-Host "[OK] Scaricati con successo $count file XML in $LocalDir" -ForegroundColor Green
+        Write-Host "[OK] Sincronizzazione terminata: $count file XML scaricati in $LocalDir" -ForegroundColor Green
     }} else {{
-        Write-Host "Nessun file trovato nel bucket con prefisso $RemotePrefix" -ForegroundColor DarkGray
+        Write-Host "[INFO] Nessun file XML trovato nel bucket con prefisso '$RemotePrefix'." -ForegroundColor Yellow
+        Write-Host "Verifica di aver prima cliccato 'Salva su Cloud Storage' nell'app web." -ForegroundColor DarkGray
     }}
 }} catch {{
-    Write-Host "[ERRORE] Impossibile contattare il bucket GCS: $_" -ForegroundColor Red
-    Write-Host "Suggerimento: Verifica che il bucket '$BucketName' sia accessibile o che gcloud CLI sia autenticato." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Red
+    Write-Host "[ERRORE DI RETE / PERMESSI GOOGLE CLOUD STORAGE]" -ForegroundColor Red
+    Write-Host "============================================================" -ForegroundColor Red
+    Write-Host "Dettaglio eccezione: $_" -ForegroundColor Red
+    
+    if ($_.Exception.Response) {{
+        $code = [int]$_.Exception.Response.StatusCode
+        Write-Host "Codice di errore HTTP: $code" -ForegroundColor Yellow
+        if ($code -eq 404) {{
+            Write-Host "-> CAUSA: Il bucket '$BucketName' NON ESISTE ancora su Google Cloud Storage." -ForegroundColor Yellow
+            Write-Host "   SOLUZIONE: Vai su Google Cloud Console -> Cloud Storage -> Crea bucket con nome '$BucketName'." -ForegroundColor Cyan
+        }} elseif ($code -eq 401 -or $code -eq 403) {{
+            Write-Host "-> CAUSA: Il bucket '$BucketName' e privato e rifiuta il download anonimo." -ForegroundColor Yellow
+            Write-Host "   SOLUZIONE: Vai su Cloud Storage -> Bucket '$BucketName' -> Tab Permessi -> Concedi a 'allUsers' il ruolo 'Visualizzatore oggetti Storage' (Storage Object Viewer)." -ForegroundColor Cyan
+        }}
+    }} else {{
+        Write-Host "-> Suggerimento: Verifica la connessione Internet del computer o il proxy aziendale." -ForegroundColor Yellow
+    }}
 }}
-
 Write-Host ""
 """
 
-    bat_content = f"""@echo off
+    ps1_content = f"""<#
+===============================================================================
+ Sincronizzatore Automatico XML TMS da Google Cloud Storage a Cartella BeOne
+ Generato automaticamente da Zara Logistics Hub
+===============================================================================
+#>
+
+{ps_core}
+"""
+
+    bat_content = f"""<# :
+@echo off
 REM ==============================================================================
 REM Lanciatore 1-Click Sincronizzazione XML TMS Zara Hub
+REM Autosufficiente: include il codice di download e non chiude la finestra
 REM ==============================================================================
 title Sincronizzazione XML TMS Zara Hub
-echo Avvio sincronizzazione file XML da Google Cloud Storage...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scarica_xml_tms.ps1"
-if %ERRORLEVEL% EQU 0 (
-    echo [OK] Operazione completata.
-) else (
-    echo [ERRORE] Si e verificato un problema durante la sincronizzazione.
-    pause
-)
+echo ==============================================================================
+echo    SINCRONIZZAZIONE XML TMS ZARA HUB DA GOOGLE CLOUD STORAGE
+echo ==============================================================================
+echo.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText('%~f0'))"
+echo.
+echo ==============================================================================
+echo [TERMINE] Finestra mantenuta aperta per la lettura dei messaggi.
+echo Premi un tasto per chiudere...
+echo ==============================================================================
+pause
+exit /b
+#>
+{ps_core}
 """
     return ps1_content, bat_content
+
+
+def generate_windows_unpacker_script(config: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Genera un file .bat autonomo (1-click) per Windows che cerca l'ultimo pacchetto
+    ZIP scaricato nella cartella 'Downloads' del computer (es. TMS_XML_*.zip) e lo
+    estrae all'istante decompressa nella cartella TMS (C:\\IMPORT_SGA\\RICEZIONE_ORDINI\\ZARA),
+    eliminando poi lo zip temporaneo.
+    Funziona al 100% in locale, senza passare da Cloud Storage, FTP o porte firewall!
+    """
+    cfg = config or get_gcs_config()
+    loc_dir = cfg.get("local_destination_dir", r"C:\IMPORT_SGA\RICEZIONE_ORDINI\ZARA").strip()
+
+    bat_unpacker = f"""<# :
+@echo off
+REM ==============================================================================
+REM Estrazione 1-Click XML TMS Zara Hub da Download a Cartella BeOne
+REM Nessun cloud o porta firewall richiesta: decomprime direttamente l'ultimo zip scaricato
+REM ==============================================================================
+title Estrazione 1-Click XML TMS Zara Hub
+echo ==============================================================================
+echo    ESTRAZIONE 1-CLICK XML TMS ZARA HUB DA DOWNLOAD A CARTELLA BEONE
+echo ==============================================================================
+echo.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([System.IO.File]::ReadAllText('%~f0'))"
+echo.
+echo ==============================================================================
+echo [TERMINE] Premi un tasto per chiudere questa finestra...
+echo ==============================================================================
+pause
+exit /b
+#>
+
+$LocalDir = "{loc_dir}"
+$DownloadsFolder = [System.IO.Path]::Combine($env:USERPROFILE, "Downloads")
+
+Write-Host "Cartella Download monitorata : $DownloadsFolder" -ForegroundColor Cyan
+Write-Host "Cartella di Destinazione TMS : $LocalDir" -ForegroundColor Cyan
+Write-Host ""
+
+if (-not (Test-Path -Path $LocalDir)) {{
+    New-Item -ItemType Directory -Path $LocalDir -Force | Out-Null
+    Write-Host "[OK] Creata cartella TMS: $LocalDir" -ForegroundColor Green
+}}
+
+$zipFiles = Get-ChildItem -Path $DownloadsFolder -Filter "TMS_XML*.zip" | Sort-Object LastWriteTime -Descending
+if (-not $zipFiles -or $zipFiles.Count -eq 0) {{
+    $zipFiles = Get-ChildItem -Path $DownloadsFolder -Filter "*.zip" | Where-Object {{ $_.Name -like "*TMS*" -or $_.Name -like "*XML*" }} | Sort-Object LastWriteTime -Descending
+}}
+
+if (-not $zipFiles -or $zipFiles.Count -eq 0) {{
+    Write-Host "[AVVISO] Nessun pacchetto ZIP 'TMS_XML*.zip' trovato nella cartella Downloads!" -ForegroundColor Yellow
+    Write-Host "1. Clicca prima su 'Scarica Pacchetto XML (.zip)' sul portale web." -ForegroundColor White
+    Write-Host "2. Quando il file finisce nei Download, rilancia questo script." -ForegroundColor White
+    exit 0
+}}
+
+$targetZip = $zipFiles[0]
+Write-Host "-> Trovato archivio piu recente: $($targetZip.Name)" -ForegroundColor Yellow
+Write-Host "-> Estrazione dei singoli file XML in $LocalDir..." -ForegroundColor Yellow
+
+try {{
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($targetZip.FullName)
+    $extractedCount = 0
+    foreach ($entry in $zip.Entries) {{
+        if ($entry.Name.EndsWith(".xml", [System.StringComparison]::OrdinalIgnoreCase)) {{
+            $destPath = Join-Path $LocalDir $entry.Name
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destPath, $true)
+            Write-Host " [+] Estratto: $($entry.Name)" -ForegroundColor Green
+            $extractedCount++
+        }}
+    }}
+    $zip.Dispose()
+    
+    Remove-Item -Path $targetZip.FullName -Force
+    Write-Host ""
+    Write-Host "[OK] Successo! Estratti $extractedCount file XML singoli in $LocalDir" -ForegroundColor Green
+    Write-Host "[OK] Archivio temporaneo rimosso da Downloads." -ForegroundColor DarkGray
+}} catch {{
+    Write-Host ""
+    Write-Host "[ERRORE] Errore durante l'estrazione: $_" -ForegroundColor Red
+}}
+"""
+    return bat_unpacker

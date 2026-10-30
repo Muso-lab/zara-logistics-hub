@@ -4237,8 +4237,33 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
             "Dal tuo server o PC dell'ufficio puoi prelevare i file in automatico con un solo clic usando lo script Windows sottostante."
         )
 
-        from src.gcs_storage import get_gcs_config, save_gcs_config, generate_windows_download_script
+        from src.gcs_storage import (
+            get_gcs_config,
+            save_gcs_config,
+            generate_windows_download_script,
+            generate_windows_unpacker_script,
+        )
         gcs_cfg_view = get_gcs_config()
+
+        unpacker_bat_code = generate_windows_unpacker_script(gcs_cfg_view)
+        st.markdown("##### ⚡ Metodo 1 (Consigliato - Zero Cloud): Auto-Estrattore da Download in 1-Click")
+        st.info(
+            "Questo strumento **non richiede nessuna configurazione Google Cloud, né bucket, né permessi**.\n\n"
+            "1. Clicca su **'Scarica Tutti gli XML (.zip)'** nel portale (il file finisce nei tuoi *Download*).\n"
+            "2. Fai doppio clic su questo file `.bat` sul tuo desktop: cerca l'ultimo zip scaricato, estrae all'istante tutti gli XML singoli direttamente in `C:\\IMPORT_SGA\\RICEZIONE_ORDINI\\ZARA` ed elimina l'archivio temporaneo."
+        )
+        st.download_button(
+            "⚡ Scarica Auto-Estrattore Download (.bat)",
+            data=unpacker_bat_code.encode("utf-8"),
+            file_name="estrai_xml_download.bat",
+            mime="application/x-bat",
+            type="primary",
+            use_container_width=True,
+            key="btn_dl_unpacker_bat",
+        )
+
+        st.markdown("---")
+        st.markdown("##### ☁️ Metodo 2: Sincronizzazione da Google Cloud Storage")
 
         with st.form("form_gcs_settings"):
             cg1, cg2 = st.columns([1.5, 1.5])
@@ -4259,16 +4284,15 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
                 st.rerun()
 
         ps1_code, bat_code = generate_windows_download_script(gcs_cfg_view)
-        st.markdown("##### 📥 Script di Sincronizzazione 1-Click per Windows (Server / Ufficio)")
-        st.caption("Scarica questo file e salvalo sul server o PC dell'ufficio: con un doppio clic (o impostandolo nelle Attività Pianificate di Windows ogni 10 min) scaricherà all'istante tutti gli XML dentro C:\\IMPORT_SGA\\RICEZIONE_ORDINI\\ZARA senza passare da porte esterne.")
+        st.caption("Il file `.bat` qui sotto e autonomo e mantiene la finestra aperta per mostrare chiaramente errori o conferme:")
         cs1, cs2 = st.columns(2)
         with cs1:
             st.download_button(
-                "📥 Scarica Lanciatore Windows (.bat)",
+                "📥 Scarica Lanciatore GCS Autonomo (.bat)",
                 data=bat_code.encode("utf-8"),
                 file_name="scarica_xml_tms.bat",
                 mime="application/x-bat",
-                type="primary",
+                type="secondary",
                 use_container_width=True,
                 key="btn_dl_gcs_bat"
             )
