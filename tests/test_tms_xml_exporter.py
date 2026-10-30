@@ -264,6 +264,118 @@ def test_unique_numeric_id_flusso():
         assert len(set(id_flusso_values)) == 4
 
 
+def test_definitive_xml_structure_exact_match():
+    """
+    Verifica che il builder XML generi file perfettamente conformi ai tracciati
+    definitivi inviati dall'utente (3680_B0_CONSEGNA, 3680_B0_RITIRO, 3680B_B9_CONSEGNA, 3680B_B9_RITIRO),
+    inclusi i tag informativi anagrafici auto-chiudenti (<RagioneSociale/>, etc.)
+    e i campi valorizzati attesi dal TMS BeOne.
+    """
+    # 1. Consegna B0
+    xml_c0 = build_tms_order_xml(
+        delivery_date="2026-11-29",
+        store_info={"cod_sga": 319, "store_id": "3680", "giro": "ZA4"},
+        giro="ZA4",
+        stop_sequence=4,
+        peso_kg=2970.0,
+        colli=198,
+        volume_mc=14.33,
+        is_ritiro=False,
+        barra=0,
+        tipo_specifica="B0",
+        id_flusso="20261029121022",
+        elemento_id="20261029121022",
+    )
+    root_c0 = ET.fromstring(xml_c0)
+    assert root_c0.tag == "TrasportoEntrataOrdini_1_00"
+    assert root_c0.find("IdFlusso").text == "20261029121022"
+    ord_c0 = root_c0.find("Ordini/Ordine")
+    assert ord_c0.find("TipoSpecifica").text == "B0"
+    assert ord_c0.find("OrdineRiferimento").text == "ZA4-4"
+    assert ord_c0.find("CarichiScarichi/CaricoScarico/CaricoMittenteCodice").text == "1"
+    assert ord_c0.find("CarichiScarichi/CaricoScarico/ScaricoDestinatarioCodice").text == "319"
+    assert ord_c0.find("CarichiScarichi/CaricoScarico/Merci/Merce/Um1Valore").text == "2970.000"
+    assert ord_c0.find("CarichiScarichi/CaricoScarico/Merci/Merce/Um2Valore").text == "198"
+    assert ord_c0.find("CarichiScarichi/CaricoScarico/Merci/Merce/Um3Valore").text == "14.330"
+    # Tag anagrafici vuoti
+    assert ord_c0.find("CarichiScarichi/CaricoScarico/CaricoMittenteInformazioniAnagrafiche/RagioneSociale").text is None
+    assert ord_c0.find("CarichiScarichi/CaricoScarico/ScaricoDestinatarioInformazioniAnagrafiche/RagioneSociale").text is None
+
+    # 2. Ritiro B0
+    xml_r0 = build_tms_order_xml(
+        delivery_date="2026-11-29",
+        store_info={"cod_sga": 319, "store_id": "3680", "giro": "ZA4"},
+        giro="ZA4",
+        stop_sequence=4,
+        peso_kg=0.0,
+        colli=0,
+        volume_mc=0.0,
+        is_ritiro=True,
+        barra=0,
+        tipo_specifica="B0",
+        id_flusso="20261029121023",
+        elemento_id="20261029121023R",
+    )
+    root_r0 = ET.fromstring(xml_r0)
+    ord_r0 = root_r0.find("Ordini/Ordine")
+    assert ord_r0.find("TipoSpecifica").text == "B0"
+    assert ord_r0.find("ElementoId").text == "20261029121023R"
+    assert ord_r0.find("OrdineRiferimento").text == "ZA4-4R"
+    assert ord_r0.find("CarichiScarichi/CaricoScarico/CaricoMittenteCodice").text == "319"
+    assert ord_r0.find("CarichiScarichi/CaricoScarico/ScaricoDestinatarioCodice").text == "1"
+    assert ord_r0.find("CarichiScarichi/CaricoScarico/Merci/Merce/Um1Valore").text == "0.000"
+    assert ord_r0.find("CarichiScarichi/CaricoScarico/Merci/Merce/Um2Valore").text == "0"
+    assert ord_r0.find("CarichiScarichi/CaricoScarico/Merci/Merce/Um3Valore").text == "0.000"
+
+    # 3. Consegna B9
+    xml_c9 = build_tms_order_xml(
+        delivery_date="2026-11-29",
+        store_info={"cod_sga": 319, "store_id": "3680B", "giro": "ZA15"},
+        giro="ZA15",
+        stop_sequence=2,
+        peso_kg=1001.087,
+        colli=67,
+        volume_mc=6.14,
+        is_ritiro=False,
+        barra=9,
+        tipo_specifica="B9",
+        id_flusso="20261029121056",
+        elemento_id="20261029121056",
+    )
+    root_c9 = ET.fromstring(xml_c9)
+    ord_c9 = root_c9.find("Ordini/Ordine")
+    assert ord_c9.find("TipoSpecifica").text == "B9"
+    assert ord_c9.find("OrdineRiferimento").text == "ZA15-2"
+    assert ord_c9.find("CarichiScarichi/CaricoScarico/CaricoMittenteCodice").text == "1"
+    assert ord_c9.find("CarichiScarichi/CaricoScarico/ScaricoDestinatarioCodice").text == "319"
+    assert ord_c9.find("CarichiScarichi/CaricoScarico/Merci/Merce/Um1Valore").text == "1001.087"
+    assert ord_c9.find("CarichiScarichi/CaricoScarico/Merci/Merce/Um2Valore").text == "67"
+    assert ord_c9.find("CarichiScarichi/CaricoScarico/Merci/Merce/Um3Valore").text == "6.140"
+
+    # 4. Ritiro B9
+    xml_r9 = build_tms_order_xml(
+        delivery_date="2026-11-29",
+        store_info={"cod_sga": 319, "store_id": "3680B", "giro": "ZA15"},
+        giro="ZA15",
+        stop_sequence=2,
+        peso_kg=0.0,
+        colli=0,
+        volume_mc=0.0,
+        is_ritiro=True,
+        barra=9,
+        tipo_specifica="B9",
+        id_flusso="20261029121057",
+        elemento_id="20261029121057R",
+    )
+    root_r9 = ET.fromstring(xml_r9)
+    ord_r9 = root_r9.find("Ordini/Ordine")
+    assert ord_r9.find("TipoSpecifica").text == "B9"
+    assert ord_r9.find("ElementoId").text == "20261029121057R"
+    assert ord_r9.find("OrdineRiferimento").text == "ZA15-2R"
+    assert ord_r9.find("CarichiScarichi/CaricoScarico/CaricoMittenteCodice").text == "319"
+    assert ord_r9.find("CarichiScarichi/CaricoScarico/ScaricoDestinatarioCodice").text == "1"
+
+
 def test_pull_and_bear_xml_escape_and_validation():
     """
     Test that store 5405 (PULL&BEAR MAC-ADRIATICO) or any brand/address with '&'
@@ -295,14 +407,9 @@ def test_pull_and_bear_xml_escape_and_validation():
         barra=0,
         tipo_specifica="B0",
     )
-    # Must contain &amp; and NOT raw &
-    assert "&amp;" in xml_consegna
-    assert "Pull&amp;Bear" in xml_consegna
     # Must parse successfully with ElementTree without raising XML parse errors
     root = ET.fromstring(xml_consegna)
-    dest_rs = root.find("Ordini/Ordine/CarichiScarichi/CaricoScarico/ScaricoDestinatarioInformazioniAnagrafiche/RagioneSociale")
-    assert dest_rs is not None
-    assert dest_rs.text == "Pull&Bear Adriatico - 5405"
+    assert root.tag == "TrasportoEntrataOrdini_1_00"
 
 
 def test_exact_116_files_no_duplicate_or_numeric_suffix(tmp_path):
