@@ -1403,7 +1403,10 @@ if "Previsione & Arrivi" in menu:
                 st.session_state["active_view_run_id"] = chosen_id
                 st.rerun()
 
-            active_run_data = load_run_data(chosen_id)
+            if "last_run" in st.session_state and st.session_state["last_run"] and st.session_state["last_run"].get("run_id") == chosen_id:
+                active_run_data = st.session_state["last_run"]
+            else:
+                active_run_data = load_run_data(chosen_id)
             if active_run_data:
                 totals = active_run_data["totals"]
                 st.markdown("---")
@@ -1891,7 +1894,7 @@ elif "Bolle di Consegna" in menu:
     if "bolle_tab1_date_val" not in st.session_state or st.session_state["bolle_tab1_date_val"] not in all_dates:
         st.session_state["bolle_tab1_date_val"] = all_dates[0]
 
-    col_top1, col_top2, col_top3 = st.columns([2, 2.2, 1.8])
+    col_top1, col_top2, col_top3, col_top4 = st.columns([1.8, 1.8, 1.8, 1.1])
     with col_top1:
         target_date = st.selectbox(
             "📅 Data di Consegna Attiva",
@@ -1973,6 +1976,11 @@ elif "Bolle di Consegna" in menu:
                         st.session_state["flash_bolle_msg"] = f"🎉 Generate **{c_cnt}** bolle: /9 ({format_date_it(sel_gen_dop)}) e /0 ({format_date_it(sel_gen_std)})!"
                         st.session_state["_target_date_override"] = str(sel_gen_std)
                         st.rerun()
+
+    with col_top4:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("🔄 Aggiorna", use_container_width=True, key="btn_refresh_bolle", help="Ricarica i dati delle bolle e lo stato di spunta da banchina/mobile"):
+            st.rerun()
 
     if has_perm("can_edit_bolle"):
         tab_b_form, tab_b_list = st.tabs([
@@ -2194,6 +2202,7 @@ elif "Bolle di Consegna" in menu:
                     st.session_state["form_autista"] = str(existing_bolla.get("autista") or "")
                     st.session_state["form_mezzo"] = str(existing_bolla.get("tipo_mezzo") or prof.get("tipo_mezzo") or "")
                     st.session_state["form_indirizzo"] = str(existing_bolla.get("indirizzo_destino") or prof.get("indirizzo") or "")
+                    st.session_state["form_sigillo"] = str(existing_bolla.get("sigillo") or "")
                     st.session_state["form_c_abb"] = int(round(float(existing_bolla.get("colli_abbigl", 0) or 0)))
                     st.session_state["form_c_calz"] = int(round(float(existing_bolla.get("colli_calzat", 0) or 0)))
                     st.session_state["form_c_eco"] = int(round(float(existing_bolla.get("colli_ecom", 0) or 0)))
@@ -2211,6 +2220,7 @@ elif "Bolle di Consegna" in menu:
                     st.session_state["form_autista"] = str(prof.get("autista", "") or "")
                     st.session_state["form_mezzo"] = str(prof.get("tipo_mezzo") or ("FURGONE 8" if form_tipo_cons == "DOPPIA" else "MOTRICE 18 PLT"))
                     st.session_state["form_indirizzo"] = str(prof.get("indirizzo") or "")
+                    st.session_state["form_sigillo"] = ""
                     st.session_state["form_c_abb"] = 0
                     st.session_state["form_c_calz"] = 0
                     st.session_state["form_c_eco"] = 0
@@ -2234,7 +2244,11 @@ elif "Bolle di Consegna" in menu:
             with col_v4:
                 form_mezzo = st.text_input("Tipo Mezzo", key="form_mezzo")
 
-            form_indirizzo = st.text_input("Indirizzo di Destino", key="form_indirizzo")
+            col_ind1, col_ind2 = st.columns([2.5, 1.2])
+            with col_ind1:
+                form_indirizzo = st.text_input("Indirizzo di Destino", key="form_indirizzo")
+            with col_ind2:
+                form_sigillo = st.text_input("Sigillo Mezzo (Opzionale)", key="form_sigillo", placeholder="es. SIG-123456")
 
             # ------------------------------------------------------------------
             # CARD DATI PREVISIONALI
@@ -2395,6 +2409,7 @@ elif "Bolle di Consegna" in menu:
                     "autista": "",
                     "tipo_mezzo": form_mezzo,
                     "indirizzo_destino": form_indirizzo,
+                    "sigillo": form_sigillo,
                     "colli_abbigl": int(c_abb),
                     "colli_calzat": int(c_calz),
                     "colli_ecom": int(c_eco),
@@ -2479,6 +2494,7 @@ elif "Bolle di Consegna" in menu:
                     "autista": "",
                     "tipo_mezzo": form_mezzo,
                     "indirizzo_destino": form_indirizzo,
+                    "sigillo": form_sigillo,
                     "colli_abbigl": int(c_abb),
                     "colli_calzat": int(c_calz),
                     "colli_ecom": int(c_eco),
@@ -2753,6 +2769,7 @@ elif "Bolle di Consegna" in menu:
                 "colli_ecom": "E-Com",
                 "vettore": "Vettore",
                 "tipo_mezzo": "Mezzo",
+                "sigillo": "Sigillo",
                 "stringa": "Intershops / Note"
             }
             cols_avail = [c for c in cols_map.keys() if c in df_b_disp.columns]
@@ -2821,10 +2838,36 @@ elif "Spunta Banchina" in menu:
         
         df_b_date = get_bolle(data_consegna=sel_spunta_dt)
         all_giri_mob = ["TUTTI"]
-        if not df_b_date.empty and not df_stores_side.empty:
+        s_map = {}
+        cc_map = {}
+        prov_map = {}
+        if not df_stores_side.empty:
             s_map = df_stores_side.set_index("store_id")["giro"].dropna().to_dict()
-            df_b_date["giro"] = df_b_date["id_store"].map(s_map).fillna("DA ASSEGNARE")
-            g_uniq = sorted([g for g in df_b_date["giro"].unique() if str(g).strip()])
+            if "cc" in df_stores_side.columns:
+                cc_map = df_stores_side.set_index("store_id")["cc"].fillna("").to_dict()
+            if "provincia" in df_stores_side.columns:
+                prov_map = df_stores_side.set_index("store_id")["provincia"].fillna("").to_dict()
+
+        def _resolve_giro(sid):
+            sid_s = str(sid).strip()
+            base_s = sid_s[:-1] if sid_s.endswith("B") else sid_s
+            return str(s_map.get(sid_s) or s_map.get(base_s) or "DA ASSEGNARE").strip()
+
+        def _resolve_centro_loc(sid, sname=""):
+            sid_s = str(sid).strip()
+            base_s = sid_s[:-1] if sid_s.endswith("B") else sid_s
+            raw_cc = str(cc_map.get(sid_s) or cc_map.get(base_s) or "").strip()
+            prov_val = str(prov_map.get(sid_s) or prov_map.get(base_s) or "").strip()
+            if raw_cc and raw_cc.upper() not in ("-", "—", "NONE", "NAN", ""):
+                return f"{raw_cc} ({prov_val})" if prov_val and prov_val not in raw_cc else raw_cc
+            return f"{sname} ({prov_val})" if prov_val else str(sname)
+
+        if not df_b_date.empty:
+            df_b_date["giro"] = df_b_date["id_store"].map(_resolve_giro)
+            df_b_date["centro_loc"] = df_b_date.apply(lambda r: _resolve_centro_loc(r["id_store"], r.get("store_name", "")), axis=1)
+            g_uniq = sorted([g for g in df_b_date["giro"].unique() if str(g).strip() and str(g).strip() != "DA ASSEGNARE"])
+            if any(g == "DA ASSEGNARE" for g in df_b_date["giro"]):
+                g_uniq.append("DA ASSEGNARE")
             all_giri_mob += g_uniq
 
         with c_mob2:
@@ -2899,6 +2942,7 @@ elif "Spunta Banchina" in menu:
                 bid = int(r["id"])
                 sid = str(r["id_store"])
                 sname = str(r.get("store_name", sid))
+                centro_l = str(r.get("centro_loc") or _resolve_centro_loc(sid, sname))
                 tipo = str(r.get("tipo_cons", "STD"))
                 tot_c = int(round(float(r.get("TOT_COLLI", 0) or 0)))
                 prev_c = int(round(float(r.get("prev_totale", 0) or 0)))
@@ -2909,7 +2953,7 @@ elif "Spunta Banchina" in menu:
                     tag = "🟢 [SPUNTATO]"
                 else:
                     tag = "⏳ [DA CONTARE]"
-                b_options[bid] = f"{tag} {sid} - {sname} ({tipo}) [{giro_st}] — Contati: {tot_c} | Prev: {prev_c}"
+                b_options[bid] = f"{tag} {sid} - {sname} [{giro_st}] • {centro_l} ({tipo}) — Contati: {tot_c} | Prev: {prev_c}"
 
             b_id_list = list(b_options.keys())
             if "_next_spunta_bid" in st.session_state and st.session_state["_next_spunta_bid"] in b_id_list:
@@ -2942,13 +2986,14 @@ elif "Spunta Banchina" in menu:
                         b_r = df_b_date[df_b_date["id"] == cand_bid].iloc[0]
                         cand_sid = str(b_r["id_store"])
                         cand_sname = str(b_r.get("store_name", cand_sid))
+                        cand_centro = str(b_r.get("centro_loc") or _resolve_centro_loc(cand_sid, cand_sname))
                         cand_tot = int(round(float(b_r.get("TOT_COLLI", 0) or 0)))
                         cand_prev = int(round(float(b_r.get("prev_totale", 0) or 0)))
                         cand_done = int(b_r.get("spuntato", 0) or 0) == 1
                         cand_tipo = str(b_r.get("tipo_cons", "STD"))
                         cand_giro = str(b_r.get("giro", ""))
                         tag_icon = "🟢 [OK]" if cand_done else "⏳ [DA CONTARE]"
-                        card_lbl = f"{tag_icon} Store {cand_sid} - {cand_sname} ({cand_tipo}) [{cand_giro}] — {cand_tot}/{cand_prev} colli"
+                        card_lbl = f"{tag_icon} {cand_sid} - {cand_sname} [{cand_giro}] • {cand_centro} ({cand_tipo}) — {cand_tot}/{cand_prev} c"
                         if st.button(card_lbl, key=f"pop_sel_{cand_bid}", use_container_width=True, type="primary" if cand_bid == sel_bid else "secondary"):
                             st.session_state["mob_selected_bid"] = cand_bid
                             st.session_state["_scroll_to_top"] = True
@@ -2979,26 +3024,32 @@ elif "Spunta Banchina" in menu:
 
 
 
-            # Scheda Negozio Touch Gigante ad Altissima Visibilità (36px)
+            # Scheda Negozio Touch con Proporzioni Mobile Ottimizzate (Zero Overflow)
+            curr_centro = str(b_curr.get("centro_loc") or _resolve_centro_loc(curr_sid, curr_sname))
             tipo_badge_bg = "#FEF3C7" if curr_tipo == "DOPPIA" else "#E0F2FE"
             tipo_badge_color = "#92400E" if curr_tipo == "DOPPIA" else "#0369A1"
             st.markdown(f"""
-            <div style="background: #FFFFFF; border: 3px solid #0284C7; border-radius: 14px; padding: 16px 20px; margin-top: 6px; margin-bottom: 14px; box-shadow: 0 4px 16px rgba(2, 132, 199, 0.15);">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                    <span style="font-size: 15px; font-weight: 900; color: #0284C7; text-transform: uppercase; letter-spacing: 0.6px;">📍 NEGOZIO IN SPUNTA</span>
-                    <div style="display: flex; gap: 8px;">
-                        <span style="background: #E0F2FE; color: #0369A1; font-size: 15px; font-weight: 800; padding: 4px 12px; border-radius: 9999px;">Giro {curr_giro}</span>
-                        <span style="background: {tipo_badge_bg}; color: {tipo_badge_color}; font-size: 15px; font-weight: 800; padding: 4px 12px; border-radius: 9999px;">{curr_tipo}</span>
-                        <span style="background: #F1F5F9; color: #334155; font-size: 15px; font-weight: 800; padding: 4px 12px; border-radius: 9999px;">{curr_pv}</span>
+            <div style="background: #FFFFFF; border: 2.5px solid #0284C7; border-radius: 12px; padding: 14px 16px; margin-top: 6px; margin-bottom: 12px; box-shadow: 0 3px 12px rgba(2, 132, 199, 0.12); word-break: break-word; overflow-wrap: anywhere;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                    <span style="font-size: 12.5px; font-weight: 900; color: #0284C7; text-transform: uppercase; letter-spacing: 0.5px;">📍 NEGOZIO IN SPUNTA</span>
+                    <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+                        <span style="background: #E0F2FE; color: #0369A1; font-size: 12.5px; font-weight: 800; padding: 2.5px 9px; border-radius: 9999px;">Giro {curr_giro}</span>
+                        <span style="background: {tipo_badge_bg}; color: {tipo_badge_color}; font-size: 12.5px; font-weight: 800; padding: 2.5px 9px; border-radius: 9999px;">{curr_tipo}</span>
+                        <span style="background: #F1F5F9; color: #334155; font-size: 12.5px; font-weight: 800; padding: 2.5px 9px; border-radius: 9999px;">{curr_pv}</span>
                     </div>
                 </div>
-                <div style="font-size: 36px; font-weight: 900; color: #0F172A; margin-top: 6px; letter-spacing: -0.5px;">
-                    STORE {curr_sid}
+                <div style="display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 6px;">
+                    <div style="font-size: 24px; font-weight: 900; color: #0F172A; letter-spacing: -0.3px; line-height: 1.15;">
+                        STORE {curr_sid}
+                    </div>
+                    <div style="background: #F0FDF4; border: 1px solid #BBF7D0; color: #166534; font-size: 12.5px; font-weight: 800; padding: 2px 8px; border-radius: 6px;">
+                        🏢 {curr_centro}
+                    </div>
                 </div>
-                <div style="font-size: 24px; font-weight: 800; color: #1E293B; margin-top: 3px;">
+                <div style="font-size: 17px; font-weight: 800; color: #1E293B; margin-top: 3px; line-height: 1.25;">
                     {curr_sname}
                 </div>
-                <div style="font-size: 16px; font-weight: 600; color: #475569; margin-top: 6px;">
+                <div style="font-size: 13.5px; font-weight: 600; color: #475569; margin-top: 6px;">
                     Mezzo: <strong style="color: #0F172A;">{curr_mezzo}</strong> &nbsp;|&nbsp; Vettore: <strong style="color: #0F172A;">{curr_vett}</strong>
                 </div>
             </div>
@@ -3037,28 +3088,28 @@ elif "Spunta Banchina" in menu:
                     <span style="font-size: 18px; font-weight: 900; color: #1E3A8A;">TOTALE PREVISTO: {format_number_it(prev_tot_m, 0)} COLLI</span>
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 6px;">
-                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 8px 6px; text-align: center;">
-                        <div style="font-size: 13.5px; font-weight: 800; color: #475569;">👗 TESSILE</div>
-                        <div style="font-size: 22px; font-weight: 900; color: #0F172A; margin-top: 3px;">{format_number_it(prev_abb_m, 0)}</div>
+                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 6px 4px; text-align: center;">
+                        <div style="font-size: 12px; font-weight: 800; color: #475569;">👗 TESSILE</div>
+                        <div style="font-size: 18px; font-weight: 900; color: #0F172A; margin-top: 2px;">{format_number_it(prev_abb_m, 0)}</div>
                     </div>
-                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 8px 6px; text-align: center;">
-                        <div style="font-size: 13.5px; font-weight: 800; color: #475569;">👟 SCARPE</div>
-                        <div style="font-size: 22px; font-weight: 900; color: #0F172A; margin-top: 3px;">{format_number_it(prev_calz_m, 0)}</div>
+                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 6px 4px; text-align: center;">
+                        <div style="font-size: 12px; font-weight: 800; color: #475569;">👟 SCARPE</div>
+                        <div style="font-size: 18px; font-weight: 900; color: #0F172A; margin-top: 2px;">{format_number_it(prev_calz_m, 0)}</div>
                     </div>
-                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 8px 6px; text-align: center;">
-                        <div style="font-size: 13.5px; font-weight: 800; color: #475569;">📦 E-COM</div>
-                        <div style="font-size: 22px; font-weight: 900; color: #0F172A; margin-top: 3px;">{format_number_it(prev_eco_m, 0)}</div>
+                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 6px 4px; text-align: center;">
+                        <div style="font-size: 12px; font-weight: 800; color: #475569;">📦 E-COM</div>
+                        <div style="font-size: 18px; font-weight: 900; color: #0F172A; margin-top: 2px;">{format_number_it(prev_eco_m, 0)}</div>
                     </div>
-                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 8px 6px; text-align: center;">
-                        <div style="font-size: 13.5px; font-weight: 800; color: #475569;">📦 ALTRI</div>
-                        <div style="font-size: 22px; font-weight: 900; color: #0F172A; margin-top: 3px;">{format_number_it(prev_oth_m, 0)}</div>
+                    <div style="background: white; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 6px 4px; text-align: center;">
+                        <div style="font-size: 12px; font-weight: 800; color: #475569;">📦 ALTRI</div>
+                        <div style="font-size: 18px; font-weight: 900; color: #0F172A; margin-top: 2px;">{format_number_it(prev_oth_m, 0)}</div>
                     </div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
             # Conteggio Effettivo Touch
-            st.markdown('<div style="font-size: 21px; font-weight: 900; color: #0F172A; margin: 18px 0 12px 0;">✍️ Conteggio Merce Banchina (Quantità Effettive)</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size: 17px; font-weight: 900; color: #0F172A; margin: 14px 0 10px 0;">✍️ Conteggio Merce Banchina (Quantità Effettive)</div>', unsafe_allow_html=True)
             c_m1, c_m2, c_m3 = st.columns(3)
             with c_m1:
                 init_abb = int(round(float(b_curr.get("colli_abbigl") or 0)))

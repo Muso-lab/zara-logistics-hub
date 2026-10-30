@@ -76,6 +76,7 @@ def init_bolle_tables(db_path: Path = DB_PATH):
     existing_b_cols = [r[1] for r in cur.fetchall()]
     new_cols_defs = [
         ("note", "TEXT"),
+        ("sigillo", "TEXT"),
         ("prev_abbigl", "REAL DEFAULT 0"),
         ("prev_calzat", "REAL DEFAULT 0"),
         ("prev_ecom", "REAL DEFAULT 0"),
@@ -464,6 +465,7 @@ def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
             intershops_json = ?,
             stringa = ?,
             note = COALESCE(?, note),
+            sigillo = CASE WHEN ? IS NOT NULL THEN ? ELSE sigillo END,
             prev_abbigl = CASE WHEN ? IS NOT NULL THEN ? ELSE prev_abbigl END,
             prev_calzat = CASE WHEN ? IS NOT NULL THEN ? ELSE prev_calzat END,
             prev_ecom = CASE WHEN ? IS NOT NULL THEN ? ELSE prev_ecom END,
@@ -496,6 +498,7 @@ def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
             inter_json,
             stringa_val,
             data.get("note", None),
+            data.get("sigillo", None), data.get("sigillo", None),
             data.get("prev_abbigl", None), data.get("prev_abbigl", None),
             data.get("prev_calzat", None), data.get("prev_calzat", None),
             data.get("prev_ecom", None), data.get("prev_ecom", None),
@@ -513,8 +516,8 @@ def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
             colli_abbigl, colli_calzat, colli_ecom, colli_others, colli_vario,
             colli_cont, colli_mat_vario, colli_dann, colli_non_conf,
             anomalie_scarico, intershops_json, stringa,
-            note, prev_abbigl, prev_calzat, prev_ecom, prev_others, prev_totale, spuntato
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            note, sigillo, prev_abbigl, prev_calzat, prev_ecom, prev_others, prev_totale, spuntato
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data.get("data", datetime.now().strftime("%Y-%m-%d")),
             data.get("data_consegna", data.get("data", datetime.now().strftime("%Y-%m-%d"))),
@@ -540,6 +543,7 @@ def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
             inter_json,
             stringa_val,
             data.get("note", ""),
+            data.get("sigillo", ""),
             float(data.get("prev_abbigl") or data.get("colli_abbigl") or 0.0),
             float(data.get("prev_calzat") or data.get("colli_calzat") or 0.0),
             float(data.get("prev_ecom") or data.get("colli_ecom") or 0.0),
@@ -1219,6 +1223,8 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
         indirizzo = b.get("indirizzo_destino", "")
 
         aut_line = f"<strong>Autista:</strong> {autista}<br>" if autista else ""
+        sigillo_val = str(b.get("sigillo") or "").strip()
+        sigillo_line = f"<br><strong>Sigillo:</strong> <span style='font-family:monospace; font-weight:bold;'>{sigillo_val}</span>" if sigillo_val else ""
         nota_consegna = str(b.get("note") or b.get("stringa") or "").strip()
 
         c_abb = int(round(float(b.get("colli_abbigl") or 0)))
@@ -1300,7 +1306,7 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
                     <div class="info-content">
                         <strong>Vettore:</strong> {vettore}<br>
                         {aut_line}
-                        <strong>Mezzo:</strong> {mezzo or 'ND'}
+                        <strong>Mezzo:</strong> {mezzo or 'ND'}{sigillo_line}
                     </div>
                 </div>
                 <div class="info-box">

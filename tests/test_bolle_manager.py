@@ -42,6 +42,7 @@ def test_bolle_crud():
         "autista": "MARIO ROSSI",
         "tipo_mezzo": "MOTRICE",
         "indirizzo_destino": "VIA DEI TEST 123",
+        "sigillo": "SIG-9999",
         "colli_abbigl": 100,
         "colli_calzat": 20,
         "colli_ecom": 10,
@@ -58,6 +59,7 @@ def test_bolle_crud():
     b_ret = get_bolla_by_id(b_id)
     assert b_ret is not None
     assert b_ret["id_store"] == "9999"
+    assert b_ret.get("sigillo") == "SIG-9999"
     assert b_ret["colli_abbigl"] == 100.0
     assert "4C CESTE da 3680" in b_ret["stringa"]
 
@@ -89,6 +91,7 @@ def test_bolle_crud():
     assert "BOLLA DI CONSEGNA N°" in html
     assert "VIA DEI TEST 123" in html
     assert "MARIO ROSSI" in html
+    assert "SIG-9999" in html
 
     # 7. Delete
     ok = delete_bolla(b_id)
