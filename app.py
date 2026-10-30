@@ -1198,11 +1198,11 @@ def render_operativa_files_and_email_section(
                     except Exception:
                         tms_zip_bytes = None
 
-                c_act_x1, c_act_x2, c_act_x3 = st.columns([1.2, 1.4, 0.8])
+                c_act_x1, c_act_x2, c_act_x3, c_act_x4 = st.columns([1.1, 1.3, 1.3, 0.7])
                 with c_act_x1:
                     if tms_zip_bytes:
                         st.download_button(
-                            f"📥 Scarica Tutti i {len(xml_list)} File (.ZIP)",
+                            f"📥 Scarica Tutti ({len(xml_list)} XML)",
                             data=tms_zip_bytes,
                             file_name=p_tms_zip_name,
                             mime="application/zip",
@@ -1210,7 +1210,7 @@ def render_operativa_files_and_email_section(
                             key=f"dl_box_tms_zip_massivo_{key_prefix}_{rid}"
                         )
                 with c_act_x2:
-                    if st.button(f"🚀 UPLOAD FTP TMS (1-Click)", type="primary", use_container_width=True, key=f"btn_ftp_run_{key_prefix}_{rid}", help=f"Carica tutti i {len(xml_list)} file XML non compressi sul server FTP servizi.lacchi.com:2121 in /IMPORT_SGA/RICEZIONE_ORDINI/ZARA"):
+                    if st.button(f"🚀 Upload FTP TMS", type="secondary", use_container_width=True, key=f"btn_ftp_run_{key_prefix}_{rid}", help=f"Carica tutti i {len(xml_list)} file XML sul server FTP servizi.lacchi.com:2121"):
                         with st.spinner("🚀 Connessione FTP in corso e caricamento file XML singoli..."):
                             from src.ftp_uploader import upload_xml_files_to_ftp
                             res = upload_xml_files_to_ftp(xml_list)
@@ -1221,7 +1221,18 @@ def render_operativa_files_and_email_section(
                             else:
                                 st.error(f"❌ Errore durante il caricamento FTP: {res['message']}")
                 with c_act_x3:
-                    with st.popover("⚙️ Parametri FTP"):
+                    if st.button(f"☁️ Salva su Cloud Storage", type="primary", use_container_width=True, key=f"btn_gcs_run_{key_prefix}_{rid}", help="Deposita i file nel bucket Google Cloud Storage gratuito per il prelievo PULL automatico dall'ufficio (zero porte firewall)"):
+                        with st.spinner("☁️ Deposito file su Google Cloud Storage..."):
+                            from src.gcs_storage import upload_xml_files_to_gcs
+                            res_gcs = upload_xml_files_to_gcs(xml_list)
+                            if res_gcs["status"] == "ok":
+                                st.success(f"🎉 **{res_gcs['uploaded_count']} / {res_gcs['total_count']}** file XML depositati su Google Cloud Storage!\n\n**Bucket**: `gs://{res_gcs['bucket']}/{res_gcs['prefix']}`")
+                            elif res_gcs["status"] == "partial":
+                                st.warning(f"⚠️ Caricati {res_gcs['uploaded_count']} su {res_gcs['total_count']} file XML.")
+                            else:
+                                st.error(f"❌ Errore Cloud Storage: {res_gcs['message']}")
+                with c_act_x4:
+                    with st.popover("⚙️ Opzioni"):
                         from src.ftp_uploader import get_tms_ftp_config, test_tms_ftp_connection
                         cfg_ftp = get_tms_ftp_config()
                         st.markdown("**Parametri Connessione FTP TMS**")
@@ -4217,6 +4228,59 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
                     st.success(f"🎉 {diag['message']}")
                 else:
                     st.error(f"❌ {diag['message']}")
+
+        st.markdown("---")
+        st.markdown("#### ☁️ Alternativa: Google Cloud Storage (Flusso PULL — Zero Porte Firewall)")
+        st.markdown(
+            "Se non desideri aprire porte in ingresso sul firewall WatchGuard, l'applicazione può depositare "
+            "gli XML su un **Bucket Google Cloud Storage gratuito (5 GB/mese Free Tier)**. "
+            "Dal tuo server o PC dell'ufficio puoi prelevare i file in automatico con un solo clic usando lo script Windows sottostante."
+        )
+
+        from src.gcs_storage import get_gcs_config, save_gcs_config, generate_windows_download_script
+        gcs_cfg_view = get_gcs_config()
+
+        with st.form("form_gcs_settings"):
+            cg1, cg2 = st.columns([1.5, 1.5])
+            with cg1:
+                in_gcs_bkt = st.text_input("Nome Bucket Google Cloud Storage", value=gcs_cfg_view["bucket_name"], key="cfg_gcs_bucket_in", help="Nome del bucket creato su Google Cloud Console (es. lacchi-tms-zara)")
+                in_gcs_pfx = st.text_input("Prefisso Cartella Remota", value=gcs_cfg_view["remote_prefix"], key="cfg_gcs_prefix_in")
+            with cg2:
+                in_gcs_loc = st.text_input("Cartella Locale Server BeOne", value=gcs_cfg_view["local_destination_dir"], key="cfg_gcs_loc_in", help="Percorso fisico della cartella sul server Windows in cui depositare i file")
+
+            btn_save_gcs = st.form_submit_button("💾 SALVA CONFIGURAZIONE GOOGLE CLOUD STORAGE", type="primary", use_container_width=True)
+            if btn_save_gcs:
+                save_gcs_config({
+                    "bucket_name": in_gcs_bkt.strip(),
+                    "remote_prefix": in_gcs_pfx.strip(),
+                    "local_destination_dir": in_gcs_loc.strip(),
+                })
+                st.success("✅ Configurazione Google Cloud Storage salvata!")
+                st.rerun()
+
+        ps1_code, bat_code = generate_windows_download_script(gcs_cfg_view)
+        st.markdown("##### 📥 Script di Sincronizzazione 1-Click per Windows (Server / Ufficio)")
+        st.caption("Scarica questo file e salvalo sul server o PC dell'ufficio: con un doppio clic (o impostandolo nelle Attività Pianificate di Windows ogni 10 min) scaricherà all'istante tutti gli XML dentro C:\\IMPORT_SGA\\RICEZIONE_ORDINI\\ZARA senza passare da porte esterne.")
+        cs1, cs2 = st.columns(2)
+        with cs1:
+            st.download_button(
+                "📥 Scarica Lanciatore Windows (.bat)",
+                data=bat_code.encode("utf-8"),
+                file_name="scarica_xml_tms.bat",
+                mime="application/x-bat",
+                type="primary",
+                use_container_width=True,
+                key="btn_dl_gcs_bat"
+            )
+        with cs2:
+            st.download_button(
+                "📥 Scarica Script PowerShell (.ps1)",
+                data=ps1_code.encode("utf-8"),
+                file_name="scarica_xml_tms.ps1",
+                mime="text/plain",
+                use_container_width=True,
+                key="btn_dl_gcs_ps1"
+            )
 
     with tab_cloud_gs:
         st.markdown("#### 🟢 Collegamento Permanente a Google Sheets (tramite Apps Script)")
