@@ -1198,16 +1198,48 @@ def render_operativa_files_and_email_section(
                     except Exception:
                         tms_zip_bytes = None
 
-                if tms_zip_bytes:
-                    st.download_button(
-                        f"📥 DOWNLOAD MASSIVO DI TUTTI I {len(xml_list)} FILE XML (ZIP)",
-                        data=tms_zip_bytes,
-                        file_name=p_tms_zip_name,
-                        mime="application/zip",
-                        type="primary",
-                        use_container_width=True,
-                        key=f"dl_box_tms_zip_massivo_{key_prefix}_{rid}"
-                    )
+                c_act_x1, c_act_x2, c_act_x3 = st.columns([1.2, 1.4, 0.8])
+                with c_act_x1:
+                    if tms_zip_bytes:
+                        st.download_button(
+                            f"📥 Scarica Tutti i {len(xml_list)} File (.ZIP)",
+                            data=tms_zip_bytes,
+                            file_name=p_tms_zip_name,
+                            mime="application/zip",
+                            use_container_width=True,
+                            key=f"dl_box_tms_zip_massivo_{key_prefix}_{rid}"
+                        )
+                with c_act_x2:
+                    if st.button(f"🚀 UPLOAD FTP TMS (1-Click)", type="primary", use_container_width=True, key=f"btn_ftp_run_{key_prefix}_{rid}", help=f"Carica tutti i {len(xml_list)} file XML non compressi sul server FTP servizi.lacchi.com:2121 in /IMPORT_SGA/RICEZIONE_ORDINI/ZARA"):
+                        with st.spinner("🚀 Connessione FTP in corso e caricamento file XML singoli..."):
+                            from src.ftp_uploader import upload_xml_files_to_ftp
+                            res = upload_xml_files_to_ftp(xml_list)
+                            if res["status"] == "ok":
+                                st.success(f"🎉 **{res['uploaded_count']} / {res['total_count']}** file XML caricati con successo su FTP!
+
+**Server**: `{res['host']}:{res['port']}`
+**Cartella**: `{res['remote_dir']}`")
+                            elif res["status"] == "partial":
+                                st.warning(f"⚠️ Caricati {res['uploaded_count']} su {res['total_count']} file XML.")
+                            else:
+                                st.error(f"❌ Errore durante il caricamento FTP: {res['message']}")
+                with c_act_x3:
+                    with st.popover("⚙️ Parametri FTP"):
+                        from src.ftp_uploader import get_tms_ftp_config, test_tms_ftp_connection
+                        cfg_ftp = get_tms_ftp_config()
+                        st.markdown("**Parametri Connessione FTP TMS**")
+                        st.caption("Configurazione standard aziendale Lacchi per BeOne:")
+                        st.text_input("Server Host", value=cfg_ftp['host'], disabled=True, key=f"ftp_h_{key_prefix}_{rid}")
+                        st.text_input("Porta", value=str(cfg_ftp['port']), disabled=True, key=f"ftp_p_{key_prefix}_{rid}")
+                        st.text_input("Utente", value=cfg_ftp['user'], disabled=True, key=f"ftp_u_{key_prefix}_{rid}")
+                        st.text_input("Cartella Remota", value=cfg_ftp['remote_dir'], disabled=True, key=f"ftp_d_{key_prefix}_{rid}")
+                        if st.button("🔌 Verifica Connessione", key=f"btn_test_ftp_{key_prefix}_{rid}", use_container_width=True):
+                            with st.spinner("Test connessione in corso..."):
+                                ok, msg = test_tms_ftp_connection()
+                                if ok:
+                                    st.success(f"✅ {msg}")
+                                else:
+                                    st.error(f"❌ {msg}")
                 
                 f_filter = st.radio("Filtra elenco file per tipologia:", ["TUTTI", "SOLO B0 (Barra 0)", "SOLO B9 (Barra 9)"], horizontal=True, key=f"rad_tms_filt_{key_prefix}_{rid}")
                 if f_filter == "SOLO B0 (Barra 0)":
@@ -2660,18 +2692,33 @@ elif "Bolle di Consegna" in menu:
                 st.button("📊 Esporta Excel (N.D.)", disabled=True, use_container_width=True)
         with b_exp2:
             if not df_bolle.empty:
-                from src.tms_xml_exporter import create_tms_xml_zip_bytes_from_bolle
-                zip_tms_bytes = create_tms_xml_zip_bytes_from_bolle(target_date)
-                st.download_button(
-                    "📦 DOWNLOAD MASSIVO TUTTI I FILE XML TMS (.ZIP)",
-                    data=zip_tms_bytes,
-                    file_name=f"TMS_XML_Bolle_Massivo_{target_date}.zip",
-                    mime="application/zip",
-                    type="primary",
-                    use_container_width=True,
-                    help="Scarica archivio ZIP con tutti i file XML standard TrasportoEntrataOrdini_1_00 differenziati per Barra 0 (B0) e Barra 9 (B9) (Consegne con merci reali + Ritiri a 0)",
-                    key="dl_btn_bolle_tms_xml"
-                )
+                c_b_dl, c_b_ftp = st.columns([1, 1.2])
+                with c_b_dl:
+                    from src.tms_xml_exporter import create_tms_xml_zip_bytes_from_bolle
+                    zip_tms_bytes = create_tms_xml_zip_bytes_from_bolle(target_date)
+                    st.download_button(
+                        "📦 Download XML (.ZIP)",
+                        data=zip_tms_bytes,
+                        file_name=f"TMS_XML_Bolle_Massivo_{target_date}.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                        help="Scarica archivio ZIP con tutti i file XML standard TrasportoEntrataOrdini_1_00 differenziati per Barra 0 (B0) e Barra 9 (B9)",
+                        key="dl_btn_bolle_tms_xml"
+                    )
+                with c_b_ftp:
+                    if st.button("🚀 Upload FTP TMS (1-Click)", type="primary", use_container_width=True, key=f"btn_ftp_bolle_{target_date}", help="Invia tutti i file XML non compressi al server FTP aziendale servizi.lacchi.com:2121 in /IMPORT_SGA/RICEZIONE_ORDINI/ZARA"):
+                        with st.spinner("🚀 Generazione e caricamento XML su FTP in corso..."):
+                            from src.ftp_uploader import upload_tms_xml_from_bolle
+                            res_b = upload_tms_xml_from_bolle(target_date)
+                            if res_b["status"] == "ok":
+                                st.success(f"🎉 **{res_b['uploaded_count']} / {res_b['total_count']}** file XML caricati con successo su FTP!
+
+**Server**: `{res_b['host']}:{res_b['port']}`
+**Cartella**: `{res_b['remote_dir']}`")
+                            elif res_b["status"] == "partial":
+                                st.warning(f"⚠️ Caricati {res_b['uploaded_count']} su {res_b['total_count']} file XML.")
+                            else:
+                                st.error(f"❌ Errore FTP: {res_b['message']}")
             else:
                 st.button("📦 XML TMS (N.D.)", disabled=True, use_container_width=True)
         with b_exp3:
@@ -3283,7 +3330,7 @@ elif "Consuntivo & Planner" in menu:
                 df_stores=df_stores_side
             )
             if out_planner_path.exists():
-                c_dl_p1, c_dl_p2 = st.columns([1.6, 1.4])
+                c_dl_p1, c_dl_p2, c_dl_p3 = st.columns([1.4, 1.1, 1.2])
                 with c_dl_p1:
                     with open(out_planner_path, "rb") as f_pl:
                         st.download_button(
@@ -3291,7 +3338,7 @@ elif "Consuntivo & Planner" in menu:
                             data=f_pl.read(),
                             file_name=f"Planning_ITX_RM_{sel_plan_date}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            type="primary",
+                            type="secondary",
                             use_container_width=True,
                         )
                 with c_dl_p2:
@@ -3299,13 +3346,27 @@ elif "Consuntivo & Planner" in menu:
                     plan_tms_zip = create_tms_xml_zip_bytes_from_bolle(target_query_dates)
                     if plan_tms_zip:
                         st.download_button(
-                            "📦 DOWNLOAD MASSIVO XML TMS (B0 + B9 ZIP)",
+                            "📦 Download XML (.ZIP)",
                             data=plan_tms_zip,
                             file_name=f"TMS_XML_Ciclo_{display_plan_date}.zip",
                             mime="application/zip",
                             use_container_width=True,
                             key="btn_dl_tms_plan_zip"
                         )
+                with c_dl_p3:
+                    if st.button("🚀 Upload FTP TMS (1-Click)", type="primary", use_container_width=True, key=f"btn_ftp_plan_{display_plan_date}", help="Carica tutti i file XML B0 e B9 non compressi direttamente sul server FTP Lacchi"):
+                        with st.spinner("🚀 Generazione e caricamento XML su FTP in corso..."):
+                            from src.ftp_uploader import upload_tms_xml_from_bolle
+                            res_p = upload_tms_xml_from_bolle(target_query_dates)
+                            if res_p["status"] == "ok":
+                                st.success(f"🎉 **{res_p['uploaded_count']} / {res_p['total_count']}** file XML caricati con successo su FTP!
+
+**Server**: `{res_p['host']}:{res_p['port']}`
+**Cartella**: `{res_p['remote_dir']}`")
+                            elif res_p["status"] == "partial":
+                                st.warning(f"⚠️ Caricati {res_p['uploaded_count']} su {res_p['total_count']} file XML.")
+                            else:
+                                st.error(f"❌ Errore FTP: {res_p['message']}")
 
             disp_cols = [
                 "store_code", "store_name", "brand", "delivery_day",
@@ -3876,8 +3937,9 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
     st.markdown('<div class="main-header">⚙️ Impostazioni, Invio Email, Cloud & Backup</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Configurazione server SMTP per invio email operative, sincronizzazione Google Sheets, archivio storico e backup database.</div>', unsafe_allow_html=True)
 
-    tab_email, tab_cloud_gs, tab_hist, tab_backup = st.tabs([
+    tab_email, tab_ftp_tms, tab_cloud_gs, tab_hist, tab_backup = st.tabs([
         "✉️ Posta & Parametri Invio Email",
+        "📡 Connessione FTP TMS (BeOne)",
         "🟢 Cloud Google Sheets (Apps Script)",
         "📊 Archivio & Storico Elaborazioni",
         "💾 Backup File Database (.db)",
@@ -4073,6 +4135,35 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
                         else:
                             st.error(f"❌ **{msg_test}**")
 
+
+    with tab_ftp_tms:
+        st.markdown("#### 📡 Server FTP TMS — Invio Telematico File XML (BeOne / Nova Systems)")
+        st.markdown(
+            "Configurazione del server FTP aziendale per l'inoltro a **singolo click** dei file XML "
+            "non compressi direttamente nella cartella di ricezione ordini del TMS."
+        )
+
+        from src.ftp_uploader import get_tms_ftp_config, test_tms_ftp_connection
+        ftp_cfg_view = get_tms_ftp_config()
+
+        cf1, cf2 = st.columns([1.5, 1.5])
+        with cf1:
+            st.text_input("Server Host FTP", value=ftp_cfg_view["host"], disabled=True, key="cfg_view_ftp_host")
+            st.text_input("Porta FTP", value=str(ftp_cfg_view["port"]), disabled=True, key="cfg_view_ftp_port")
+            st.text_input("Nome Utente", value=ftp_cfg_view["user"], disabled=True, key="cfg_view_ftp_user")
+        with cf2:
+            st.text_input("Password", value="••••••••••••••••••••", type="password", disabled=True, key="cfg_view_ftp_pw")
+            st.text_input("Cartella Remota Destinazione", value=ftp_cfg_view["remote_dir"], disabled=True, key="cfg_view_ftp_dir")
+            st.caption("ℹ️ Formato di trasferimento: singoli file `.xml` non compressi (Consegna e Ritiro per ciascun negozio).")
+
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+        if st.button("🔌 TEST CONNETTIVITÀ SERVER FTP ORA", type="primary", use_container_width=True, key="btn_test_ftp_settings"):
+            with st.spinner(f"Verifica connessione a {ftp_cfg_view['host']}:{ftp_cfg_view['port']} in corso..."):
+                ok_f, msg_f = test_tms_ftp_connection()
+                if ok_f:
+                    st.success(f"✅ {msg_f}")
+                else:
+                    st.error(f"❌ {msg_f}")
 
     with tab_cloud_gs:
         st.markdown("#### 🟢 Collegamento Permanente a Google Sheets (tramite Apps Script)")
