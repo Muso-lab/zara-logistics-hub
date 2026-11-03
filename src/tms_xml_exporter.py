@@ -298,7 +298,7 @@ def build_tms_order_xml(
 
     # Nel tracciato definitivo TMS TrasportoEntrataOrdini_1_00:
     # Per Mittente e Destinatario i blocchi InformazioniAnagrafiche sono tag vuoti auto-chiudenti (<RagioneSociale/>, etc.)
-    # poiché l'anagrafica risiede già nel TMS BeOne mappata sul codice cliente/corrispondente (es. Codice 1 per Lacchi, Codice SGA per il negozio).
+    # poiché l'anagrafica risiede già nel TMS BeOne mappata sul codice cliente/corrispondente (es. Codice 18 per Cliente, Codice SGA per il negozio).
     xml_lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<TrasportoEntrataOrdini_1_00>',
@@ -313,7 +313,7 @@ def build_tms_order_xml(
         f'        <Id>{elemento_id}</Id>',
         f'        <Data>{deliv_dt_str}</Data>',
         '      </Raggruppamento>',
-        '      <Cliente>1</Cliente>',
+        '      <Cliente>18</Cliente>',
         f'      <OrdineRiferimento>{order_ref}</OrdineRiferimento>',
         f'      <RiferimentoInterno>{order_ref}</RiferimentoInterno>',
         '      <Descrizione/>',

@@ -77,6 +77,7 @@ def test_build_consegna_xml_structure_b0_and_b9():
     assert root0.tag == "TrasportoEntrataOrdini_1_00"
     assert root0.find("IdFlusso").text == "20261129120000"
     ord0 = root0.find("Ordini/Ordine")
+    assert ord0.find("Cliente").text == "18"
     assert ord0.find("TipoSpecifica").text == "B0"
     assert ord0.find("CarichiScarichi/CaricoScarico/CaricoMittenteCodice").text == "1"
     assert ord0.find("CarichiScarichi/CaricoScarico/ScaricoDestinatarioCodice").text == "314"
