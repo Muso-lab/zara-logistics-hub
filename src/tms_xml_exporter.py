@@ -322,7 +322,7 @@ def build_tms_order_xml(
         '      <TipoMotriceTrattore/>',
         '      <TipoRimorchioSemirimorchio/>',
         '      <Priorita/>',
-        '      <Classificazione/>',
+        '      <Classificazione>TZ</Classificazione>',
         '      <Linea/>',
         '      <Resa/>',
         '      <NoteDisponente/>',

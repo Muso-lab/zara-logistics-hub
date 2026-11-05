@@ -240,6 +240,27 @@ def export_zara_spunta(
         # Giro in col 26 (Z)
         ws.cell(row=ridx, column=26, value=r["giro"])
 
+    # Header for Giro in column 26
+    c_giro_hdr = ws.cell(row=1, column=26, value="GIRO")
+    c_giro_hdr.fill = header_fill
+    c_giro_hdr.font = header_font
+    c_giro_hdr.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    # If special_breakdowns is empty or not passed, reconstruct default summary from df_spunta
+    if not special_breakdowns:
+        special_breakdowns = {}
+        if not df_spunta.empty:
+            is_st = df_spunta.get("is_store", pd.Series([True]*len(df_spunta)))
+            st_only = df_spunta[is_st]
+            t_colli = int(round(float(st_only.get("textile_attesi", 0).sum() + st_only.get("other_attesi", 0).sum() + st_only.get("shoes_attesi", 0).sum() + st_only.get("ecom_attesi", 0).sum())))
+            t_mc = round(float(st_only.get("mc", 0).sum()), 2)
+            special_breakdowns["check_totals"] = {
+                "totali_teorici_colli": t_colli,
+                "totali_check_colli": t_colli,
+                "totali_teorici_mc": t_mc,
+                "totali_check_mc": t_mc,
+            }
+
     # Write Bottom Section: Lavorazioni di Piattaforma (Rows 96-113, dynamically adjusted)
     if special_breakdowns:
         bold_font = Font(name="Calibri", size=10, bold=True)
