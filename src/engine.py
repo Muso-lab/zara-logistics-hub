@@ -489,7 +489,8 @@ def compute_spunta_arrivi(
     # Compute totale_pedane per giro group
     # Group contiguous blocks of same giro
     for giro_name, grp in df_sp[df_sp["is_store"]].groupby("giro", sort=False):
-        sum_ped = int(grp["pedane"].sum())
+        raw_sum = float(grp["pedane"].sum())
+        sum_ped = int(round(raw_sum)) if abs(raw_sum - round(raw_sum)) < 0.01 else round(raw_sum, 2)
         first_idx = grp.index[0]
         df_sp.loc[first_idx, "totale_pedane"] = sum_ped
 

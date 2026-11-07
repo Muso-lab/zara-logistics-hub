@@ -196,49 +196,81 @@ def export_zara_spunta(
         is_store = bool(r["is_store"])
 
         if not is_store:
-            # Header line
-            ws.cell(row=ridx, column=1, value=r["store_code"]).font = section_font
-            ws.cell(row=ridx, column=2, value=r["store_name"]).font = section_font
-            ws.cell(row=ridx, column=3, value=r["punto_vendita"]).font = section_font
+            code_str = str(r.get("store_code", "") or "").strip()
+            if not code_str:
+                # Blank spacer line (e.g. spacer rows between giri)
+                continue
+
+            # Section Header row (e.g. "Store ID" / "NEGOZIO")
+            is_b9_sec = bool(r.get("is_barra9", 0))
+            ws.cell(row=ridx, column=1, value=r.get("store_code", "")).font = section_font
+            ws.cell(row=ridx, column=2, value=r.get("store_name", "")).font = section_font
+            ws.cell(row=ridx, column=3, value=r.get("punto_vendita", "")).font = section_font
+            ws.cell(row=ridx, column=4, value="MC").font = section_font
+            ws.cell(row=ridx, column=5, value="TEXTILE\nATTESI").font = section_font
+            ws.cell(row=ridx, column=7, value="OTHER\nATTESI").font = section_font
+            ws.cell(row=ridx, column=9, value="SHOES ATTESI").font = section_font
+            ws.cell(row=ridx, column=11, value="ECOM ATTESI").font = section_font
+            if is_b9_sec:
+                ws.cell(row=ridx, column=12, value="COLLI").font = section_font
+            ws.cell(row=ridx, column=13, value="PEDANE").font = section_font
+            ws.cell(row=ridx, column=15, value=r.get("vettore_autista") or "VETTORE").font = section_font
+            ws.cell(row=ridx, column=16, value=r.get("tipo_mezzo") or "TIPO MEZZO").font = section_font
+            ws.cell(row=ridx, column=17, value=r.get("targa") or "TARGA").font = section_font
+            ws.cell(row=ridx, column=18, value=r.get("cod_mezzo") or "COD.MEZZO").font = section_font
+            ws.cell(row=ridx, column=19, value=r.get("supporto") or "SUPPORTO").font = section_font
+
             for c in range(1, 20):
-                ws.cell(row=ridx, column=c).fill = section_fill
+                c_hdr = ws.cell(row=ridx, column=c)
+                c_hdr.fill = section_fill
+                c_hdr.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             continue
 
         ws.cell(row=ridx, column=1, value=r["store_code"]).border = thin_border
         ws.cell(row=ridx, column=2, value=r["store_name"]).border = thin_border
         ws.cell(row=ridx, column=3, value=r["punto_vendita"]).border = thin_border
         
-        c_mc = ws.cell(row=ridx, column=4, value=round(float(r["mc"]), 2) if r["mc"] > 0 else "")
+        mc_val = float(r.get("mc", 0.0) or 0.0)
+        c_mc = ws.cell(row=ridx, column=4, value=round(mc_val, 2) if mc_val > 0 else "")
         c_mc.border = thin_border
         c_mc.number_format = "0.00"
 
-        c_tex = ws.cell(row=ridx, column=5, value=int(r["textile_attesi"]) if r["textile_attesi"] > 0 else "")
+        c_tex = ws.cell(row=ridx, column=5, value=int(r["textile_attesi"]) if r.get("textile_attesi") and r["textile_attesi"] > 0 else "")
         c_tex.border = thin_border
+        ws.cell(row=ridx, column=6).border = thin_border
 
-        c_oth = ws.cell(row=ridx, column=7, value=int(r["other_attesi"]) if r["other_attesi"] > 0 else "")
+        c_oth = ws.cell(row=ridx, column=7, value=int(r["other_attesi"]) if r.get("other_attesi") and r["other_attesi"] > 0 else "")
         c_oth.border = thin_border
+        ws.cell(row=ridx, column=8).border = thin_border
 
-        c_sho = ws.cell(row=ridx, column=9, value=int(r["shoes_attesi"]) if r["shoes_attesi"] > 0 else "")
+        c_sho = ws.cell(row=ridx, column=9, value=int(r["shoes_attesi"]) if r.get("shoes_attesi") and r["shoes_attesi"] > 0 else "")
         c_sho.border = thin_border
+        ws.cell(row=ridx, column=10).border = thin_border
 
-        c_eco = ws.cell(row=ridx, column=11, value=int(r["ecom_attesi"]) if r["ecom_attesi"] > 0 else "")
+        c_eco = ws.cell(row=ridx, column=11, value=int(r["ecom_attesi"]) if r.get("ecom_attesi") and r["ecom_attesi"] > 0 else "")
         c_eco.border = thin_border
+        ws.cell(row=ridx, column=12).border = thin_border
 
-        c_ped = ws.cell(row=ridx, column=13, value=int(r["pedane"]) if r["pedane"] > 0 else "")
+        # Pedane (preserva decimali se presenti, es. 11.4 o 6.8)
+        ped_raw = float(r.get("pedane", 0.0) or 0.0)
+        ped_val = int(round(ped_raw)) if abs(ped_raw - round(ped_raw)) < 0.01 else round(ped_raw, 2)
+        c_ped = ws.cell(row=ridx, column=13, value=ped_val if ped_raw > 0 else "")
         c_ped.border = thin_border
 
-        tot_p = r.get("totale_pedane", 0.0)
-        c_totp = ws.cell(row=ridx, column=14, value=int(tot_p) if tot_p > 0 else "")
+        # Totale Pedane (preserva decimali se presenti, es. 27.9 o 4.3)
+        totp_raw = float(r.get("totale_pedane", 0.0) or 0.0)
+        totp_val = int(round(totp_raw)) if abs(totp_raw - round(totp_raw)) < 0.01 else round(totp_raw, 2)
+        c_totp = ws.cell(row=ridx, column=14, value=totp_val if totp_raw > 0 else "")
         c_totp.border = thin_border
 
-        ws.cell(row=ridx, column=15, value=r["vettore_autista"]).border = thin_border
-        ws.cell(row=ridx, column=16, value=r["tipo_mezzo"]).border = thin_border
-        ws.cell(row=ridx, column=17, value=r["targa"]).border = thin_border
-        ws.cell(row=ridx, column=18, value=r["cod_mezzo"]).border = thin_border
-        ws.cell(row=ridx, column=19, value=r["supporto"]).border = thin_border
+        ws.cell(row=ridx, column=15, value=r.get("vettore_autista", "")).border = thin_border
+        ws.cell(row=ridx, column=16, value=r.get("tipo_mezzo", "")).border = thin_border
+        ws.cell(row=ridx, column=17, value=r.get("targa", "")).border = thin_border
+        ws.cell(row=ridx, column=18, value=r.get("cod_mezzo", "")).border = thin_border
+        ws.cell(row=ridx, column=19, value=r.get("supporto", "")).border = thin_border
 
         # Giro in col 26 (Z)
-        ws.cell(row=ridx, column=26, value=r["giro"])
+        ws.cell(row=ridx, column=26, value=r.get("giro", ""))
 
     # Header for Giro in column 26
     c_giro_hdr = ws.cell(row=1, column=26, value="GIRO")

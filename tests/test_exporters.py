@@ -326,3 +326,62 @@ def test_export_planner_roma():
         export_planner_roma(df_test_planner, PLANNER_TEMPLATE_FILE, out_file2, "2026-10-27")
         assert out_file2.exists()
 
+
+
+def test_export_zara_spunta_complete():
+    from src.exporters import export_zara_spunta
+    import tempfile
+    import openpyxl
+    from pathlib import Path
+    import pandas as pd
+
+    df_test = pd.DataFrame([
+        {
+            "row_idx": 1,
+            "is_store": False,
+            "store_code": "NEGOZIO",
+            "store_name": "STORE",
+            "punto_vendita": "PUNTO VENDITA",
+            "is_barra9": 0
+        },
+        {
+            "row_idx": 2,
+            "is_store": True,
+            "store_code": "16647",
+            "store_name": "CC Chieti Megalo",
+            "punto_vendita": "STRADIVARIUS",
+            "mc": 4.36,
+            "textile_attesi": 41,
+            "other_attesi": 2,
+            "shoes_attesi": 2,
+            "ecom_attesi": 0,
+            "pedane": 11.4,
+            "totale_pedane": 27.9,
+            "vettore_autista": "C. ORIENTA",
+            "tipo_mezzo": "BILICO 33",
+            "targa": "",
+            "cod_mezzo": "VARI",
+            "supporto": "",
+            "giro": "ZA1"
+        }
+    ])
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        out_p = Path(tmp_dir) / "ZARA.xlsx"
+        export_zara_spunta(df_test, out_p)
+        assert out_p.exists()
+
+        wb = openpyxl.load_workbook(out_p)
+        ws = wb.active
+        assert ws.title == "SPUNTA ARRIVI "
+
+        # Check headers
+        assert ws.cell(row=1, column=1).value == "NEGOZIO"
+        assert ws.cell(row=1, column=26).value == "GIRO"
+
+        # Check store data with decimals
+        assert ws.cell(row=2, column=1).value == "16647"
+        assert ws.cell(row=2, column=13).value == 11.4
+        assert ws.cell(row=2, column=14).value == 27.9
+        assert ws.cell(row=2, column=15).value == "C. ORIENTA"
+        assert ws.cell(row=2, column=26).value == "ZA1"

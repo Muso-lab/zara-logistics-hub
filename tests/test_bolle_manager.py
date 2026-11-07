@@ -340,3 +340,39 @@ def test_compute_inditex_delivery_dates():
     assert d9_gio.strftime("%Y-%m-%d") == "2026-11-01"  # Domenica (weekday 6)
     assert d0_gio.weekday() == 5  # /0 STD SEMPRE Sabato
     assert d9_gio.weekday() == 6  # /9 DOPPIA SEMPRE Domenica
+
+
+def test_add_colli_to_bolla_spuntata():
+    from src.bolle_manager import add_colli_to_bolla_spuntata, save_or_update_bolla, get_bolla_by_id, delete_bolla
+
+    test_date = '2099-05-05'
+    b_data = {
+        'data': test_date,
+        'data_consegna': test_date,
+        'id_store': '8888',
+        'store_name': 'TEST-MOBILE',
+        'colli_abbigl': 40,
+        'colli_calzat': 10,
+        'colli_ecom': 5,
+        'colli_others': 2,
+        'colli_vario': 1,
+        'spuntato': 1
+    }
+    b_id = save_or_update_bolla(b_data)
+
+    try:
+        res = add_colli_to_bolla_spuntata(b_id, 3, category='colli_abbigl', note_reason='Cartone extra banchina')
+        assert res['status'] == 'ok'
+        assert res['new_category_total'] == 43
+        assert res['new_total_colli'] == 61
+
+        b_check = get_bolla_by_id(b_id)
+        assert b_check['colli_abbigl'] == 43.0
+        assert b_check['spuntato'] == 1
+        assert '+3 Abbigliamento' in b_check['note']
+        assert 'Cartone extra banchina' in b_check['note']
+
+        err = add_colli_to_bolla_spuntata(b_id, 0)
+        assert err['status'] == 'error'
+    finally:
+        delete_bolla(b_id)

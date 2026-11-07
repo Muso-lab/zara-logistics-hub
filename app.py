@@ -101,6 +101,7 @@ compute_inditex_delivery_dates = getattr(bm, "compute_inditex_delivery_dates", N
 export_bolle_excel = getattr(bm, "export_bolle_excel", None)
 if export_bolle_excel is None:
     from src.exporters import export_bolle_excel
+from src.bolle_manager import add_colli_to_bolla_spuntata
 from src.exporters import export_planner_roma, export_sintesi_operativa, export_sga_file, export_zara_spunta
 from src.mailer import send_operativa_email, send_test_email, build_operativa_zip
 from src.scraper import InditexExtranetScraper
@@ -1056,6 +1057,7 @@ def render_operativa_files_and_email_section(
 
     zip_items = {
         "Sintesi_Operativa.xlsx": p_sintesi,
+        "ZARA.xlsx": p_zara,
         "barrazero_Sga.xlsx": p_sga0,
         "barranove_Sga.xlsx": p_sga9,
         "barrazero_Sga.csv": p_sga0_csv,
@@ -1066,7 +1068,7 @@ def render_operativa_files_and_email_section(
 
     st.markdown('<div class="modern-card" style="border-left: 5px solid #0284C7; margin-bottom: 20px; padding: 18px 20px;">', unsafe_allow_html=True)
     st.markdown('<div class="modern-section-title">📦 Download Documenti Ufficiali & Spedizione Email</div>', unsafe_allow_html=True)
-    st.caption("Scarica i documenti operativi ufficiali generati per questa spedizione (Sintesi Operativa, SGA Barra 0, SGA Barra 9, XML TMS) oppure espandi la sezione email per la trasmissione:")
+    st.caption("Scarica i documenti operativi ufficiali generati per questa spedizione (Sintesi Operativa, Spunta ZARA, SGA Barra 0, SGA Barra 9, XML TMS) oppure espandi la sezione email per la trasmissione:")
 
     # Generazione / Verifica file XML TMS (TrasportoEntrataOrdini_1_00 per BeOne)
     p_tms_zip_name = f"TMS_XML_Ordini_{rid}_{r_date}.zip"
@@ -1101,7 +1103,7 @@ def render_operativa_files_and_email_section(
             except Exception as e:
                 pass
 
-    dl_cols = st.columns(5)
+    dl_cols = st.columns(6)
     with dl_cols[0]:
         if p_sintesi.exists():
             with open(p_sintesi, "rb") as f_s:
@@ -1114,6 +1116,20 @@ def render_operativa_files_and_email_section(
                     key=f"dl_box_sintesi_{key_prefix}_{rid}"
                 )
     with dl_cols[1]:
+        if p_zara.exists():
+            with open(p_zara, "rb") as f_zara:
+                st.download_button(
+                    "📄 Spunta ZARA (.xlsx)",
+                    data=f_zara.read(),
+                    file_name=p_zara.name,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    help="Foglio originale Spunta Arrivi ZARA completo di colonne e lavorazioni piattaforma",
+                    key=f"dl_box_zara_{key_prefix}_{rid}"
+                )
+        else:
+            st.button("📄 Spunta ZARA (N.D.)", disabled=True, use_container_width=True, key=f"dl_box_zara_nd_{key_prefix}_{rid}")
+    with dl_cols[2]:
         if p_sga0.exists():
             with open(p_sga0, "rb") as f_0:
                 st.download_button(
@@ -1126,7 +1142,7 @@ def render_operativa_files_and_email_section(
                 )
         else:
             st.button("🚛 SGA Barra 0 (N.D.)", disabled=True, use_container_width=True, key=f"dl_box_sga0_nd_{key_prefix}_{rid}")
-    with dl_cols[2]:
+    with dl_cols[3]:
         if p_sga9.exists():
             with open(p_sga9, "rb") as f_9:
                 st.download_button(
@@ -1139,7 +1155,7 @@ def render_operativa_files_and_email_section(
                 )
         else:
             st.button("🚚 SGA Barra 9 (N.D.)", disabled=True, use_container_width=True, key=f"dl_box_sga9_nd_{key_prefix}_{rid}")
-    with dl_cols[3]:
+    with dl_cols[4]:
         tms_zip_bytes = None
         if active_tms_zip and active_tms_zip.exists():
             try:
@@ -1165,7 +1181,7 @@ def render_operativa_files_and_email_section(
             )
         else:
             st.button("📦 XML TMS (N.D.)", disabled=True, use_container_width=True, key=f"dl_box_tms_nd_{key_prefix}_{rid}")
-    with dl_cols[4]:
+    with dl_cols[5]:
         if p_zip.exists():
             with open(p_zip, "rb") as f_z:
                 st.download_button(
@@ -1362,17 +1378,21 @@ def render_operativa_files_and_email_section(
         lav_section = ("\n" + "\n".join(lav_lines) + "\n") if lav_lines else ""
 
         st.markdown("**📎 Seleziona i Documenti da Allegare all'Email:**")
-        col_att1, col_att2, col_att3 = st.columns(3)
+        col_att1, col_att2, col_att3, col_att4 = st.columns(4)
         with col_att1:
             att_sel_sintesi = st.checkbox("📊 Sintesi Operativa (Sintesi_Operativa.xlsx)", value=p_sintesi.exists(), key=f"att_sintesi_{key_prefix}_{rid}")
         with col_att2:
-            att_sel_sga0 = st.checkbox("🚛 Flusso Viaggi Barra 0 (barrazero_Sga.xlsx)", value=False, key=f"att_sga0_{key_prefix}_{rid}")
+            att_sel_zara = st.checkbox("📄 Spunta ZARA (ZARA.xlsx)", value=p_zara.exists(), key=f"att_zara_{key_prefix}_{rid}")
         with col_att3:
-            att_sel_sga9 = st.checkbox("🚚 Flusso Viaggi Barra 9 (barranove_Sga.xlsx)", value=False, key=f"att_sga9_{key_prefix}_{rid}")
+            att_sel_sga0 = st.checkbox("🚛 Flusso Viaggi Barra 0", value=False, key=f"att_sga0_{key_prefix}_{rid}")
+        with col_att4:
+            att_sel_sga9 = st.checkbox("🚚 Flusso Viaggi Barra 9", value=False, key=f"att_sga9_{key_prefix}_{rid}")
 
         att_desc_lines = []
         if att_sel_sintesi:
             att_desc_lines.append("- Sintesi Operativa Giri & Lavorazioni (Sintesi_Operativa.xlsx)")
+        if att_sel_zara:
+            att_desc_lines.append("- Foglio Spunta Arrivi ZARA Banchina (ZARA.xlsx)")
         if att_sel_sga0:
             att_desc_lines.append("- Flusso Viaggi TMS Barra 0 (barrazero_Sga.xlsx)")
         if att_sel_sga9:
@@ -1381,7 +1401,7 @@ def render_operativa_files_and_email_section(
 
         default_body = (
             f"Gentili Colleghi,\n\n"
-            f"in allegato trasmettiamo la Sintesi Operativa relativa alla spedizione del {format_date_it(r_date)}:\n\n"
+            f"in allegato trasmettiamo i file operativi relativi alla spedizione del {format_date_it(r_date)}:\n\n"
             f"{att_desc_str}\n\n"
             f"Riepilogo Totali Spedizione:\n"
             f"- Totale Colli: {format_number_it(totals.get('total_bultos', 0), 0)}\n"
@@ -1402,6 +1422,8 @@ def render_operativa_files_and_email_section(
             att_files = []
             if att_sel_sintesi and p_sintesi.exists():
                 att_files.append(p_sintesi)
+            if att_sel_zara and p_zara.exists():
+                att_files.append(p_zara)
             if att_sel_sga0 and p_sga0.exists():
                 att_files.append(p_sga0)
             if att_sel_sga9 and p_sga9.exists():
@@ -3055,6 +3077,64 @@ elif "Spunta Banchina" in menu:
             curr_idx = b_id_list.index(sel_bid) if sel_bid in b_id_list else 0
 
             # ------------------------------------------------------------------
+            # FUNZIONE SPECIFICA MOBILE: AGGIUNGI COLLI A NEGOZI GIÀ SPUNTATI
+            # ------------------------------------------------------------------
+            spuntati_all = df_b_date[df_b_date["spuntato"] == 1]
+            if not spuntati_all.empty:
+                with st.expander("➕ AGGIUNGI COLLI A NEGOZIO GIÀ SPUNTATO", expanded=False):
+                    st.markdown("##### 📦 Integrazione Colli Rapida (Banchina)")
+                    st.caption("Aggiungi colli extra arrivati in banchina per un negozio già spuntato senza dover ripetere il conteggio:")
+                    c_ex1, c_ex2 = st.columns([1.8, 1.2])
+                    with c_ex1:
+                        sp_map_opts = {
+                            int(r["id"]): f"🟢 {r['id_store']} - {r.get('store_name', '')} [{r.get('giro', '')}] • Attuali: {int(round(float(r.get('TOT_COLLI', 0) or 0)))} colli"
+                            for _, r in spuntati_all.iterrows()
+                        }
+                        def_sp_idx = list(sp_map_opts.keys()).index(sel_bid) if sel_bid in sp_map_opts else 0
+                        target_sp_bid = st.selectbox(
+                            "Seleziona Negozio Spuntato",
+                            list(sp_map_opts.keys()),
+                            index=def_sp_idx,
+                            format_func=lambda bid: sp_map_opts[bid],
+                            key="quick_add_spuntato_bid"
+                        )
+                    with c_ex2:
+                        target_sp_cat = st.selectbox(
+                            "Categoria",
+                            ["Abbigliamento", "Calzature", "E-Commerce", "Altri Bultos", "Materiale Vario"],
+                            key="quick_add_spuntato_cat"
+                        )
+
+                    c_q1, c_q2, c_q3 = st.columns([1, 1.4, 1.6])
+                    with c_q1:
+                        add_q_num = st.number_input("+ Colli", min_value=1, max_value=999, value=1, step=1, key="quick_add_spuntato_qty")
+                    with c_q2:
+                        add_q_note = st.text_input("Nota (opzionale)", placeholder="es. Trovato collo extra", key="quick_add_spuntato_note")
+                    with c_q3:
+                        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                        if st.button("➕ AGGIUNGI COLLI", type="primary", use_container_width=True, key="btn_apply_quick_add_spuntato"):
+                            cat_map_keys = {
+                                "Abbigliamento": "colli_abbigl",
+                                "Calzature": "colli_calzat",
+                                "E-Commerce": "colli_ecom",
+                                "Altri Bultos": "colli_others",
+                                "Materiale Vario": "colli_vario"
+                            }
+                            res_add = add_colli_to_bolla_spuntata(
+                                target_sp_bid,
+                                add_q_num,
+                                category=cat_map_keys.get(target_sp_cat, "colli_abbigl"),
+                                note_reason=add_q_note
+                            )
+                            if res_add["status"] == "ok":
+                                st.session_state["mob_selected_bid"] = target_sp_bid
+                                st.session_state["flash_bolle_msg"] = f"🎉 Aggiunti +{add_q_num} colli a Store {res_add['id_store']} ({res_add['store_name']})! Nuovo totale: {res_add['new_total_colli']} colli."
+                                st.session_state["_scroll_to_top"] = True
+                                st.rerun()
+                            else:
+                                st.error(res_add["message"])
+
+            # ------------------------------------------------------------------
             # SELETTORE TOUCH ZERO-KEYBOARD (NESSUNA TASTIERA SOFTWARE SU SMARTPHONE)
             # ------------------------------------------------------------------
             st.markdown('<div id="spunta-store-header"></div>', unsafe_allow_html=True)
@@ -3228,6 +3308,45 @@ elif "Spunta Banchina" in menu:
                     st.warning(f"🟡 **SPUNTA CONFERMATA — ECCEDENZA: {format_number_it(m_tot_calc, 0)} Colli Contati (+{m_delta} rispetto al previsto di {prev_tot_m})**")
                 else:
                     st.error(f"🔴 **SPUNTA CONFERMATA — MANCANZA: {format_number_it(m_tot_calc, 0)} Colli Contati ({m_delta} rispetto al previsto di {prev_tot_m})**")
+
+                # Funzione specifica inline: Aggiungi colli direttamente a questo negozio già spuntato
+                with st.container():
+                    st.markdown(f'''
+                    <div style="background: #F0FDF4; border: 1.5px dashed #16A34A; border-radius: 10px; padding: 12px 14px; margin-top: 10px; margin-bottom: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px;">
+                            <span style="font-size: 13.5px; font-weight: 800; color: #166534;">➕ AGGIUNTA RAPIDA COLLI EXTRA A STORE {curr_sid}</span>
+                            <span style="font-size: 11.5px; font-weight: 700; color: #15803D; background: #DCFCE7; padding: 2px 7px; border-radius: 8px;">Negozio Già Spuntato ({m_tot_calc} colli)</span>
+                        </div>
+                        <div style="font-size: 11.5px; color: #15803D; margin-top: 4px; margin-bottom: 8px;">
+                            Arrivati altri colli per questo negozio? Aggiungili al totale con 1 tocco:
+                        </div>
+                    ''', unsafe_allow_html=True)
+                    c_inline_q, c_inline_cat, c_inline_btn = st.columns([1, 1.2, 1.4])
+                    with c_inline_q:
+                        inline_add_q = st.number_input("+ Colli", min_value=1, max_value=999, value=1, step=1, key=f"inline_add_q_{sel_bid}")
+                    with c_inline_cat:
+                        inline_add_cat = st.selectbox("In Categoria", ["Abbigliamento", "Calzature", "E-Commerce", "Altri Bultos", "Materiale Vario"], key=f"inline_add_cat_{sel_bid}")
+                    with c_inline_btn:
+                        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                        if st.button("➕ AGGIUNGI ORA", type="primary", use_container_width=True, key=f"btn_inline_apply_{sel_bid}"):
+                            cat_map_keys = {
+                                "Abbigliamento": "colli_abbigl",
+                                "Calzature": "colli_calzat",
+                                "E-Commerce": "colli_ecom",
+                                "Altri Bultos": "colli_others",
+                                "Materiale Vario": "colli_vario"
+                            }
+                            res_in = add_colli_to_bolla_spuntata(
+                                sel_bid,
+                                inline_add_q,
+                                category=cat_map_keys.get(inline_add_cat, "colli_abbigl"),
+                                note_reason="Aggiunta rapida mobile"
+                            )
+                            if res_in["status"] == "ok":
+                                st.session_state["flash_bolle_msg"] = f"🎉 Aggiunti +{inline_add_q} colli a Store {curr_sid}! Nuovo totale contati: {res_in['new_total_colli']} colli."
+                                st.session_state["_scroll_to_top"] = True
+                                st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
 
             # Campo Note Banchina
             m_note = st.text_input("📝 Note / Osservazioni Banchina", value=str(b_curr.get("note") or ""), placeholder="es. merce integra, 1 collo bagnato, etc.", key=f"m_note_{sel_bid}")

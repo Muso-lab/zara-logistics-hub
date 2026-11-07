@@ -1596,3 +1596,67 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
 </html>
 """
     return full_html
+
+
+def add_colli_to_bolla_spuntata(
+    bolla_id: int,
+    colli_to_add: int,
+    category: str = "colli_abbigl",
+    note_reason: str = "",
+    db_path: Path = DB_PATH
+) -> Dict[str, Any]:
+    """
+    Funzione specifica per la versione mobile: aggiunge colli extra a un negozio già spuntato.
+    Aggiorna la categoria specificata, mantiene lo stato spuntato = 1 e registra una nota con orario.
+    """
+    if colli_to_add <= 0:
+        return {"status": "error", "message": "Il numero di colli da aggiungere deve essere maggiore di 0."}
+
+    bolla = get_bolla_by_id(bolla_id, db_path=db_path)
+    if not bolla:
+        return {"status": "error", "message": f"Bolla con ID {bolla_id} non trovata in archivio."}
+
+    valid_cats = {
+        "colli_abbigl": "Abbigliamento",
+        "colli_calzat": "Calzature",
+        "colli_ecom": "E-Commerce",
+        "colli_others": "Altri Bultos",
+        "colli_vario": "Materiale Vario"
+    }
+    cat_key = category if category in valid_cats else "colli_abbigl"
+    cat_label = valid_cats[cat_key]
+
+    old_val = int(round(float(bolla.get(cat_key, 0) or 0)))
+    new_val = old_val + int(colli_to_add)
+    bolla[cat_key] = new_val
+
+    # Garantisce che rimanga spuntato
+    bolla["spuntato"] = 1
+
+    # Registra nota con timestamp
+    now_str = datetime.now().strftime("%H:%M")
+    reason_str = f" ({note_reason.strip()})" if note_reason.strip() else ""
+    log_entry = f"+{colli_to_add} {cat_label}{reason_str} [h {now_str}]"
+    curr_note = str(bolla.get("note") or "").strip()
+    if curr_note:
+        bolla["note"] = f"{curr_note} | {log_entry}"
+    else:
+        bolla["note"] = log_entry
+
+    save_or_update_bolla(bolla, db_path=db_path)
+
+    tot_colli = sum(int(round(float(bolla.get(k, 0) or 0))) for k in valid_cats)
+
+    return {
+        "status": "ok",
+        "bolla_id": bolla_id,
+        "id_store": bolla.get("id_store"),
+        "store_name": bolla.get("store_name"),
+        "category": cat_key,
+        "category_label": cat_label,
+        "added_colli": colli_to_add,
+        "new_category_total": new_val,
+        "new_total_colli": tot_colli,
+        "note": bolla["note"]
+    }
+
