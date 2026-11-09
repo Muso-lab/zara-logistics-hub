@@ -74,6 +74,11 @@ from src.db import (
 from src.parsers import classify_uploaded_files
 from src.engine import evaluate_pedane, compute_planning_roma
 from src.pipeline import run_pipeline
+from src.operator_views import (
+    render_ufficio_simplified_view,
+    render_magazzino_simplified_view,
+    render_mobile_two_buttons_view,
+)
 import src.bolle_manager as bm
 
 # Safe resolution of bolle manager functions with auto-reload protection
@@ -891,7 +896,18 @@ with c_head_user:
         </div>
         """, unsafe_allow_html=True)
     with col_u_out:
-        if is_admin() or is_ufficio() or is_magazzino():
+        if not is_admin():
+            is_classic_active = st.session_state.get("use_classic_full_view", False)
+            btn_classic_lbl = "⚡ Vista Semplice" if is_classic_active else "🔧 Vista Completa"
+            if st.button(
+                btn_classic_lbl,
+                key="toggle_classic_backup_view",
+                use_container_width=True,
+                help="Alterna tra la nuova interfaccia rapida operatore e la vista classica completa di backup",
+            ):
+                st.session_state["use_classic_full_view"] = not is_classic_active
+                st.rerun()
+        elif is_admin():
             is_m_active = st.session_state.get("mobile_mode", False)
             btn_mob_label = "🖥️ Desktop" if is_m_active else "📱 Mobile"
             if st.button(btn_mob_label, key="toggle_mob_mode", use_container_width=True, help="Alterna tra vista Desktop e vista Mobile Touch"):
@@ -900,7 +916,7 @@ with c_head_user:
                     st.session_state["active_nav"] = "📱 1. Spunta Banchina (Mobile)"
                 st.rerun()
         if st.button("🚪 Esci", key="btn_logout_top", use_container_width=True, help="Termina la sessione di lavoro"):
-            for k in ["authenticated", "auth_user", "auth_role", "auth_label", "active_nav", "nav_menu", "mobile_mode"]:
+            for k in ["authenticated", "auth_user", "auth_role", "auth_label", "active_nav", "nav_menu", "mobile_mode", "use_classic_full_view", "mob_use_classic_spunta"]:
                 st.session_state.pop(k, None)
             st.query_params.clear()
             st.rerun()
@@ -930,11 +946,14 @@ if st.session_state.pop("_scroll_to_top", False):
     render_smooth_scroll_top()
 
 
+# Modalità Operatore Semplificata attiva di default per tutti i ruoli non-Admin (con switch di backup)
+USE_OPERATOR_SIMPLE_VIEW = (not is_admin()) and (not st.session_state.get("use_classic_full_view", False))
+
 # ==============================================================================
-# STRISCIA STATISTICHE PIATTAFORMA (DISABILITATA SU MOBILE & BANCHINA)
+# STRISCIA STATISTICHE PIATTAFORMA (SOLO ADMIN O VISTA CLASSICA COMPLETA)
 # ==============================================================================
 is_mobile_session = (is_banchina() or st.session_state.get("mobile_mode", False))
-if not is_mobile_session:
+if (not is_mobile_session) and (not USE_OPERATOR_SIMPLE_VIEW):
     st.markdown(f"""
     <div class="platform-stats-strip" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px;">
         <div style="background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
@@ -959,7 +978,7 @@ if not is_mobile_session:
 # ==============================================================================
 # BARRA DI NAVIGAZIONE SUPERIORE (MOSTRATA SOLO SE VI SONO PIU' MODULI)
 # ==============================================================================
-if len(MENU_OPTIONS) > 1:
+if len(MENU_OPTIONS) > 1 and not USE_OPERATOR_SIMPLE_VIEW:
     st.markdown('<div class="hub-nav-bar">', unsafe_allow_html=True)
     nav_cols = st.columns(len(MENU_OPTIONS))
     for m_idx, m_opt in enumerate(MENU_OPTIONS):
@@ -1448,6 +1467,30 @@ def render_operativa_files_and_email_section(
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+
+# ==============================================================================
+# ROUTING MODALITÀ SEMPLIFICATA OPERATORE (UFFICIO, MAGAZZINO, MOBILE BANCHINA)
+# ==============================================================================
+if USE_OPERATOR_SIMPLE_VIEW:
+    if USER_ROLE == "ufficio":
+        render_ufficio_simplified_view(
+            runs_side=runs_side,
+            df_stores_side=df_stores_side,
+            render_operativa_files_and_email_fn=render_operativa_files_and_email_section,
+            classify_uploaded_files_fn=classify_uploaded_files,
+        )
+    elif USER_ROLE == "magazzino":
+        render_magazzino_simplified_view(
+            runs_side=runs_side,
+            df_stores_side=df_stores_side,
+        )
+    else:
+        render_mobile_two_buttons_view(
+            runs_side=runs_side,
+            df_stores_side=df_stores_side,
+            allow_classic_toggle=False,
+        )
+    st.stop()
 
 # ==============================================================================
 # PAGE 1: PREVISIONE & ARRIVI (IMPORT + SPUNTA + SGA + LAVORAZIONI)
@@ -2930,7 +2973,21 @@ elif "Bolle di Consegna" in menu:
 # PAGE: SPUNTA BANCHINA & CONTEGGIO MERCI (MOBILE TOUCHSCREEN)
 # ==============================================================================
 elif "Spunta Banchina" in menu:
-    st.markdown('<div class="main-header">📱 Spunta Banchina & Conteggio Merci</div>', unsafe_allow_html=True)
+    if not st.session_state.get("mob_use_classic_spunta", False):
+        render_mobile_two_buttons_view(
+            runs_side=runs_side,
+            df_stores_side=df_stores_side,
+            allow_classic_toggle=True,
+        )
+        st.stop()
+
+    c_sp_hdr, c_sp_back = st.columns([3, 1.2])
+    with c_sp_hdr:
+        st.markdown('<div class="main-header">📱 Spunta Banchina & Conteggio Merci (Vista Completa)</div>', unsafe_allow_html=True)
+    with c_sp_back:
+        if st.button("📱 Vista Rapida 2 Tasti", type="primary", use_container_width=True, key="btn_back_to_2btn_mob"):
+            st.session_state["mob_use_classic_spunta"] = False
+            st.rerun()
     st.markdown('<div class="sub-header">Interfaccia touch per smartphone & banchina: seleziona il punto vendita, confronta il dato previsionale e inserisci le quantità contate allo scarico.</div>', unsafe_allow_html=True)
 
     all_b_dates = get_bolle_dates()

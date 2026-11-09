@@ -367,6 +367,12 @@ def get_bolle(
     return df
 
 
+def get_bolle_by_date(delivery_date: Any, db_path: Path = DB_PATH) -> pd.DataFrame:
+    """Returns all bolle for a given delivery date (YYYY-MM-DD or date object)."""
+    d_str = delivery_date.strftime("%Y-%m-%d") if isinstance(delivery_date, (date, datetime)) else str(delivery_date).strip()[:10]
+    return get_bolle(data_consegna=d_str, db_path=db_path)
+
+
 def get_bolla_by_id(bolla_id: int, db_path: Path = DB_PATH) -> Optional[Dict[str, Any]]:
     """Returns single bolla dict by id."""
     conn = get_db_connection(db_path)
@@ -1659,4 +1665,62 @@ def add_colli_to_bolla_spuntata(
         "new_total_colli": tot_colli,
         "note": bolla["note"]
     }
+
+
+def confirm_bolla_spunta(
+    bolla_id: int,
+    use_expected: bool = False,
+    colli_abbigl: Optional[int] = None,
+    colli_calzat: Optional[int] = None,
+    colli_ecom: Optional[int] = None,
+    colli_others: Optional[int] = None,
+    colli_vario: Optional[int] = None,
+    note: Optional[str] = None,
+    db_path: Path = DB_PATH
+) -> Dict[str, Any]:
+    """
+    Conferma la spunta di una bolla (modalità 1-Tap Conforme al previsto oppure con quantità manuali).
+    Imposta spuntato = 1 e salva su SQLite + Cloud Sync.
+    """
+    bolla = get_bolla_by_id(bolla_id, db_path=db_path)
+    if not bolla:
+        return {"status": "error", "message": f"Bolla con ID {bolla_id} non trovata in archivio."}
+
+    if use_expected:
+        bolla["colli_abbigl"] = int(round(float(bolla.get("prev_abbigl", bolla.get("colli_abbigl", 0)) or 0)))
+        bolla["colli_calzat"] = int(round(float(bolla.get("prev_calzat", bolla.get("colli_calzat", 0)) or 0)))
+        bolla["colli_ecom"] = int(round(float(bolla.get("prev_ecom", bolla.get("colli_ecom", 0)) or 0)))
+        bolla["colli_others"] = int(round(float(bolla.get("prev_others", bolla.get("colli_others", 0)) or 0)))
+        bolla["colli_vario"] = int(round(float(bolla.get("prev_vario", bolla.get("colli_vario", 0)) or 0)))
+    else:
+        if colli_abbigl is not None:
+            bolla["colli_abbigl"] = max(0, int(colli_abbigl))
+        if colli_calzat is not None:
+            bolla["colli_calzat"] = max(0, int(colli_calzat))
+        if colli_ecom is not None:
+            bolla["colli_ecom"] = max(0, int(colli_ecom))
+        if colli_others is not None:
+            bolla["colli_others"] = max(0, int(colli_others))
+        if colli_vario is not None:
+            bolla["colli_vario"] = max(0, int(colli_vario))
+
+    if note is not None:
+        bolla["note"] = str(note).strip()
+
+    bolla["spuntato"] = 1
+    save_or_update_bolla(bolla, db_path=db_path)
+
+    tot_colli = sum(
+        int(round(float(bolla.get(k, 0) or 0)))
+        for k in ["colli_abbigl", "colli_calzat", "colli_ecom", "colli_others", "colli_vario"]
+    )
+    return {
+        "status": "ok",
+        "bolla_id": bolla_id,
+        "id_store": bolla.get("id_store"),
+        "store_name": bolla.get("store_name"),
+        "total_colli": tot_colli,
+        "spuntato": 1
+    }
+
 
