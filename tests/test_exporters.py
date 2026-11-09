@@ -121,8 +121,8 @@ def test_sga_flows_and_export():
     assert (df_sga9["GIRO"] == "DA ASSEGNARE").sum() == 0
 
     # 2. Date format MUST be DD/MM/YYYY (gg/mm/aaaa)
-    assert df_sga0.iloc[0]["DATA_CARICO"] == "27/10/2026"
-    assert df_sga9.iloc[0]["DATA_CARICO"] == "28/10/2026"
+    assert df_sga0.iloc[0]["DATA_CARICO"] == "28/10/2026"
+    assert df_sga9.iloc[0]["DATA_CARICO"] == "29/10/2026"
 
     # 3. Test export to Excel and CSV
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -134,13 +134,13 @@ def test_sga_flows_and_export():
         ws0 = wb0["SGA_DEF"]
         # Date cell check (row 2, col 2 is DATA_CARICO)
         date_val = str(ws0.cell(row=2, column=2).value)
-        assert date_val == "27/10/2026"
+        assert date_val == "28/10/2026"
 
         # Check CSV content
         csv0_p = tmp_p0.with_suffix(".csv")
         assert csv0_p.exists()
         csv_df = pd.read_csv(csv0_p)
-        assert str(csv_df.iloc[0]["DATA_CARICO"]) == "27/10/2026"
+        assert str(csv_df.iloc[0]["DATA_CARICO"]) == "28/10/2026"
         assert "DA ASSEGNARE" not in csv_df["GIRO"].values
 
 

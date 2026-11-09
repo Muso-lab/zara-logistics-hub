@@ -169,7 +169,7 @@ def run_pipeline(
     except Exception:
         df_actuals = pd.DataFrame()
     df_planner = compute_planning_roma(df_analisi, df_actuals, df_stores=df_stores)
-    df_sga0, df_sga9 = compute_sga_flows(df_spunta, df_stores, run_date)
+    df_sga0, df_sga9 = compute_sga_flows(df_spunta, df_stores, run_date, cycle_type=cycle_type)
     special_breakdowns = compute_special_breakdowns(
         df_spunta, df_tot, df_sho, df_texile=df_tex, df_ecom=df_eco,
         perfume_corrections_override=perfume_corrections_override,

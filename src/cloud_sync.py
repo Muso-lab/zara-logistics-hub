@@ -198,8 +198,8 @@ def push_tables_to_cloud(table_names=None, timeout: int = 25) -> dict:
             if t == "bolle":
                 df = pd.read_sql_query("""
                     SELECT * FROM bolle 
-                    WHERE data NOT LIKE '%2098%' AND data NOT LIKE '%2099%'
-                      AND (data_consegna IS NULL OR (data_consegna NOT LIKE '%2098%' AND data_consegna NOT LIKE '%2099%'))
+                    WHERE data NOT LIKE '%2098%' AND data NOT LIKE '%2099%' AND data NOT LIKE '%2100%'
+                      AND (data_consegna IS NULL OR (data_consegna NOT LIKE '%2098%' AND data_consegna NOT LIKE '%2099%' AND data_consegna NOT LIKE '%2100%'))
                       AND id_store != '9999'
                     ORDER BY id DESC LIMIT 800
                 """, conn)
@@ -342,9 +342,9 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
                     df_clean["data_consegna"] = df_clean["data_consegna"].apply(_normalize_date_str)
                 # Strip out any dummy/test dates that leaked into Google Sheets
                 if "data" in df_clean.columns:
-                    df_clean = df_clean[~df_clean["data"].astype(str).str.contains("2098|2099", na=False)]
+                    df_clean = df_clean[~df_clean["data"].astype(str).str.contains("2098|2099|2100", na=False)]
                 if "data_consegna" in df_clean.columns:
-                    df_clean = df_clean[~df_clean["data_consegna"].astype(str).str.contains("2098|2099", na=False)]
+                    df_clean = df_clean[~df_clean["data_consegna"].astype(str).str.contains("2098|2099|2100", na=False)]
                 if "id_store" in df_clean.columns:
                     df_clean = df_clean[df_clean["id_store"].astype(str).str.strip() != "9999"]
                 # Filter out any blacklisted bolle IDs
@@ -422,7 +422,7 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
         try:
             cur.execute("DELETE FROM stores WHERE store_id IN (SELECT store_id FROM deleted_stores)")
             cur.execute("DELETE FROM store_delivery_profiles WHERE id_store IN (SELECT store_id FROM deleted_stores)")
-            cur.execute("DELETE FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR id_store = '9999'")
+            cur.execute("DELETE FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data LIKE '%2100%' OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR data_consegna LIKE '%2100%' OR data_consegna = '2026-10-23' OR (data_consegna = '2026-10-24' AND tipo_cons = 'DOPPIA') OR id_store = '9999'")
             cur.execute("DELETE FROM bolle WHERE id IN (SELECT bolla_id FROM deleted_bolle)")
             cur.execute("DELETE FROM runs WHERE id IN (SELECT run_id FROM deleted_runs)")
             cur.execute("DELETE FROM planning_results WHERE run_id IN (SELECT run_id FROM deleted_runs)")

@@ -242,6 +242,8 @@ def test_generate_bolle_and_consuntivo_planner():
 
     # Clean up test bolle
     delete_bolle_by_date(test_delivery_date)
+    delete_bolle_by_date("2099-12-30")
+    delete_bolle_by_date("2100-01-01")
     assert df_planner_res["total_planned_crts"].sum() > 0
 
 

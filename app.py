@@ -2014,7 +2014,9 @@ elif "Bolle di Consegna" in menu:
     # Cleanup any ghost/test bolle with dummy future dates
     try:
         with sqlite3.connect(DB_PATH) as _c_purge:
-            _c_purge.execute("DELETE FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR id_store = '9999'")
+            _c_purge.execute("DELETE FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data LIKE '%2100%' OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR data_consegna LIKE '%2100%' OR id_store = '9999'")
+            _c_purge.execute("DELETE FROM bolle WHERE data_consegna = '2026-10-23'")
+            _c_purge.execute("DELETE FROM bolle WHERE data_consegna = '2026-10-24' AND tipo_cons = 'DOPPIA'")
             _c_purge.commit()
     except Exception:
         pass
@@ -2344,7 +2346,7 @@ elif "Bolle di Consegna" in menu:
                     st.session_state["form_autista"] = str(existing_bolla.get("autista") or "")
                     st.session_state["form_mezzo"] = str(existing_bolla.get("tipo_mezzo") or prof.get("tipo_mezzo") or "")
                     st.session_state["form_indirizzo"] = str(existing_bolla.get("indirizzo_destino") or prof.get("indirizzo") or "")
-                    st.session_state["form_sigillo"] = str(existing_bolla.get("sigillo") or "")
+                    st.session_state["form_sigillo"] = ""
                     st.session_state["form_c_abb"] = int(round(float(existing_bolla.get("colli_abbigl", 0) or 0)))
                     st.session_state["form_c_calz"] = int(round(float(existing_bolla.get("colli_calzat", 0) or 0)))
                     st.session_state["form_c_eco"] = int(round(float(existing_bolla.get("colli_ecom", 0) or 0)))

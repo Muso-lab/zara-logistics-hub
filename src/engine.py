@@ -500,7 +500,8 @@ def compute_spunta_arrivi(
 def compute_sga_flows(
     df_spunta: pd.DataFrame,
     df_stores: pd.DataFrame,
-    run_date: str
+    run_date: str,
+    cycle_type: Optional[str] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Generates Andata & Ritorno flows for:
@@ -509,15 +510,15 @@ def compute_sga_flows(
     """
     # Parse run_date
     try:
-        dt = datetime.strptime(run_date[:10], "%Y-%m-%d")
-    except:
-        dt = datetime.now()
+        dt = datetime.strptime(str(run_date)[:10], "%Y-%m-%d").date()
+    except Exception:
+        dt = datetime.now().date()
 
-    # Data Carico / Scarico: formato rigido gg/mm/aaaa (DD/MM/YYYY)
-    # Barra 0: NOW() + 1
-    # Barra 9: NOW() + 2
-    dt_b0 = (dt + timedelta(days=1)).strftime("%d/%m/%Y")
-    dt_b9 = (dt + timedelta(days=2)).strftime("%d/%m/%Y")
+    # Calcola rigorosamente le date operative Inditex (/0 Mercoledì o Sabato, /9 Giovedì o Domenica)
+    from src.bolle_manager import compute_inditex_delivery_dates
+    date_b9_obj, date_b0_obj = compute_inditex_delivery_dates(dt, cycle_type or "")
+    dt_b0 = date_b0_obj.strftime("%d/%m/%Y")
+    dt_b9 = date_b9_obj.strftime("%d/%m/%Y")
 
     def _is_unassigned_giro(val: Any) -> bool:
         if pd.isna(val) or val is None:

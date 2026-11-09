@@ -117,7 +117,7 @@ def get_bolle_dates(limit: int = 100, db_path: Path = DB_PATH) -> List[str]:
         SELECT DISTINCT COALESCE(NULLIF(data_consegna, ''), data) as dt 
         FROM bolle 
         WHERE dt IS NOT NULL AND dt != ''
-          AND dt NOT LIKE '%2098%' AND dt NOT LIKE '%2099%'
+          AND dt NOT LIKE '%2098%' AND dt NOT LIKE '%2099%' AND dt NOT LIKE '%2100%'
         ORDER BY dt DESC 
         LIMIT ?
     """, (limit,))
@@ -128,7 +128,7 @@ def get_bolle_dates(limit: int = 100, db_path: Path = DB_PATH) -> List[str]:
         val = str(r[0]).strip() if r[0] else ""
         if len(val) >= 10 and val[4] == '-' and val[7] == '-':
             cleaned.append(val[:10])
-        elif val and "2098" not in val and "2099" not in val:
+        elif val and "2098" not in val and "2099" not in val and "2100" not in val:
             cleaned.append(val)
     return list(dict.fromkeys(cleaned))
 
@@ -663,7 +663,17 @@ def compute_inditex_delivery_dates(dt_base: Any, cycle_type: str = "LUN-MER") ->
         dt_base = date.today()
 
     monday = dt_base - timedelta(days=dt_base.weekday())
-    is_midweek = ("LUN" in str(cycle_type).upper() or dt_base.weekday() <= 2)
+    cyc_up = str(cycle_type or "").strip().upper()
+    if "GIO" in cyc_up or "SAB" in cyc_up or "DOM" in cyc_up:
+        is_midweek = False
+    elif "LUN" in cyc_up or "MER" in cyc_up:
+        is_midweek = True
+    else:
+        is_midweek = (dt_base.weekday() <= 2)
+
+    # Se si lancia di Domenica un ciclo LUN-MER, il lunedì di riferimento è il giorno successivo
+    if is_midweek and dt_base.weekday() == 6:
+        monday = dt_base + timedelta(days=1)
 
     if is_midweek:
         # LUN-MER:
@@ -886,6 +896,7 @@ def generate_bolle_from_forecast(
                     "colli_non_conf": 0,
                     "anomalie_scarico": "",
                     "note": "",
+                    "sigillo": "",
                     "stringa": "",
                     "spuntato": 0
                 }
@@ -928,6 +939,7 @@ def generate_bolle_from_forecast(
                     "colli_non_conf": 0,
                     "anomalie_scarico": "",
                     "note": "",
+                    "sigillo": "",
                     "stringa": "",
                     "spuntato": 0
                 }
@@ -967,6 +979,7 @@ def generate_bolle_from_forecast(
                     "colli_non_conf": 0,
                     "anomalie_scarico": "",
                     "note": "",
+                    "sigillo": "",
                     "stringa": "",
                     "spuntato": 0
                 }
@@ -1198,10 +1211,15 @@ def export_bolle_excel(df_bolle: pd.DataFrame, delivery_date: str) -> bytes:
     return buf.getvalue()
 
 
-def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str = "Bolla di Consegna Inditex", auto_print: bool = False) -> str:
+def render_bolla_printable_html(
+    bolla_records: List[Dict[str, Any]],
+    title: str = "Bolla di Consegna Inditex",
+    auto_print: bool = False,
+    override_sigillo: Optional[str] = None,
+) -> str:
     """
     Generates a clean, professional printable HTML page for one or multiple bolle.
-    Includes page breaks between notes for batch printing.
+    Includes page breaks between notes for batch printing without blank intermediate pages.
     """
     html_pages = []
 
@@ -1229,7 +1247,10 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
         indirizzo = b.get("indirizzo_destino", "")
 
         aut_line = f"<strong>Autista:</strong> {autista}<br>" if autista else ""
-        sigillo_val = str(b.get("sigillo") or "").strip()
+        if override_sigillo is not None:
+            sigillo_val = str(override_sigillo).strip()
+        else:
+            sigillo_val = str(b.get("sigillo") or "").strip()
         sigillo_line = f"<br><strong>Sigillo:</strong> <span style='font-family:monospace; font-weight:bold;'>{sigillo_val}</span>" if sigillo_val else ""
         nota_consegna = str(b.get("note") or b.get("stringa") or "").strip()
 
@@ -1456,22 +1477,28 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
         .bolla-sheet {{
             background: white;
             width: 210mm;
-            min-height: 285mm;
-            margin: 0 auto 25px auto;
-            padding: 12mm 15mm;
+            margin: 0 auto 20px auto;
+            padding: 10mm 14mm;
             box-sizing: border-box;
             border: 1px solid #ccc;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            page-break-inside: avoid;
+            break-inside: avoid;
             page-break-after: always;
+            break-after: page;
+        }}
+        .bolla-sheet:last-of-type {{
+            page-break-after: auto;
+            break-after: auto;
         }}
         .header-box {{
             display: flex;
             justify-content: space-between;
             font-size: 9.5px;
-            line-height: 1.35;
+            line-height: 1.3;
             border: 1px solid #333;
-            padding: 8px;
-            margin-bottom: 10px;
+            padding: 6px 8px;
+            margin-bottom: 8px;
         }}
         .header-col {{
             flex: 1;
@@ -1482,8 +1509,8 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
             align-items: center;
             background: #eee;
             border: 1.5px solid #222;
-            padding: 7px 12px;
-            margin-bottom: 10px;
+            padding: 6px 12px;
+            margin-bottom: 8px;
         }}
         .badge {{
             display: inline-block;
@@ -1503,8 +1530,8 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
         .info-grid {{
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 8px;
+            gap: 8px;
+            margin-bottom: 6px;
         }}
         .info-box {{
             border: 1px solid #333;
@@ -1518,18 +1545,18 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
             font-size: 10px;
         }}
         .info-content {{
-            padding: 6px 8px;
-            line-height: 1.45;
+            padding: 5px 8px;
+            line-height: 1.35;
         }}
         .data-table {{
             width: 100%;
             border-collapse: collapse;
-            margin-top: 4px;
-            font-size: 11px;
+            margin-top: 3px;
+            font-size: 10.5px;
         }}
         .data-table th, .data-table td {{
             border: 1px solid #444;
-            padding: 5px 8px;
+            padding: 4px 7px;
         }}
         .data-table th {{
             background: #f8fafc;
@@ -1544,48 +1571,64 @@ def render_bolla_printable_html(bolla_records: List[Dict[str, Any]], title: str 
             font-weight: bold;
         }}
         .sub-header {{
-            font-size: 10.5px;
+            font-size: 10px;
             font-weight: bold;
             background: #e2e8f0;
-            padding: 4px 8px;
+            padding: 3px 8px;
             border: 1px solid #444;
             border-bottom: none;
         }}
         .border-box {{
             border: 1px solid #444;
-            padding: 6px 8px;
-            min-height: 40px;
-            line-height: 1.4;
+            padding: 5px 8px;
+            min-height: 32px;
+            line-height: 1.35;
         }}
         .signature-grid {{
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
             gap: 8px;
-            margin-top: 15px;
+            margin-top: 10px;
         }}
         .sig-box {{
             border: 1px solid #444;
-            padding: 8px;
-            min-height: 75px;
+            padding: 6px 8px;
+            min-height: 62px;
             text-align: center;
             font-size: 9.5px;
         }}
 
+        @page {{
+            size: A4 portrait;
+            margin: 8mm 10mm;
+        }}
+
         @media print {{
-            body {{
-                background: white;
-                padding: 0;
-                margin: 0;
+            html, body {{
+                background: white !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
             }}
             .print-btn-bar {{
                 display: none !important;
             }}
             .bolla-sheet {{
-                box-shadow: none;
-                border: none;
-                margin: 0;
-                padding: 10mm 12mm;
-                page-break-after: always;
+                width: 100% !important;
+                min-height: 0 !important;
+                height: auto !important;
+                box-shadow: none !important;
+                border: none !important;
+                margin: 0 !important;
+                padding: 2mm 4mm !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+                page-break-after: always !important;
+                break-after: page !important;
+            }}
+            .bolla-sheet:last-of-type {{
+                page-break-after: auto !important;
+                break-after: auto !important;
             }}
         }}
     </style>
@@ -1609,11 +1652,13 @@ def add_colli_to_bolla_spuntata(
     colli_to_add: int,
     category: str = "colli_abbigl",
     note_reason: str = "",
+    mark_spuntato: bool = True,
     db_path: Path = DB_PATH
 ) -> Dict[str, Any]:
     """
-    Funzione specifica per la versione mobile: aggiunge colli extra a un negozio già spuntato.
-    Aggiorna la categoria specificata, mantiene lo stato spuntato = 1 e registra una nota con orario.
+    Funzione per la versione mobile: aggiunge colli extra a un negozio (sia già spuntato sia ancora da spuntare).
+    Aggiorna la categoria specificata, imposta spuntato = 1 se mark_spuntato è True (o mantiene lo stato attuale)
+    e registra una nota con orario.
     """
     if colli_to_add <= 0:
         return {"status": "error", "message": "Il numero di colli da aggiungere deve essere maggiore di 0."}
@@ -1636,8 +1681,10 @@ def add_colli_to_bolla_spuntata(
     new_val = old_val + int(colli_to_add)
     bolla[cat_key] = new_val
 
-    # Garantisce che rimanga spuntato
-    bolla["spuntato"] = 1
+    if mark_spuntato:
+        bolla["spuntato"] = 1
+    else:
+        bolla["spuntato"] = int(bolla.get("spuntato", 0) or 0)
 
     # Registra nota con timestamp
     now_str = datetime.now().strftime("%H:%M")
@@ -1663,8 +1710,108 @@ def add_colli_to_bolla_spuntata(
         "added_colli": colli_to_add,
         "new_category_total": new_val,
         "new_total_colli": tot_colli,
+        "spuntato": bolla["spuntato"],
         "note": bolla["note"]
     }
+
+
+def add_intershop_to_bolla(
+    bolla_id: int,
+    mittente: str,
+    colli: int,
+    tipo: str = "MERCE",
+    db_path: Path = DB_PATH,
+) -> Dict[str, Any]:
+    """
+    Aggiunge un trasferimento inter-negozio (Intershop) a una bolla direttamente da Mobile.
+    Aggiorna intershops_json e ricalcola automaticamente il campo stringa.
+    """
+    if int(colli or 0) <= 0:
+        return {"status": "error", "message": "Il numero di colli del trasferimento deve essere maggiore di 0."}
+
+    bolla = get_bolla_by_id(bolla_id, db_path=db_path)
+    if not bolla:
+        return {"status": "error", "message": f"Bolla con ID {bolla_id} non trovata."}
+
+    inter_list: List[Dict[str, Any]] = []
+    try:
+        if bolla.get("intershops_json"):
+            parsed = json.loads(bolla["intershops_json"])
+            if isinstance(parsed, list):
+                inter_list = [x for x in parsed if isinstance(x, dict) and float(x.get("colli", 0) or 0) > 0]
+    except Exception:
+        inter_list = []
+
+    clean_mitt = str(mittente or "").strip()
+    clean_tipo = str(tipo or "MERCE").strip().upper() or "MERCE"
+    inter_list.append({
+        "mittente": clean_mitt,
+        "colli": int(colli),
+        "tipo": clean_tipo,
+    })
+
+    bolla["intershops_list"] = inter_list
+    bolla["intershops_json"] = json.dumps(inter_list)
+    bolla["stringa"] = format_intershops_string(inter_list)
+    save_or_update_bolla(bolla, db_path=db_path)
+
+    return {
+        "status": "ok",
+        "bolla_id": bolla_id,
+        "id_store": bolla.get("id_store"),
+        "store_name": bolla.get("store_name"),
+        "intershops_list": inter_list,
+        "stringa": bolla["stringa"],
+    }
+
+
+def remove_intershop_from_bolla(
+    bolla_id: int,
+    index: int,
+    db_path: Path = DB_PATH,
+) -> Dict[str, Any]:
+    """Rimuove un trasferimento inter-negozio (per indice) da una bolla e aggiorna stringa."""
+    bolla = get_bolla_by_id(bolla_id, db_path=db_path)
+    if not bolla:
+        return {"status": "error", "message": f"Bolla con ID {bolla_id} non trovata."}
+
+    inter_list: List[Dict[str, Any]] = []
+    try:
+        if bolla.get("intershops_json"):
+            parsed = json.loads(bolla["intershops_json"])
+            if isinstance(parsed, list):
+                inter_list = [x for x in parsed if isinstance(x, dict) and float(x.get("colli", 0) or 0) > 0]
+    except Exception:
+        inter_list = []
+
+    if 0 <= index < len(inter_list):
+        inter_list.pop(index)
+
+    bolla["intershops_list"] = inter_list
+    bolla["intershops_json"] = json.dumps(inter_list)
+    bolla["stringa"] = format_intershops_string(inter_list)
+    save_or_update_bolla(bolla, db_path=db_path)
+
+    return {
+        "status": "ok",
+        "bolla_id": bolla_id,
+        "intershops_list": inter_list,
+        "stringa": bolla["stringa"],
+    }
+
+
+def clear_sigilli_by_date(delivery_date: str, db_path: Path = DB_PATH) -> int:
+    """Azzera il campo sigillo su tutte le bolle di una determinata data di consegna."""
+    d_str = str(delivery_date).strip()[:10]
+    conn = get_db_connection(db_path)
+    cur = conn.cursor()
+    cur.execute("UPDATE bolle SET sigillo = '' WHERE data_consegna = ? OR data = ?", (d_str, d_str))
+    cnt = cur.rowcount
+    conn.commit()
+    conn.close()
+    from src.cloud_sync import auto_sync_tables
+    auto_sync_tables(["bolle"])
+    return cnt
 
 
 def confirm_bolla_spunta(

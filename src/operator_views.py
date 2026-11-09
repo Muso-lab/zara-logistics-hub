@@ -5,6 +5,8 @@ Mantiene al 100% la compatibilità con la modalità Admin / Vista Classica Compl
 from __future__ import annotations
 
 import html
+import json
+import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -14,6 +16,8 @@ import streamlit as st
 
 from src.bolle_manager import (
     add_colli_to_bolla_spuntata,
+    add_intershop_to_bolla,
+    clear_sigilli_by_date,
     compute_inditex_delivery_dates,
     confirm_bolla_spunta,
     export_bolle_excel,
@@ -21,14 +25,15 @@ from src.bolle_manager import (
     get_bolla_by_id,
     get_bolle_by_date,
     get_bolle_dates,
+    remove_intershop_from_bolla,
     render_bolla_printable_html,
 )
 from src.cloud_sync import get_extranet_credentials, set_extranet_credentials
-from src.config import DATA_DIR
+from src.config import DATA_DIR, DB_PATH
 from src.db import get_stores_df, load_run_data
+from src.pipeline import run_pipeline
 from src.scraper import InditexExtranetScraper
 from src.utils import get_cycle_date_range
-from src.pipeline import run_pipeline
 
 
 def format_date_it(d_val: Any) -> str:
@@ -63,12 +68,28 @@ def format_number_it(val: Any, decimals: int = 0) -> str:
     return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def cleanup_legacy_wrong_bolle(db_path: Path = DB_PATH) -> None:
+    """Rimuove eventuali record di test (2098/2099/2100) o date errate residue dal DB locale."""
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "DELETE FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data LIKE '%2100%' "
+                "OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR data_consegna LIKE '%2100%' "
+                "OR data_consegna = '2026-10-23' OR (data_consegna = '2026-10-24' AND tipo_cons = 'DOPPIA') "
+                "OR id_store = '9999'"
+            )
+            conn.commit()
+    except Exception:
+        pass
+
+
 def ensure_bolle_for_latest_run(runs_df: pd.DataFrame) -> bool:
     """
     Se l'Ufficio ha appena creato una previsione ma per le due date di consegna (/0 e /9)
     dell'ultima Run non risultano ancora generate le bolle nel DB locale, le genera automaticamente
     senza sovrascrivere eventuali spunte già presenti (overwrite=False).
     """
+    cleanup_legacy_wrong_bolle()
     if runs_df is None or runs_df.empty:
         return False
     try:
@@ -99,7 +120,7 @@ def render_ufficio_simplified_view(
 ):
     """
     Interfaccia ultra-snella per l'Operatore Ufficio:
-    1) Selezione Date & Ciclo
+    1) Selezione Date & Ciclo (con anteprima chiara delle date di consegna /0 e /9)
     2) Correzione Profumi
     3) TASTONE per partire (Scarico Extranet -> Elaborazione -> XML su Cloud -> Bolle)
     4) Box immediato con file pronti (Sintesi_Operativa.xlsx, ZARA.xlsx, SGA, ZIP) e Invio Email.
@@ -111,12 +132,12 @@ def render_ufficio_simplified_view(
 
     st.markdown("""
     <div style="background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);
-                border: 2px solid #3B82F6; border-radius: 14px; padding: 16px 22px; margin-bottom: 18px;">
-        <div style="font-size: 20px; font-weight: 900; color: #1E3A8A;">
+                border: 2px solid #3B82F6; border-radius: 12px; padding: 14px 20px; margin-bottom: 16px;">
+        <div style="font-size: 18px; font-weight: 800; color: #1E3A8A;">
             💼 CREAZIONE NUOVI GIRI OPERATIVI (MODALITÀ RAPIDA UFFICIO)
         </div>
-        <div style="font-size: 13.5px; color: #1E40AF; margin-top: 4px;">
-            <strong>1.</strong> Controlla le date &bull; <strong>2.</strong> Inserisci eventuali profumi &bull; <strong>3.</strong> Premi il tastone per scaricare da Extranet, creare i giri e caricare gli XML sul Cloud.
+        <div style="font-size: 13px; color: #1E40AF; margin-top: 3px;">
+            <strong>1.</strong> Controlla le date &bull; <strong>2.</strong> Inserisci eventuali profumi &bull; <strong>3.</strong> Premi il tastone per creare i giri e caricare gli XML sul Cloud.
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -137,14 +158,23 @@ def render_ufficio_simplified_view(
             cycle_choice = st.radio(
                 "Ciclo Settimanale",
                 options=[
-                    "LUN-MER (Arrivo Lun/Mar → Consegna Mer /0 e Gio /9)",
-                    "GIOV-DOM (Arrivo Gio/Ven → Consegna Sab /0 e Dom /9)",
+                    "LUN-MER (Consegna Mercoledì /0 e Giovedì /9)",
+                    "GIOV-DOM (Consegna Sabato /0 e Domenica /9)",
                 ],
                 index=default_cycle_idx,
                 horizontal=True,
                 key="uff_simp_cycle_choice",
             )
             cycle_type = "LUN-MER" if "LUN-MER" in cycle_choice else "GIOV-DOM"
+
+        date_b9_preview, date_b0_preview = compute_inditex_delivery_dates(run_date, cycle_type)
+        st.markdown(f"""
+        <div style="background: #F0FDF4; border: 1.5px solid #86EFAC; border-radius: 8px; padding: 8px 14px; margin: 6px 0 10px 0; font-size: 13px; color: #14532D;">
+            🗓️ <strong>Date di Consegna Bolle &amp; Flussi SGA/XML che verranno generate:</strong>
+            &nbsp;&bull;&nbsp; 🚚 <strong>Barra 0 (/0 STD): {format_date_weekday_it(str(date_b0_preview))}</strong>
+            &nbsp;&bull;&nbsp; 🔁 <strong>Barra 9 (/9 DOPPIA): {format_date_weekday_it(str(date_b9_preview))}</strong>
+        </div>
+        """, unsafe_allow_html=True)
 
         cycle_desde, cycle_hasta = get_cycle_date_range(cycle_type, run_date)
         c_ex1, c_ex2 = st.columns(2)
@@ -207,17 +237,6 @@ def render_ufficio_simplified_view(
     notes = f"Elaborazione W{run_date.isocalendar()[1]} ({cycle_type})"
     ex_user, ex_pass = get_extranet_credentials()
 
-    st.markdown("""
-    <style>
-    div[data-testid="stButton"] > button[kind="primary"] {
-        min-height: 62px !important;
-        font-size: 18px !important;
-        font-weight: 800 !important;
-        border-radius: 12px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
     btn_start_operativa = st.button(
         "🚀 AVVIA NUOVA OPERATIVA (SCARICA DA EXTRANET, CREA GIRI & CARICA XML CLOUD)",
         type="primary",
@@ -231,11 +250,11 @@ def render_ufficio_simplified_view(
         status_banner.markdown("""
         <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
                     border: 2px solid #38BDF8; border-radius: 12px;
-                    padding: 18px 24px; margin: 12px 0 16px 0;">
-            <div style="font-size: 16px; font-weight: 800; color: #38BDF8;">
+                    padding: 16px 20px; margin: 10px 0 14px 0;">
+            <div style="font-size: 15px; font-weight: 800; color: #38BDF8;">
                 🚀 AVVIO OPERATIVA IN CORSO — ATTENDERE PREGO (5%)
             </div>
-            <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 4px;">
+            <div style="font-size: 13px; color: #F8FAFC; margin-top: 4px;">
                 Connessione a Inditex Extranet e scarico automatico file...
             </div>
         </div>
@@ -250,11 +269,11 @@ def render_ufficio_simplified_view(
             status_banner.markdown(f"""
             <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
                         border: 2px solid #38BDF8; border-radius: 12px;
-                        padding: 18px 24px; margin: 12px 0 16px 0;">
-                <div style="font-size: 16px; font-weight: 800; color: #38BDF8;">
+                        padding: 16px 20px; margin: 10px 0 14px 0;">
+                <div style="font-size: 15px; font-weight: 800; color: #38BDF8;">
                     🔄 ELABORAZIONE IN CORSO ({pct}%)
                 </div>
-                <div style="font-size: 13.5px; color: #F8FAFC; margin-top: 4px;">
+                <div style="font-size: 13px; color: #F8FAFC; margin-top: 4px;">
                     {html.escape(msg)}
                 </div>
             </div>
@@ -419,53 +438,116 @@ def render_magazzino_simplified_view(
 ):
     """
     Interfaccia ultra-snella per l'Operatore Magazzino:
-    1) Seleziona la Data di Consegna
-    2) Seleziona Giro / Negozi
-    3) TASTONE STAMPA BOLLE (più bottoni rapidi /0, /9, Excel)
+    1) Seleziona la Data di Consegna (con indicazione chiara Mercoledì/Sabato /0 vs Giovedì/Domenica /9)
+    2) Seleziona Giro / Negozi + eventuale Sigillo temporaneo di sessione (non residente!)
+    3) TASTONE STAMPA BOLLE (senza fogli bianchi tra una bolla e l'altra)
     """
     if "flash_bolle_msg" in st.session_state:
         st.success(f"🎉 **{st.session_state.pop('flash_bolle_msg')}**")
 
-    # Assicura automaticamente che le bolle dell'ultima previsione siano state create
+    # Assicura automaticamente che le bolle dell'ultima previsione siano state create e pulisce date anomale
     ensure_bolle_for_latest_run(runs_side)
 
     st.markdown("""
     <div style="background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
-                border: 2px solid #10B981; border-radius: 14px; padding: 16px 22px; margin-bottom: 18px;">
-        <div style="font-size: 20px; font-weight: 900; color: #065F46;">
+                border: 2px solid #10B981; border-radius: 12px; padding: 14px 20px; margin-bottom: 16px;">
+        <div style="font-size: 18px; font-weight: 800; color: #065F46;">
             🖨️ STAMPA BOLLE DI CONSEGNA (MODALITÀ RAPIDA MAGAZZINO)
         </div>
-        <div style="font-size: 13.5px; color: #047857; margin-top: 4px;">
-            <strong>1.</strong> Scegli la data &bull; <strong>2.</strong> Scegli il giro o i negozi &bull; <strong>3.</strong> Premi <strong>STAMPA BOLLE</strong>.
+        <div style="font-size: 13px; color: #047857; margin-top: 3px;">
+            <strong>1.</strong> Scegli la data operativa &bull; <strong>2.</strong> Scegli il giro o i negozi &bull; <strong>3.</strong> Premi <strong>STAMPA BOLLE</strong>.
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # Info rapida sulle date ufficiali dell'ultima operativa
+    latest_std_str = None
+    latest_dop_str = None
+    if not runs_side.empty:
+        try:
+            lr = runs_side.iloc[0]
+            lr_dt = datetime.strptime(str(lr["run_date"])[:10], "%Y-%m-%d").date()
+            lr_cyc = str(lr.get("cycle_type", "LUN-MER"))
+            d_dop_o, d_std_o = compute_inditex_delivery_dates(lr_dt, lr_cyc)
+            latest_std_str = str(d_std_o)
+            latest_dop_str = str(d_dop_o)
+        except Exception:
+            pass
 
     today_str = str(date.today())
     tomorrow_str = str(date.today() + timedelta(days=1))
     all_dates = get_bolle_dates(120)
     if not all_dates:
-        all_dates = [tomorrow_str, today_str]
+        all_dates = [latest_std_str or tomorrow_str, today_str]
 
-    # Scelta predefinita intelligente: oggi o domani se presenti, altrimenti la prima data disponibile
+    # Etichette descrittive per ogni data disponibile (mostra /0 STD vs /9 DOPPIA e numero bolle)
+    date_label_map: Dict[str, str] = {}
+    for d_item in all_dates:
+        try:
+            dt_o = datetime.strptime(d_item[:10], "%Y-%m-%d").date()
+            wd = dt_o.weekday()
+            if wd in (2, 5):
+                tag_d = "🚚 Consegna /0 STD"
+            elif wd in (3, 6):
+                tag_d = "🔁 Consegna /9 DOPPIA"
+            else:
+                tag_d = "📦 Consegna"
+        except Exception:
+            tag_d = "📦 Consegna"
+        date_label_map[d_item] = f"📅 {format_date_weekday_it(d_item)} — {tag_d}"
+
+    # Scelta predefinita intelligente: privilegia la data /0 STD dell'ultima run (Mercoledì o Sabato), o oggi/domani
     if "mag_simp_date" not in st.session_state or st.session_state["mag_simp_date"] not in all_dates:
-        if tomorrow_str in all_dates:
-            st.session_state["mag_simp_date"] = tomorrow_str
-        elif today_str in all_dates:
+        if today_str in all_dates:
             st.session_state["mag_simp_date"] = today_str
+        elif tomorrow_str in all_dates:
+            st.session_state["mag_simp_date"] = tomorrow_str
+        elif latest_std_str and latest_std_str in all_dates:
+            st.session_state["mag_simp_date"] = latest_std_str
         else:
             st.session_state["mag_simp_date"] = all_dates[0]
 
     # --- STEP 1: SELEZIONE DATA DI CONSEGNA ---
     with st.container(border=True):
         st.markdown("#### 📅 1. Seleziona la Data di Consegna")
-        c_d_sel, c_b1, c_b2, c_b3 = st.columns([2.4, 0.9, 0.9, 1.0])
+        if latest_std_str and latest_dop_str:
+            c_info_run, c_btn_b0, c_btn_b9 = st.columns([2.2, 1.2, 1.2])
+            with c_info_run:
+                st.caption(
+                    f"🗓️ **Ultima Operativa attiva:**\n"
+                    f"• **/0 STD:** {format_date_weekday_it(latest_std_str)}\n"
+                    f"• **/9 DOPPIA:** {format_date_weekday_it(latest_dop_str)}"
+                )
+            with c_btn_b0:
+                if st.button(
+                    f"🚚 Vai a /0 ({format_date_it(latest_std_str)})",
+                    use_container_width=True,
+                    type="primary" if st.session_state["mag_simp_date"] == latest_std_str else "secondary",
+                    key="mag_btn_go_std",
+                ):
+                    if latest_std_str not in all_dates:
+                        all_dates.insert(0, latest_std_str)
+                    st.session_state["mag_simp_date"] = latest_std_str
+                    st.rerun()
+            with c_btn_b9:
+                if st.button(
+                    f"🔁 Vai a /9 ({format_date_it(latest_dop_str)})",
+                    use_container_width=True,
+                    type="primary" if st.session_state["mag_simp_date"] == latest_dop_str else "secondary",
+                    key="mag_btn_go_dop",
+                ):
+                    if latest_dop_str not in all_dates:
+                        all_dates.insert(0, latest_dop_str)
+                    st.session_state["mag_simp_date"] = latest_dop_str
+                    st.rerun()
+
+        c_d_sel, c_b1, c_b2 = st.columns([3.0, 1.0, 1.0])
         with c_d_sel:
             target_date = st.selectbox(
                 "Data di Consegna",
                 options=all_dates,
                 index=all_dates.index(st.session_state["mag_simp_date"]),
-                format_func=lambda d: f"📅 {format_date_weekday_it(d)} ({d})",
+                format_func=lambda d: date_label_map.get(d, f"📅 {format_date_weekday_it(d)}"),
                 key="mag_simp_date_sb",
                 label_visibility="collapsed",
             )
@@ -484,10 +566,6 @@ def render_magazzino_simplified_view(
                     all_dates.insert(0, tomorrow_str)
                 st.session_state["mag_simp_date"] = tomorrow_str
                 st.rerun()
-        with c_b3:
-            if st.button("🆕 Ultima Data", use_container_width=True, key="mag_btn_latest"):
-                st.session_state["mag_simp_date"] = all_dates[0]
-                st.rerun()
 
     df_bolle = get_bolle_by_date(target_date)
 
@@ -503,6 +581,8 @@ def render_magazzino_simplified_view(
                 key="mag_btn_gen_bolle_now",
             ):
                 created_cnt, _ = generate_bolle_from_forecast(latest_rid, overwrite=False)
+                if latest_std_str:
+                    st.session_state["mag_simp_date"] = latest_std_str
                 st.session_state["flash_bolle_msg"] = f"Generate {created_cnt} bolle dall'ultima previsione!"
                 st.rerun()
         return
@@ -535,11 +615,11 @@ def render_magazzino_simplified_view(
     )
     df_bolle = df_bolle.sort_values(by=["giro", "id_store", "tipo_cons"]).reset_index(drop=True)
 
-    # --- STEP 2: SELEZIONA GIRO E NEGOZI ---
+    # --- STEP 2: SELEZIONA GIRO, NEGOZI & SIGILLO TEMPORANEO ---
     with st.container(border=True):
-        st.markdown("#### 🏪 2. Seleziona Giro e Negozi da Stampare")
+        st.markdown("#### 🏪 2. Seleziona Giro, Negozi e Sigillo (Opzionale)")
         all_giri = sorted([g for g in df_bolle["giro"].unique() if str(g).strip()])
-        c_f_giro, c_f_tipo = st.columns([1.4, 1.6])
+        c_f_giro, c_f_tipo, c_f_sig = st.columns([1.3, 1.5, 1.4])
         with c_f_giro:
             sel_giro = st.selectbox(
                 "🚛 Filtra per Giro",
@@ -552,6 +632,15 @@ def render_magazzino_simplified_view(
                 options=["TUTTE (/0 + /9)", "Solo Barra 0 (/0 STD)", "Solo Barra 9 (/9 DOPPIA)"],
                 horizontal=True,
                 key="mag_simp_tipo",
+            )
+        with c_f_sig:
+            # Chiave dinamica per data + giro: si azzera automaticamente cambiando giro o data (NON residente!)
+            sigillo_session_val = st.text_input(
+                "🔒 Sigillo per questa stampa (Opzionale)",
+                value="",
+                placeholder="Vuoto = nessun sigillo in stampa",
+                key=f"mag_sigillo_temp_{target_date}_{sel_giro}",
+                help="Il sigillo inserito qui vale SOLO per questa stampa e si azzera automaticamente cambiando giro o data.",
             )
 
         df_filtered = df_bolle.copy()
@@ -573,7 +662,7 @@ def render_magazzino_simplified_view(
             store_options[bid] = f"{sid} - {sname} [{g_lbl} • {t_c}] ({tot_c} colli)"
 
         selected_bolla_ids = st.multiselect(
-            "🏪 Seleziona Negozi specifici (Lascia vuoto per stampare TUTTI i negozi del filtro)",
+            "🏪 Seleziona Negozi specifici (Digita codice o nome • Lascia vuoto per stampare TUTTI i negozi del filtro)",
             options=list(store_options.keys()),
             default=[],
             format_func=lambda bid: store_options.get(bid, str(bid)),
@@ -590,17 +679,6 @@ def render_magazzino_simplified_view(
     n_bolle = len(df_to_print)
     tot_colli_print = int(df_to_print["tot_colli"].sum()) if not df_to_print.empty else 0
 
-    st.markdown("""
-    <style>
-    div[data-testid="stButton"] > button[kind="primary"] {
-        min-height: 68px !important;
-        font-size: 20px !important;
-        font-weight: 900 !important;
-        border-radius: 14px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
     if st.button(
         f"🖨️ STAMPA BOLLE SELEZIONATE ({n_bolle} BOLLE — {tot_colli_print} COLLI)",
         type="primary",
@@ -610,8 +688,11 @@ def render_magazzino_simplified_view(
     ):
         recs = [get_bolla_by_id(int(r["id"])) for _, r in df_to_print.iterrows()]
         recs = [r for r in recs if r]
-        html_out = render_bolla_printable_html(recs, auto_print=True)
-        # Timestamp comment per forzare sempre il trigger window.print() anche su clic multipli
+        html_out = render_bolla_printable_html(
+            recs,
+            auto_print=True,
+            override_sigillo=sigillo_session_val.strip(),
+        )
         html_out += f"\n<!-- print_ts: {datetime.now().isoformat()} -->"
         st.session_state["mag_simp_print_html"] = html_out
         st.session_state["mag_simp_print_title"] = f"Bolle_{target_date}_{n_bolle}.html"
@@ -630,7 +711,11 @@ def render_magazzino_simplified_view(
         ):
             recs = [get_bolla_by_id(int(r["id"])) for _, r in df_only_b0.iterrows()]
             recs = [r for r in recs if r]
-            html_out = render_bolla_printable_html(recs, auto_print=True) + f"\n<!-- print_ts: {datetime.now().isoformat()} -->"
+            html_out = render_bolla_printable_html(
+                recs,
+                auto_print=True,
+                override_sigillo=sigillo_session_val.strip(),
+            ) + f"\n<!-- print_ts: {datetime.now().isoformat()} -->"
             st.session_state["mag_simp_print_html"] = html_out
             st.session_state["mag_simp_print_title"] = f"Bolle_Barra0_{target_date}.html"
 
@@ -643,7 +728,11 @@ def render_magazzino_simplified_view(
         ):
             recs = [get_bolla_by_id(int(r["id"])) for _, r in df_only_b9.iterrows()]
             recs = [r for r in recs if r]
-            html_out = render_bolla_printable_html(recs, auto_print=True) + f"\n<!-- print_ts: {datetime.now().isoformat()} -->"
+            html_out = render_bolla_printable_html(
+                recs,
+                auto_print=True,
+                override_sigillo=sigillo_session_val.strip(),
+            ) + f"\n<!-- print_ts: {datetime.now().isoformat()} -->"
             st.session_state["mag_simp_print_html"] = html_out
             st.session_state["mag_simp_print_title"] = f"Bolle_Barra9_{target_date}.html"
 
@@ -662,7 +751,7 @@ def render_magazzino_simplified_view(
     # Trigger dialogo di stampa immediato del browser
     if "mag_simp_print_html" in st.session_state and st.session_state["mag_simp_print_html"]:
         st.components.v1.html(st.session_state["mag_simp_print_html"], height=0, width=0)
-        st.success("✅ **Finestra di stampa inviata al browser!** (Se bloccata dal browser, scarica il file qui sotto)")
+        st.success("✅ **Finestra di stampa inviata al browser!** (1 bolla per foglio A4, senza pagine bianche intermedie)")
         st.download_button(
             "💾 Scarica File Stampa (.html)",
             data=st.session_state["mag_simp_print_html"].encode("utf-8"),
@@ -684,6 +773,7 @@ def render_magazzino_simplified_view(
                 "Calzat.": df_to_print["colli_calzat"],
                 "E-Com": df_to_print["colli_ecom"],
                 "Altri": df_to_print["colli_others"],
+                "Trasferimenti": df_to_print["stringa"].fillna("") if "stringa" in df_to_print.columns else "",
                 "Vettore": df_to_print["vettore"] if "vettore" in df_to_print.columns else "",
                 "Spunta": df_to_print["spuntato"].map(lambda s: "🟢 Spuntato" if int(s or 0) == 1 else "⏳ Da contare"),
             })
@@ -691,7 +781,110 @@ def render_magazzino_simplified_view(
 
 
 # ==============================================================================
-# 3. MODALITÀ MOBILE BANCHINA SEMPLIFICATA (SOLO DUE TASTI GIGANTI)
+# HELPER UI MOBILE: GESTIONE TRASFERIMENTI (INTERSHOPS)
+# ==============================================================================
+def _render_mobile_intershops_section(
+    bolla_id: int,
+    store_id: str,
+    store_name: str,
+    all_store_codes: List[str],
+    key_prefix: str = "mob_inter",
+):
+    """Box compatto mobile per vedere, aggiungere o rimuovere Trasferimenti tra Negozi (Intershops)."""
+    b_fresh = get_bolla_by_id(int(bolla_id)) or {}
+    inter_list: List[Dict[str, Any]] = []
+    try:
+        if b_fresh.get("intershops_json"):
+            parsed = json.loads(b_fresh["intershops_json"])
+            if isinstance(parsed, list):
+                inter_list = [x for x in parsed if isinstance(x, dict) and float(x.get("colli", 0) or 0) > 0]
+    except Exception:
+        inter_list = []
+
+    with st.container(border=True):
+        st.markdown(
+            f"<div style='font-size:14px; font-weight:800; color:#0369A1; margin-bottom:6px;'>"
+            f"🔄 Trasferimenti tra Negozi (Intershops) — Store {html.escape(str(store_id))}</div>",
+            unsafe_allow_html=True,
+        )
+
+        if inter_list:
+            for idx_i, item in enumerate(inter_list):
+                c_txt, c_del = st.columns([3.5, 1])
+                with c_txt:
+                    m_s = str(item.get("mittente", "")).strip() or "N/D"
+                    c_s = int(float(item.get("colli", 0) or 0))
+                    t_s = str(item.get("tipo", "MERCE")).strip()
+                    st.markdown(
+                        f"<div style='font-size:13px; background:#F0F9FF; border:1px solid #BAE6FD; "
+                        f"border-radius:8px; padding:6px 10px; margin-bottom:4px;'>"
+                        f"📦 <strong>{c_s} colli {html.escape(t_s)}</strong> da Negozio <strong>{html.escape(m_s)}</strong></div>",
+                        unsafe_allow_html=True,
+                    )
+                with c_del:
+                    if st.button("🗑️", key=f"{key_prefix}_del_{bolla_id}_{idx_i}", use_container_width=True, help="Rimuovi trasferimento"):
+                        remove_intershop_from_bolla(int(bolla_id), idx_i)
+                        st.session_state["flash_bolle_msg"] = f"Trasferimento rimosso da Store {store_id}."
+                        st.rerun()
+        else:
+            st.caption("Nessun trasferimento registrato per questo negozio.")
+
+        c_m1, c_m2, c_m3 = st.columns([1.6, 1.0, 1.3])
+        with c_m1:
+            mitt_opts = [""] + [s for s in all_store_codes if s != str(store_id)]
+            mitt_sel = st.selectbox(
+                "Negozio Mittente (Omnibox)",
+                options=mitt_opts,
+                format_func=lambda x: "🔍 Digita o scegli mittente..." if x == "" else f"Store {x}",
+                key=f"{key_prefix}_mitt_sb_{bolla_id}",
+            )
+            mitt_free = st.text_input(
+                "Oppure codice mittente libero",
+                value="",
+                placeholder="es. 3680",
+                key=f"{key_prefix}_mitt_txt_{bolla_id}",
+                label_visibility="collapsed",
+            )
+            final_mitt = mitt_free.strip() or mitt_sel.strip()
+        with c_m2:
+            tr_colli = st.number_input(
+                "N° Colli",
+                min_value=1,
+                max_value=200,
+                value=1,
+                step=1,
+                key=f"{key_prefix}_colli_{bolla_id}",
+            )
+        with c_m3:
+            tr_tipo = st.selectbox(
+                "Tipologia",
+                options=["MERCE", "CESTE", "STAND", "BUSTE", "SCATOLE", "VARIO"],
+                key=f"{key_prefix}_tipo_{bolla_id}",
+            )
+
+        if st.button(
+            f"➕ AGGIUNGI TRASFERIMENTO ({int(tr_colli)}C {tr_tipo})",
+            type="secondary",
+            use_container_width=True,
+            key=f"{key_prefix}_add_btn_{bolla_id}",
+        ):
+            res_tr = add_intershop_to_bolla(
+                bolla_id=int(bolla_id),
+                mittente=final_mitt,
+                colli=int(tr_colli),
+                tipo=tr_tipo,
+            )
+            if res_tr.get("status") == "ok":
+                st.session_state["flash_bolle_msg"] = (
+                    f"Trasferimento aggiunto a Store {store_id}: {res_tr['stringa']}"
+                )
+                st.rerun()
+            else:
+                st.error(res_tr.get("message", "Errore salvataggio trasferimento."))
+
+
+# ==============================================================================
+# 3. MODALITÀ MOBILE BANCHINA SEMPLIFICATA (2 TASTI + OMNIBOX + TRASFERIMENTI)
 # ==============================================================================
 def render_mobile_two_buttons_view(
     runs_side: pd.DataFrame,
@@ -699,21 +892,40 @@ def render_mobile_two_buttons_view(
     allow_classic_toggle: bool = False,
 ):
     """
-    Interfaccia Smartphone / Palmare a 2 soli tasti giganti:
-    - TASTO 1: 📋 SPUNTA NEGOZIO
-    - TASTO 2: ➕ AGGIUNGI COLLI (A NEGOZI GIÀ SPUNTATI)
+    Interfaccia Smartphone / Palmare:
+    - Font e box proporzionati per schermi mobile (nessun testo gigante che sborda)
+    - Nessun filtro sui giri (rimosso come richiesto)
+    - Selezione negozio tramite OMNIBOX ricercabile (digita codice o nome)
+    - TASTO 1: 📋 SPUNTA NEGOZIO (1-Tap Conforme, conteggio manuale + Trasferimenti)
+    - TASTO 2: ➕ AGGIUNGI COLLI & TRASFERIMENTI (sia per negozi già spuntati sia per negozi NON spuntati!)
     """
     if "flash_bolle_msg" in st.session_state:
         st.success(f"🎉 **{st.session_state.pop('flash_bolle_msg')}**")
 
     ensure_bolle_for_latest_run(runs_side)
 
+    # CSS Mobile calibrato: caratteri leggibili e ben contenuti nei box
+    st.markdown("""
+    <style>
+    div[data-testid="stButton"] > button {
+        min-height: 44px !important;
+        font-size: 13.5px !important;
+        font-weight: 700 !important;
+        padding: 6px 10px !important;
+        line-height: 1.25 !important;
+        border-radius: 10px !important;
+        white-space: normal !important;
+        word-wrap: break-word !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     if allow_classic_toggle:
-        c_title_m, c_tog_m = st.columns([3, 1.2])
+        c_title_m, c_tog_m = st.columns([2.8, 1.2])
         with c_title_m:
-            st.markdown("### 📱 Spunta Banchina Mobile (2 Tasti)")
+            st.markdown("#### 📱 Spunta Banchina Mobile")
         with c_tog_m:
-            if st.button("🔧 Vista Completa Spunta", use_container_width=True, key="btn_mob_to_classic"):
+            if st.button("🔧 Vista Completa", use_container_width=True, key="btn_mob_to_classic"):
                 st.session_state["mob_use_classic_spunta"] = True
                 st.rerun()
 
@@ -724,27 +936,24 @@ def render_mobile_two_buttons_view(
         all_dates = [tomorrow_str, today_str]
 
     if "mob2_date" not in st.session_state or st.session_state["mob2_date"] not in all_dates:
-        if tomorrow_str in all_dates:
-            st.session_state["mob2_date"] = tomorrow_str
-        elif today_str in all_dates:
+        if today_str in all_dates:
             st.session_state["mob2_date"] = today_str
+        elif tomorrow_str in all_dates:
+            st.session_state["mob2_date"] = tomorrow_str
         else:
             st.session_state["mob2_date"] = all_dates[0]
 
-    # Barra compatta Data + Giro
-    c_m_dt, c_m_giro = st.columns([1.6, 1.2])
-    with c_m_dt:
-        mob_date = st.selectbox(
-            "📅 Data Consegna",
-            options=all_dates,
-            index=all_dates.index(st.session_state["mob2_date"]),
-            format_func=lambda d: f"{format_date_weekday_it(d)}",
-            key="mob2_date_sb",
-        )
-        if mob_date != st.session_state["mob2_date"]:
-            st.session_state["mob2_date"] = mob_date
-            st.session_state["mob2_idx"] = 0
-            st.rerun()
+    # Selezione Data Consegna (senza filtro Giri come richiesto)
+    mob_date = st.selectbox(
+        "📅 Data di Consegna",
+        options=all_dates,
+        index=all_dates.index(st.session_state["mob2_date"]),
+        format_func=lambda d: f"{format_date_weekday_it(d)}",
+        key="mob2_date_sb",
+    )
+    if mob_date != st.session_state["mob2_date"]:
+        st.session_state["mob2_date"] = mob_date
+        st.rerun()
 
     df_b_date = get_bolle_by_date(mob_date)
     if df_b_date.empty:
@@ -756,34 +965,9 @@ def render_mobile_two_buttons_view(
                 st.rerun()
         return
 
-    store_giro_map: Dict[str, str] = {}
-    if not df_stores_side.empty and "giro" in df_stores_side.columns:
-        s_col = "store_id" if "store_id" in df_stores_side.columns else "id_store"
-        if s_col in df_stores_side.columns:
-            for _, s_row in df_stores_side.iterrows():
-                store_giro_map[str(s_row[s_col]).strip()] = str(s_row.get("giro", "") or "").strip()
-
-    def _lookup_giro_mob(sid_val: Any) -> str:
-        s_clean = str(sid_val or "").strip()
-        base_s = s_clean[:-1] if s_clean.endswith("B") else s_clean
-        return store_giro_map.get(s_clean) or store_giro_map.get(base_s) or ""
-
     df_b_date = df_b_date.copy()
-    df_b_date["giro_num"] = df_b_date["id_store"].map(_lookup_giro_mob)
-    all_giri_m = sorted([g for g in df_b_date["giro_num"].unique() if str(g).strip()])
-
-    with c_m_giro:
-        mob_giro = st.selectbox(
-            "🚛 Giro",
-            options=["TUTTI"] + all_giri_m,
-            key="mob2_giro_sb",
-        )
-
-    if mob_giro != "TUTTI":
-        df_b_date = df_b_date[df_b_date["giro_num"] == mob_giro].copy()
-
     df_b_date["spuntato"] = pd.to_numeric(df_b_date.get("spuntato", 0), errors="coerce").fillna(0).astype(int)
-    df_b_date = df_b_date.sort_values(by=["giro_num", "id_store", "tipo_cons"]).reset_index(drop=True)
+    df_b_date = df_b_date.sort_values(by=["id_store", "tipo_cons"]).reset_index(drop=True)
 
     tot_stores = len(df_b_date)
     spuntati_df = df_b_date[df_b_date["spuntato"] == 1].reset_index(drop=True)
@@ -791,32 +975,23 @@ def render_mobile_two_buttons_view(
     n_spuntati = len(spuntati_df)
     n_da_spuntare = len(da_spuntare_df)
 
-    # Pill stato avanzamento
+    all_store_codes_list = sorted(list({str(r["id_store"]).strip() for _, r in df_b_date.iterrows()}))
+
+    # Barra stato avanzamento compatta
     pct_done = int(round((n_spuntati / tot_stores) * 100)) if tot_stores > 0 else 0
     st.markdown(f"""
-    <div style="background: #0F172A; color: #FFFFFF; border-radius: 10px; padding: 8px 14px; margin-bottom: 12px;
-                display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 700;">
-        <span>📊 Avanzamento Spunta: <strong style="color: #34D399;">{n_spuntati}/{tot_stores}</strong> negozi ({pct_done}%)</span>
+    <div style="background: #0F172A; color: #FFFFFF; border-radius: 8px; padding: 6px 12px; margin-bottom: 10px;
+                display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700;">
+        <span>📊 Spuntati: <strong style="color: #34D399;">{n_spuntati}/{tot_stores}</strong> ({pct_done}%)</span>
         <span style="color: #FBBF24;">⏳ Da contare: {n_da_spuntare}</span>
     </div>
     """, unsafe_allow_html=True)
 
     # ==========================================================================
-    # I DUE GRANDI TASTI MOBILE (SCELTA OPERAZIONE)
+    # I DUE TASTI MOBILE (SCELTA OPERAZIONE)
     # ==========================================================================
     if "mob2_mode" not in st.session_state:
         st.session_state["mob2_mode"] = "spunta"
-
-    st.markdown("""
-    <style>
-    div[data-testid="stButton"] > button {
-        min-height: 60px !important;
-        font-size: 16px !important;
-        font-weight: 800 !important;
-        border-radius: 12px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
 
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
@@ -833,7 +1008,7 @@ def render_mobile_two_buttons_view(
     with col_btn2:
         is_add_mode = (st.session_state["mob2_mode"] == "aggiungi")
         if st.button(
-            f"➕ 2. AGGIUNGI COLLI ({n_spuntati})",
+            f"➕ 2. AGGIUNGI COLLI / TRASF. ({tot_stores})",
             type="primary" if is_add_mode else "secondary",
             use_container_width=True,
             key="mob2_big_btn_aggiungi",
@@ -841,60 +1016,80 @@ def render_mobile_two_buttons_view(
             st.session_state["mob2_mode"] = "aggiungi"
             st.rerun()
 
-    st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
-
     # ==========================================================================
-    # MODALITÀ 1: 📋 SPUNTA NEGOZIO
+    # MODALITÀ 1: 📋 SPUNTA NEGOZIO (CON OMNIBOX)
     # ==========================================================================
     if st.session_state["mob2_mode"] == "spunta":
         show_all = st.checkbox(
-            f"Mostra anche i negozi già spuntati ({tot_stores} totali)",
+            f"Mostra nell'Omnibox anche i negozi già spuntati ({tot_stores} totali)",
             value=(n_da_spuntare == 0),
             key="mob2_show_all_chk",
         )
         working_df = df_b_date if (show_all or n_da_spuntare == 0) else da_spuntare_df
 
         if working_df.empty:
-            st.success("🎉 Tutti i negozi del giro sono stati spuntati!")
+            st.success("🎉 Tutti i negozi sono stati spuntati!")
             return
 
-        if "mob2_idx" not in st.session_state or st.session_state["mob2_idx"] >= len(working_df):
-            st.session_state["mob2_idx"] = 0
-
-        curr_idx = int(st.session_state["mob2_idx"])
-
-        # Navigatore Precedente / Scelta Negozio / Successivo
-        c_prev, c_pick, c_next = st.columns([1, 2.6, 1])
-        with c_prev:
-            if st.button("◀️ PREC", use_container_width=True, disabled=(curr_idx <= 0), key="mob2_prev_btn"):
-                st.session_state["mob2_idx"] = max(0, curr_idx - 1)
-                st.rerun()
-        with c_pick:
-            store_labels = [
-                f"{'🟢' if int(r['spuntato']) == 1 else '⏳'} {r['id_store']} - {str(r['store_name'])[:18]} ({'/9' if str(r['tipo_cons']).upper() == 'DOPPIA' else '/0'})"
-                for _, r in working_df.iterrows()
-            ]
-            picked_idx = st.selectbox(
-                "Scegli Negozio",
-                options=list(range(len(working_df))),
-                index=curr_idx,
-                format_func=lambda i: store_labels[i],
-                key="mob2_pick_store_sb",
-                label_visibility="collapsed",
+        # Costruzione mappa Omnibox: ricerca istantanea digitando codice negozio o nome
+        omnibox_options: List[int] = []
+        omnibox_labels: Dict[int, str] = {}
+        for _, r in working_df.iterrows():
+            b_id_val = int(r["id"])
+            s_code = str(r["id_store"]).strip()
+            s_name = str(r.get("store_name", "")).strip()
+            t_tag = "/9 DOPPIA" if str(r.get("tipo_cons", "")).upper() == "DOPPIA" else "/0 STD"
+            st_icon = "🟢" if int(r.get("spuntato", 0)) == 1 else "⏳"
+            p_tot_r = sum(
+                int(round(float(r.get(k, 0) or 0)))
+                for k in ["prev_abbigl", "prev_calzat", "prev_ecom", "prev_others"]
             )
-            if picked_idx != curr_idx:
-                st.session_state["mob2_idx"] = picked_idx
+            if p_tot_r == 0:
+                p_tot_r = sum(
+                    int(round(float(r.get(k, 0) or 0)))
+                    for k in ["colli_abbigl", "colli_calzat", "colli_ecom", "colli_others", "colli_vario"]
+                )
+            omnibox_options.append(b_id_val)
+            omnibox_labels[b_id_val] = f"{st_icon} {s_code} — {s_name} ({t_tag} • {p_tot_r} colli)"
+
+        if "mob2_selected_bid" not in st.session_state or st.session_state["mob2_selected_bid"] not in omnibox_options:
+            st.session_state["mob2_selected_bid"] = omnibox_options[0]
+
+        curr_bid = int(st.session_state["mob2_selected_bid"])
+        curr_pos = omnibox_options.index(curr_bid)
+
+        # OMNIBOX + frecce compatte
+        selected_bid = st.selectbox(
+            "🔍 Omnibox Negozio (digita codice es. 3680 o nome negozio per cercare)",
+            options=omnibox_options,
+            index=curr_pos,
+            format_func=lambda bid_k: omnibox_labels.get(bid_k, str(bid_k)),
+            key="mob2_omnibox_spunta",
+        )
+        if selected_bid != curr_bid:
+            st.session_state["mob2_selected_bid"] = selected_bid
+            st.rerun()
+
+        c_nav_prev, c_nav_info, c_nav_next = st.columns([1, 2, 1])
+        with c_nav_prev:
+            if st.button("◀️ Prec.", use_container_width=True, disabled=(curr_pos <= 0), key="mob2_prev_btn"):
+                st.session_state["mob2_selected_bid"] = omnibox_options[curr_pos - 1]
                 st.rerun()
-        with c_next:
-            if st.button("SUCC ▶️", use_container_width=True, disabled=(curr_idx >= len(working_df) - 1), key="mob2_next_btn"):
-                st.session_state["mob2_idx"] = min(len(working_df) - 1, curr_idx + 1)
+        with c_nav_info:
+            st.markdown(
+                f"<div style='text-align:center; font-size:12px; color:#475569; padding-top:10px;'>"
+                f"Negozio <strong>{curr_pos + 1}</strong> di <strong>{len(omnibox_options)}</strong></div>",
+                unsafe_allow_html=True,
+            )
+        with c_nav_next:
+            if st.button("Succ. ▶️", use_container_width=True, disabled=(curr_pos >= len(omnibox_options) - 1), key="mob2_next_btn"):
+                st.session_state["mob2_selected_bid"] = omnibox_options[curr_pos + 1]
                 st.rerun()
 
-        b_row = working_df.iloc[curr_idx]
+        b_row = working_df[working_df["id"] == selected_bid].iloc[0]
         bid = int(b_row["id"])
         sid = str(b_row["id_store"])
         sname = str(b_row.get("store_name", ""))
-        giro_lbl = str(b_row.get("giro_num", "")) or "—"
         tipo_lbl = "/9 DOPPIA" if str(b_row.get("tipo_cons", "")).upper() == "DOPPIA" else "/0 STD"
         is_done = int(b_row.get("spuntato", 0)) == 1
 
@@ -914,27 +1109,26 @@ def render_mobile_two_buttons_view(
         badge_bg = "#065F46" if is_done else "#1E3A8A"
         badge_status = "🟢 GIÀ SPUNTATO" if is_done else "⏳ DA SPUNTARE"
 
+        # Card negozio con font ben proporzionati che non sbordano
         st.markdown(f"""
-        <div style="background: {badge_bg}; color: white; border-radius: 14px; padding: 14px 18px; margin: 8px 0 12px 0;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-size: 12px; font-weight: 800; background: rgba(255,255,255,0.2); padding: 3px 10px; border-radius: 99px;">
-                    {giro_lbl} • {tipo_lbl}
-                </span>
-                <span style="font-size: 12px; font-weight: 800;">{badge_status}</span>
+        <div style="background: {badge_bg}; color: white; border-radius: 10px; padding: 10px 14px; margin: 6px 0 10px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 700;">
+                <span style="background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 99px;">{tipo_lbl}</span>
+                <span>{badge_status}</span>
             </div>
-            <div style="font-size: 24px; font-weight: 900; margin-top: 6px;">
+            <div style="font-size: 16.5px; font-weight: 800; margin-top: 5px; line-height: 1.25; word-break: break-word;">
                 🏪 {sid} — {html.escape(sname)}
             </div>
-            <div style="font-size: 15px; font-weight: 700; color: #93C5FD; margin-top: 4px;">
-                📦 Totale Previsto: <strong style="color: #FDE047; font-size: 18px;">{prev_tot} colli</strong>
+            <div style="font-size: 12.5px; color: #DBEAFE; margin-top: 4px; line-height: 1.35;">
+                📦 Previsti: <strong style="color: #FDE047; font-size: 14px;">{prev_tot} colli</strong>
                 (Abb: {prev_abb} | Calz: {prev_cal} | Ecom: {prev_eco} | Altri: {prev_oth})
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # TASTONE 1-TAP: CONFORME AL PREVISTO (SALVA SUBITO!)
+        # TASTO 1-TAP: CONFORME AL PREVISTO (SALVA SUBITO!)
         if st.button(
-            f"⚡ CONFORME AL PREVISTO ({prev_tot} COLLI) — CONFERMA 1-TAP",
+            f"⚡ CONFORME AL PREVISTO ({prev_tot} COLLI) — SALVA 1-TAP",
             type="primary",
             use_container_width=True,
             key=f"mob2_1tap_ok_{bid}",
@@ -949,15 +1143,15 @@ def render_mobile_two_buttons_view(
 
         # MODIFICA MANUALE COLLI SE DIVERSI DAL PREVISTO
         with st.container(border=True):
-            st.markdown("**✏️ Oppure inserisci le quantità effettive contate:**")
+            st.markdown("<div style='font-size:13px; font-weight:700; margin-bottom:6px;'>✏️ Quantità effettive contate:</div>", unsafe_allow_html=True)
             c_i1, c_i2 = st.columns(2)
             with c_i1:
-                in_abb = st.number_input(f"👗 Abbigliamento (Prev: {prev_abb})", min_value=0, value=cur_abb, step=1, key=f"m2_abb_{bid}")
-                in_eco = st.number_input(f"📦 E-Commerce (Prev: {prev_eco})", min_value=0, value=cur_eco, step=1, key=f"m2_eco_{bid}")
+                in_abb = st.number_input(f"👗 Abbigl. (Prev: {prev_abb})", min_value=0, value=cur_abb, step=1, key=f"m2_abb_{bid}")
+                in_eco = st.number_input(f"📦 E-Com (Prev: {prev_eco})", min_value=0, value=cur_eco, step=1, key=f"m2_eco_{bid}")
             with c_i2:
-                in_cal = st.number_input(f"👟 Calzature (Prev: {prev_cal})", min_value=0, value=cur_cal, step=1, key=f"m2_cal_{bid}")
-                in_oth = st.number_input(f"📦 Altri Bultos (Prev: {prev_oth})", min_value=0, value=cur_oth, step=1, key=f"m2_oth_{bid}")
-            in_var = st.number_input(f"📦 Materiale Vario (Prev: {prev_var})", min_value=0, value=cur_var, step=1, key=f"m2_var_{bid}")
+                in_cal = st.number_input(f"👟 Calzat. (Prev: {prev_cal})", min_value=0, value=cur_cal, step=1, key=f"m2_cal_{bid}")
+                in_oth = st.number_input(f"📦 Altri (Prev: {prev_oth})", min_value=0, value=cur_oth, step=1, key=f"m2_oth_{bid}")
+            in_var = st.number_input(f"📦 Mat. Vario (Prev: {prev_var})", min_value=0, value=cur_var, step=1, key=f"m2_var_{bid}")
             in_note = st.text_input("📝 Note Banchina (opzionale)", value=str(b_row.get("note", "") or ""), key=f"m2_note_{bid}")
 
             manual_tot = int(in_abb + in_cal + in_eco + in_oth + in_var)
@@ -984,44 +1178,52 @@ def render_mobile_two_buttons_view(
                     st.session_state["_scroll_to_top"] = True
                     st.rerun()
 
+        # SEZIONE TRASFERIMENTI (INTERSHOPS) DIRETTAMENTE NELLA SCHEDA DEL NEGOZIO
+        _render_mobile_intershops_section(
+            bolla_id=bid,
+            store_id=sid,
+            store_name=sname,
+            all_store_codes=all_store_codes_list,
+            key_prefix="mob_sp_tr",
+        )
+
     # ==========================================================================
-    # MODALITÀ 2: ➕ AGGIUNGI COLLI A NEGOZI GIÀ SPUNTATI
+    # MODALITÀ 2: ➕ AGGIUNGI COLLI & TRASFERIMENTI (TUTTI I NEGOZI: SPUNTATI E NON!)
     # ==========================================================================
     else:
-        if spuntati_df.empty:
-            st.info("ℹ️ Nessun negozio risulta ancora spuntato per questa data/giro. Spunta prima almeno un negozio!")
-            if st.button("📋 Vai a Spunta Negozio", type="primary", use_container_width=True, key="mob2_back_to_spunta"):
-                st.session_state["mob2_mode"] = "spunta"
-                st.rerun()
-            return
-
         with st.container(border=True):
-            st.markdown("#### ➕ Aggiungi Colli a Negozio Già Spuntato (`🟢`)")
+            st.markdown("##### ➕ Aggiungi Colli o Trasferimenti (Negozi Spuntati `🟢` e Da Spuntare `⏳`)")
 
-            spuntati_opts: Dict[int, str] = {}
-            for _, s_r in spuntati_df.iterrows():
+            all_store_opts: Dict[int, str] = {}
+            for _, s_r in df_b_date.iterrows():
                 s_bid = int(s_r["id"])
-                s_id = str(s_r["id_store"])
-                s_nm = str(s_r.get("store_name", ""))
-                s_gr = str(s_r.get("giro_num", "")) or "—"
-                s_tc = "/9" if str(s_r.get("tipo_cons", "")).upper() == "DOPPIA" else "/0"
+                s_id = str(s_r["id_store"]).strip()
+                s_nm = str(s_r.get("store_name", "")).strip()
+                s_tc = "/9 DOPPIA" if str(s_r.get("tipo_cons", "")).upper() == "DOPPIA" else "/0 STD"
+                is_sp = int(s_r.get("spuntato", 0)) == 1
+                icon_sp = "🟢 Spuntato" if is_sp else "⏳ Da spuntare"
                 s_tot = sum(
                     int(round(float(s_r.get(k, 0) or 0)))
                     for k in ["colli_abbigl", "colli_calzat", "colli_ecom", "colli_others", "colli_vario"]
                 )
-                spuntati_opts[s_bid] = f"🟢 {s_id} - {s_nm} [{s_gr} • {s_tc}] — Attuali: {s_tot} colli"
+                all_store_opts[s_bid] = f"{s_id} — {s_nm} ({s_tc} • {icon_sp} • Attuali: {s_tot} colli)"
 
             target_bid = st.selectbox(
-                "1️⃣ Seleziona il Negozio Già Spuntato",
-                options=list(spuntati_opts.keys()),
-                format_func=lambda k: spuntati_opts[k],
-                key="mob2_add_store_sb",
+                "🔍 1️⃣ Omnibox Negozio (digita codice es. 3680 o nome per cercare qualsiasi negozio)",
+                options=list(all_store_opts.keys()),
+                format_func=lambda k: all_store_opts[k],
+                key="mob2_add_store_omnibox",
             )
+
+            sel_row = df_b_date[df_b_date["id"] == target_bid].iloc[0]
+            sel_sid = str(sel_row["id_store"]).strip()
+            sel_sname = str(sel_row.get("store_name", "")).strip()
+            sel_is_spuntato = int(sel_row.get("spuntato", 0)) == 1
 
             if "mob2_add_qty" not in st.session_state:
                 st.session_state["mob2_add_qty"] = 1
 
-            st.markdown("**2️⃣ Tocca un tasto rapido o inserisci i colli da aggiungere:**")
+            st.markdown("<div style='font-size:13px; font-weight:700; margin:6px 0 4px 0;'>2️⃣ Quantità colli da aggiungere:</div>", unsafe_allow_html=True)
             q_c1, q_c2, q_c3, q_c4 = st.columns(4)
             with q_c1:
                 if st.button("➕ 1", use_container_width=True, key="mob2_q_1"):
@@ -1043,7 +1245,7 @@ def render_mobile_two_buttons_view(
             c_qty, c_cat = st.columns([1, 1.4])
             with c_qty:
                 qty_to_add = st.number_input(
-                    "🔢 Quantità da aggiungere",
+                    "🔢 Colli da aggiungere",
                     min_value=1,
                     max_value=500,
                     value=int(st.session_state["mob2_add_qty"]),
@@ -1066,6 +1268,15 @@ def render_mobile_two_buttons_view(
                     key="mob2_add_cat_sb",
                 )
 
+            if not sel_is_spuntato:
+                mark_as_spuntato = st.checkbox(
+                    "Segna il negozio come Spuntato (🟢) dopo l'aggiunta",
+                    value=True,
+                    key=f"mob2_mark_sp_{target_bid}",
+                )
+            else:
+                mark_as_spuntato = True
+
             reason_note = st.text_input(
                 "📝 Nota opzionale (es. fine scarico, bancale extra)",
                 placeholder="Opzionale...",
@@ -1073,7 +1284,7 @@ def render_mobile_two_buttons_view(
             )
 
             if st.button(
-                f"✅ AGGIUNGI +{int(qty_to_add)} COLLI ORA",
+                f"✅ AGGIUNGI +{int(qty_to_add)} COLLI A STORE {sel_sid}",
                 type="primary",
                 use_container_width=True,
                 key="mob2_confirm_add_btn",
@@ -1083,6 +1294,7 @@ def render_mobile_two_buttons_view(
                     colli_to_add=int(qty_to_add),
                     category=cat_choice,
                     note_reason=reason_note,
+                    mark_spuntato=bool(mark_as_spuntato),
                 )
                 if res_add.get("status") == "ok":
                     st.session_state["flash_bolle_msg"] = (
@@ -1093,3 +1305,12 @@ def render_mobile_two_buttons_view(
                     st.rerun()
                 else:
                     st.error(res_add.get("message", "Errore durante l'aggiunta colli."))
+
+        # SEZIONE TRASFERIMENTI (INTERSHOPS) ANCHE NEL TASTO 2
+        _render_mobile_intershops_section(
+            bolla_id=int(target_bid),
+            store_id=sel_sid,
+            store_name=sel_sname,
+            all_store_codes=all_store_codes_list,
+            key_prefix="mob_add_tr",
+        )
