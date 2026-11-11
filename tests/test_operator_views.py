@@ -374,3 +374,54 @@ def test_iso_utc_date_parsing_and_heal_shifted_bolle_dates(tmp_path):
     assert len(df_sun) == 1 and df_sun.iloc[0]["id_store"] == "14010" and df_sun.iloc[0]["tipo_cons"] == "DOPPIA"
     assert int(df_sun.iloc[0]["spuntato"]) == 1
     assert df_sun.iloc[0]["note"] == ""
+
+
+def test_mobile_omnibox_store_completeness_and_resolution():
+    """
+    Verifica:
+    1) Che l'etichetta Omnibox includa sempre sia l'Insegna (es. STRADIVARIUS, ZARA, BERSHKA, PULL&BEAR)
+       sia il Centro/Località (es. ROM-EUROMA2, ROM-ROMA EST) unificando Anagrafica (`stores`) e `bolle`.
+    2) Che la risoluzione Omnibox (`_resolve_omnibox_bid` e `_resolve_omnibox_store_code`) trovi
+       istantaneamente 'roma est', 'stradivarius euroma', '2917', '3534', ecc.
+    """
+    from src.operator_views import (
+        _format_store_display,
+        _build_unified_stores_lookup,
+        _resolve_omnibox_bid,
+        _resolve_omnibox_store_code,
+    )
+
+    df_stores = pd.DataFrame([
+        {"store_id": "2917", "brand": "STRADIVARIUS", "store_name": "ROM-EUROMA2", "attivo": "SI"},
+        {"store_id": "3534", "brand": "ZARA", "store_name": "ROM-ROMA EST", "attivo": "SI"},
+        {"store_id": "2898", "brand": "STRADIVARIUS", "store_name": "ROM-ROMA EST", "attivo": "SI"},
+        {"store_id": "5306", "brand": "PULL&BEAR", "store_name": "ROM-ROMA EST", "attivo": "SI"},
+        {"store_id": "8364", "brand": "BERSHKA", "store_name": "ROM-ROMA EST", "attivo": "SI"},
+    ])
+    df_bolle = pd.DataFrame([
+        {"id": 101, "id_store": "2917", "punto_vendita": "STRADIVARIUS", "store_name": "ROM-EUROMA2", "tipo_cons": "STD"},
+        {"id": 102, "id_store": "3534", "punto_vendita": "ZARA", "store_name": "ROM-ROMA EST", "tipo_cons": "STD"},
+    ])
+
+    codes, lookup = _build_unified_stores_lookup(df_stores, df_bolle)
+    assert "2917" in codes and "3534" in codes and "2898" in codes and "5306" in codes and "8364" in codes
+    assert lookup["2917"] == "STRADIVARIUS ROM-EUROMA2"
+    assert lookup["3534"] == "ZARA ROM-ROMA EST"
+    assert _format_store_display("2917", df_bolle.iloc[0], lookup) == "STRADIVARIUS ROM-EUROMA2"
+
+    opts = [101, 102]
+    labels = {
+        101: "⏳ 2917 — STRADIVARIUS ROM-EUROMA2 (/0 STD • 159 colli)",
+        102: "⏳ 3534 — ZARA ROM-ROMA EST (/0 STD • 267 colli)",
+    }
+    assert _resolve_omnibox_bid(102, opts, labels, 101) == 102
+    assert _resolve_omnibox_bid("stradivarius euroma", opts, labels, 102) == 101
+    assert _resolve_omnibox_bid("roma est", opts, labels, 101) == 102
+    assert _resolve_omnibox_bid("2917", opts, labels, 102) == 101
+    assert _resolve_omnibox_bid("3534", opts, labels, 101) == 102
+
+    mitt_opts = [""] + codes
+    assert _resolve_omnibox_store_code("stradivarius euroma", mitt_opts, lookup) == "2917"
+    assert _resolve_omnibox_store_code("zara roma est", mitt_opts, lookup) == "3534"
+    assert _resolve_omnibox_store_code("5306", mitt_opts, lookup) == "5306"
+

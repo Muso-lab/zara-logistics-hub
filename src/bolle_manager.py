@@ -555,7 +555,7 @@ def parse_intershops_string(stringa: str) -> List[Dict[str, Any]]:
     return [{"mittente": "", "colli": 0, "tipo": stringa}]
 
 
-def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
+def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH, sync_cloud: bool = True) -> int:
     """Inserts or updates a delivery note in SQLite."""
     conn = get_db_connection(db_path)
     cur = conn.cursor()
@@ -688,8 +688,9 @@ def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH) -> int:
 
     conn.commit()
     conn.close()
-    from src.cloud_sync import auto_sync_tables
-    auto_sync_tables(["bolle"])
+    if sync_cloud:
+        from src.cloud_sync import auto_sync_tables
+        auto_sync_tables(["bolle"])
     return res_id
 
 
@@ -965,6 +966,23 @@ def generate_bolle_from_forecast(
                 store_planned[base_sid]["others"] += _safe_float(r.get("planned_others", 0.0))
                 store_planned[base_sid]["ecom"] += _safe_float(r.get("planned_ecom", 0.0))
 
+    # Garantisce che TUTTI i negozi attivi dell'anagrafica (tabella stores) siano sempre presenti
+    # anche se avevano 0 colli in previsione, così da pescare sempre dallo stesso DB completo
+    for m_sid, m_row in stores_meta.items():
+        if not m_sid or m_sid.endswith("B") or m_sid.upper() in ["NEGOZIO", "STORE ID", "EXTRA", "TOTAL", "TOTALE", "NONE", "DA ASSEGNARE"]:
+            continue
+        if str(m_row.get("attivo", "SI") or "SI").strip().upper() != "SI":
+            continue
+        if m_sid not in store_planned:
+            store_planned[m_sid] = {
+                "textile": 0.0,
+                "shoes": 0.0,
+                "others": 0.0,
+                "ecom": 0.0,
+                "punto_vendita": m_row.get("brand") or "ZARA",
+                "store_name": m_row.get("store_name") or "",
+            }
+
     created = 0
     skipped = 0
 
@@ -1030,7 +1048,7 @@ def generate_bolle_from_forecast(
                     "stringa": "",
                     "spuntato": 0
                 }
-                save_or_update_bolla(bolla_std, db_path=db_path)
+                save_or_update_bolla(bolla_std, db_path=db_path, sync_cloud=False)
                 created += 1
 
             # 2. DOPPIA (/9) Bolla (30%)
@@ -1073,7 +1091,7 @@ def generate_bolle_from_forecast(
                     "stringa": "",
                     "spuntato": 0
                 }
-                save_or_update_bolla(bolla_d, db_path=db_path)
+                save_or_update_bolla(bolla_d, db_path=db_path, sync_cloud=False)
                 created += 1
         else:
             # Single STD Bolla (100%)
@@ -1113,8 +1131,12 @@ def generate_bolle_from_forecast(
                     "stringa": "",
                     "spuntato": 0
                 }
-                save_or_update_bolla(bolla_single, db_path=db_path)
+                save_or_update_bolla(bolla_single, db_path=db_path, sync_cloud=False)
                 created += 1
+
+    if created > 0 or overwrite:
+        from src.cloud_sync import auto_sync_tables
+        auto_sync_tables(["bolle"])
 
     return created, skipped
 

@@ -83,83 +83,247 @@ def cleanup_legacy_wrong_bolle(db_path: Path = DB_PATH) -> None:
 
 def ensure_bolle_for_latest_run(runs_df: pd.DataFrame) -> bool:
     """
-    Se l'Ufficio ha appena creato una previsione ma per le due date di consegna (/0 e /9)
-    dell'ultima Run non risultano ancora generate le bolle nel DB locale, le genera automaticamente
-    senza sovrascrivere eventuali spunte già presenti (overwrite=False).
+    Verifica le ultime Run e, se per le date di consegna (/0 STD o /9 DOPPIA)
+    mancano bolle (o la generazione precedente era parziale/incompleta rispetto
+    ai 49 negozi STD e 10 negozi DOPPIA dell'anagrafica), rigenera automaticamente
+    i negozi mancanti senza sovrascrivere le spunte già effettuate (overwrite=False).
     """
     cleanup_legacy_wrong_bolle()
     if runs_df is None or runs_df.empty:
         return False
+    generated_any = False
     try:
-        latest = runs_df.iloc[0]
-        latest_id = int(latest["id"])
-        r_cycle = str(latest.get("cycle_type", "LUN-MER"))
-        dt_base = parse_date_obj(latest["run_date"], default=date.today())
-        date_dop, date_std = compute_inditex_delivery_dates(dt_base, r_cycle)
-        b_std = get_bolle_by_date(date_std)
-        b_dop = get_bolle_by_date(date_dop)
-        if b_std.empty and b_dop.empty:
-            generate_bolle_from_forecast(latest_id, overwrite=False)
-            return True
+        for _, run_row in runs_df.head(3).iterrows():
+            r_id = int(run_row["id"])
+            r_cycle = str(run_row.get("cycle_type", "LUN-MER"))
+            dt_base = parse_date_obj(run_row["run_date"], default=date.today())
+            date_dop, date_std = compute_inditex_delivery_dates(dt_base, r_cycle)
+            b_std = get_bolle_by_date(date_std)
+            b_dop = get_bolle_by_date(date_dop)
+            n_std = len(b_std[b_std["tipo_cons"].astype(str).str.upper() == "STD"]) if not b_std.empty and "tipo_cons" in b_std.columns else len(b_std)
+            n_dop = len(b_dop[b_dop["tipo_cons"].astype(str).str.upper() == "DOPPIA"]) if not b_dop.empty and "tipo_cons" in b_dop.columns else len(b_dop)
+            if n_std < 48 or n_dop < 10:
+                res = generate_bolle_from_forecast(r_id, overwrite=False)
+                if res.get("created", 0) > 0:
+                    generated_any = True
     except Exception:
         pass
-    return False
+    return generated_any
+
+
+def _format_store_display(
+    s_code: str,
+    b_row: Optional[Any] = None,
+    stores_lookup: Optional[Dict[str, str]] = None,
+) -> str:
+    """
+    Restituisce l'etichetta completa e ricercabile del negozio combinando Brand (punto_vendita)
+    e Nome Negozio/Centro Commerciale (es. 'STRADIVARIUS ROM-EUROMA2', 'ZARA ROM-ROMA EST'),
+    così l'operatore può cercare nell'Omnibox sia per codice (2917, 3534), sia per insegna
+    (Stradivarius, Zara, Bershka, Pull&Bear, Oysho, Massimo Dutti, Zara Home), sia per località
+    (Roma Est, Euroma, Ottaviano, Corso, ecc.).
+    """
+    code_clean = str(s_code or "").strip()
+    brand = ""
+    sname = ""
+    if b_row is not None:
+        brand = _clean_str(b_row.get("punto_vendita") or b_row.get("brand")).upper()
+        sname = _clean_str(b_row.get("store_name"))
+    if stores_lookup and code_clean in stores_lookup:
+        l_val = _clean_str(stores_lookup[code_clean])
+        if l_val:
+            if not sname:
+                sname = l_val
+            elif not brand and l_val.upper() != sname.upper():
+                return l_val
+    if brand and sname:
+        if brand.lower() not in sname.lower():
+            return f"{brand} {sname}"
+        return sname
+    return sname or brand or f"Store {code_clean}"
+
+
+def _build_unified_stores_lookup(
+    df_stores_side: pd.DataFrame,
+    df_b_date: pd.DataFrame,
+) -> Tuple[List[str], Dict[str, str]]:
+    """
+    Unisce l'anagrafica completa (`stores`) e le `bolle` del giorno in un unico dizionario
+    `{store_code: 'BRAND NOME_NEGOZIO'}` e nella lista ordinata di tutti i codici negozio.
+    """
+    lookup: Dict[str, str] = {}
+    codes_set = set()
+
+    if df_stores_side is not None and not df_stores_side.empty:
+        sc_col = "store_id" if "store_id" in df_stores_side.columns else "id_store"
+        if sc_col in df_stores_side.columns:
+            for _, sr in df_stores_side.iterrows():
+                sc = str(sr[sc_col]).strip()
+                if not sc or sc.upper().endswith("B"):
+                    continue
+                att = _clean_str(sr.get("attivo", "SI")).upper()
+                if att in ("NO", "0", "FALSE"):
+                    continue
+                codes_set.add(sc)
+                br_str = _clean_str(sr.get("brand") or sr.get("punto_vendita")).upper()
+                nm_str = _clean_str(sr.get("store_name"))
+                if br_str and nm_str and br_str.lower() not in nm_str.lower():
+                    lookup[sc] = f"{br_str} {nm_str}"
+                elif nm_str or br_str:
+                    lookup[sc] = nm_str or br_str
+
+    if df_b_date is not None and not df_b_date.empty:
+        for _, br in df_b_date.iterrows():
+            sc = str(br.get("id_store", "")).strip()
+            if not sc or sc.upper().endswith("B"):
+                continue
+            codes_set.add(sc)
+            disp = _format_store_display(sc, br, lookup)
+            if disp and (sc not in lookup or len(disp) > len(lookup[sc])):
+                lookup[sc] = disp
+
+    return sorted(list(codes_set)), lookup
+
+
+def _resolve_omnibox_bid(
+    raw_val: Any,
+    omnibox_options: List[int],
+    omnibox_labels: Dict[int, str],
+    default_bid: int,
+) -> int:
+    """
+    Risolve il valore restituito dall'Omnibox (`st.selectbox` con `accept_new_options=True`):
+    - Se l'utente ha selezionato una voce dalla tendina, `raw_val` è l'ID intero `int` della bolla.
+    - Se l'utente ha digitato un testo (es. '3534', 'roma est', 'stradivarius euroma') e premuto Invio
+      sulla tastiera dello smartphone, `raw_val` è una stringa e viene risolta al primo negozio corrispondente.
+    """
+    if not omnibox_options:
+        return default_bid
+    if isinstance(raw_val, (int, float)) and not isinstance(raw_val, bool):
+        iv = int(raw_val)
+        if iv in omnibox_options:
+            return iv
+    if isinstance(raw_val, str):
+        q = raw_val.strip().lower()
+        if q:
+            for bid in omnibox_options:
+                lbl = omnibox_labels.get(bid, "")
+                if lbl.lower() == q:
+                    return bid
+            for bid in omnibox_options:
+                lbl = omnibox_labels.get(bid, "").lower()
+                if f" {q} —" in lbl or lbl.startswith(f"{q} —"):
+                    return bid
+            tokens = [t for t in q.split() if t]
+            if tokens:
+                for bid in omnibox_options:
+                    lbl = omnibox_labels.get(bid, "").lower()
+                    if all(tok in lbl for tok in tokens):
+                        return bid
+    return default_bid if default_bid in omnibox_options else omnibox_options[0]
+
+
+def _resolve_omnibox_store_code(
+    raw_val: Any,
+    mitt_opts: List[str],
+    names_lookup: Dict[str, str],
+) -> str:
+    """Risolve il codice negozio mittente dall'Omnibox Trasferimenti anche se digitato a mano + Invio."""
+    if not raw_val:
+        return ""
+    s_val = str(raw_val).strip()
+    if s_val in mitt_opts:
+        return s_val
+    q = s_val.lower()
+    if q.startswith("🔍"):
+        return ""
+    for code in mitt_opts:
+        if not code:
+            continue
+        if code.lower() == q or q.startswith(f"{code.lower()} "):
+            return code
+    tokens = [t for t in q.split() if t]
+    if tokens:
+        for code in mitt_opts:
+            if not code:
+                continue
+            full_lbl = f"{code} {names_lookup.get(code, '')}".lower()
+            if all(tok in full_lbl for tok in tokens):
+                return code
+    return ""
 
 
 def _inject_omnibox_autoselect_js() -> None:
     """
-    Inietta CSS proporzionato per Mobile/Desktop e listener JavaScript sul documento padre:
-    - Quando l'operatore clicca/tocca sull'Omnibox (selectbox) o su qualsiasi campo di testo/numero,
-      seleziona automaticamente l'intera stringa (evidenziata in blu) così digitando
-      si sovrascrive/cancella in un colpo solo il vecchio valore senza dover premere Backspace.
+    Inietta CSS proporzionato per Mobile/Desktop (compatibile con Streamlit 1.54+ React Aria ComboBox
+    e con BaseWeb) e listener JavaScript sul documento padre:
+    - Sull'Omnibox Negozio rimuove qualsiasi blocco `readonly` su mobile, apre subito la tastiera virtuale
+      al tocco, sposta il vecchio valore nel placeholder e svuota il campo di ricerca in un colpo solo
+      (ripristinando automaticamente il negozio se si tocca fuori senza scegliere altro).
+    - Sugli input numerici/testuali seleziona l'intera cifra/stringa al tocco per sovrascriverla subito.
     """
     st.markdown("""
     <style>
-    /* Sovrascrive il CSS globale mobile che ingrandiva a 28px e tagliava i testi nei box */
+    /* Contenitore Selectbox / Omnibox per Streamlit 1.54+ (React Aria) e BaseWeb */
+    div[data-testid="stSelectbox"] .react-aria-Group,
     div[data-testid="stSelectbox"] [data-baseweb="select"] > div {
-        min-height: 42px !important;
+        min-height: 44px !important;
         height: auto !important;
-        padding: 4px 10px !important;
+        padding: 3px 10px !important;
         border-radius: 10px !important;
         border: 1.5px solid #CBD5E1 !important;
         background-color: #FFFFFF !important;
         align-items: center !important;
     }
-    div[data-testid="stSelectbox"] [data-baseweb="select"] div,
-    div[data-testid="stSelectbox"] [data-baseweb="select"] span {
+    div[data-testid="stSelectbox"] .react-aria-Group[data-focus-within],
+    div[data-testid="stSelectbox"] [data-baseweb="select"]:focus-within > div {
+        border-color: #2563EB !important;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18) !important;
+        background-color: #EFF6FF !important;
+    }
+    /* Input interno dell'Omnibox (React Aria input.react-aria-Input) */
+    div[data-testid="stSelectbox"] input.react-aria-Input,
+    div[data-testid="stSelectbox"] [data-baseweb="select"] input,
+    div[data-testid="stSelectbox"] input {
+        min-height: 28px !important;
+        height: 28px !important;
         font-size: 14px !important;
         font-weight: 700 !important;
         line-height: 1.3 !important;
         color: #0F172A !important;
-        text-align: left !important;
-    }
-    /* Rimuove il doppio bordo e il font 28px dall'input interno del selectbox (Omnibox) */
-    div[data-testid="stSelectbox"] [data-baseweb="select"] input {
-        min-height: 0 !important;
-        height: 22px !important;
-        font-size: 14px !important;
-        font-weight: 700 !important;
         border: none !important;
         box-shadow: none !important;
         background: transparent !important;
         text-align: left !important;
+        padding: 2px 4px !important;
+        margin: 0 !important;
+        caret-color: #1D4ED8 !important;
+        user-select: text !important;
+        -webkit-user-select: text !important;
+    }
+    div[data-testid="stSelectbox"] input.react-aria-Input::placeholder,
+    div[data-testid="stSelectbox"] input::placeholder {
+        color: #64748B !important;
+        font-weight: 600 !important;
+        opacity: 0.85 !important;
+    }
+    /* Nasconde la voce fittizia 'Add: ...' generata da accept_new_options=True */
+    [id$="-option-__creatable__"],
+    [data-key="__creatable__"],
+    div[data-testid="stSelectboxVirtualDropdown"] [id*="__creatable__"] {
+        display: none !important;
+        height: 0 !important;
         padding: 0 !important;
         margin: 0 !important;
-    }
-    /* Evidenzia tutta la stringa dell'Omnibox in blu selezione appena si clicca sul box */
-    div[data-testid="stSelectbox"] [data-baseweb="select"]:focus-within > div > div:first-child > div:first-child {
-        background-color: #BFDBFE !important;
-        color: #1E3A8A !important;
-        border-radius: 4px !important;
-        padding: 1px 5px !important;
+        overflow: hidden !important;
     }
     /* Menu a tendina Omnibox leggibile e compatto */
+    div[data-testid="stSelectboxVirtualDropdown"] [role="option"],
     ul[data-testid="stSelectboxVirtualDropdown"] li,
     div[data-baseweb="popover"] li {
         font-size: 13.5px !important;
         font-weight: 600 !important;
         line-height: 1.3 !important;
-        padding: 8px 12px !important;
     }
     /* Input numerici e di testo proporzionati e mai tagliati */
     div[data-testid="stNumberInput"] [data-baseweb="input"],
@@ -229,10 +393,84 @@ def _inject_omnibox_autoselect_js() -> None:
     (function() {
         try {
             const doc = (window.parent && window.parent.document) ? window.parent.document : document;
-            if (doc._zaraOmniboxAutoSelectInstalled) return;
-            doc._zaraOmniboxAutoSelectInstalled = true;
+            const win = (window.parent) ? window.parent : window;
 
-            const selectAllInInput = (el) => {
+            const isOmniboxSelect = (sbContainer) => {
+                if (!sbContainer) return false;
+                const txt = (sbContainer.innerText || sbContainer.textContent || '').toLowerCase();
+                if (txt.indexOf('omnibox') !== -1) return true;
+                const inp = sbContainer.querySelector('input');
+                if (inp) {
+                    const al = (inp.getAttribute('aria-label') || '').toLowerCase();
+                    if (al.indexOf('omnibox') !== -1) return true;
+                }
+                return false;
+            };
+
+            const unlockOmniboxInputs = () => {
+                const boxes = doc.querySelectorAll('div[data-testid="stSelectbox"]');
+                boxes.forEach((sb) => {
+                    if (!isOmniboxSelect(sb)) return;
+                    const inp = sb.querySelector('input');
+                    if (inp) {
+                        if (inp.hasAttribute('readonly') || inp.readOnly) {
+                            inp.removeAttribute('readonly');
+                            inp.readOnly = false;
+                        }
+                        if (inp.getAttribute('inputmode') !== 'search') {
+                            inp.setAttribute('inputmode', 'search');
+                        }
+                        inp.setAttribute('autocomplete', 'off');
+                        inp.setAttribute('autocorrect', 'off');
+                        inp.setAttribute('autocapitalize', 'off');
+                        inp.setAttribute('spellcheck', 'false');
+                    }
+                });
+            };
+
+            unlockOmniboxInputs();
+
+            if (doc._zaraOmniboxV2Installed) return;
+            doc._zaraOmniboxV2Installed = true;
+
+            const obs = new MutationObserver(() => {
+                unlockOmniboxInputs();
+            });
+            obs.observe(doc.body, { childList: true, subtree: true });
+
+            const clearOmniboxForTyping = (inp) => {
+                if (!inp) return;
+                inp.removeAttribute('readonly');
+                inp.readOnly = false;
+                inp.setAttribute('inputmode', 'search');
+
+                const curVal = inp.value || '';
+                if (curVal && inp.dataset.zaraCleared !== '1') {
+                    inp.placeholder = '🔍 Digita codice o nome (attuale: ' + curVal + ')';
+                    inp.dataset.zaraCleared = '1';
+                    try {
+                        const tracker = inp._valueTracker;
+                        if (tracker) {
+                            tracker.setValue(curVal);
+                        }
+                        const setter = Object.getOwnPropertyDescriptor(
+                            win.HTMLInputElement.prototype,
+                            'value'
+                        ).set;
+                        if (setter) {
+                            setter.call(inp, '');
+                        } else {
+                            inp.value = '';
+                        }
+                        inp.dispatchEvent(new Event('input', { bubbles: true }));
+                    } catch (err) {}
+                }
+                try {
+                    inp.focus();
+                } catch (err) {}
+            };
+
+            const selectAllRegularInput = (el) => {
                 if (!el || el.tagName !== 'INPUT') return;
                 setTimeout(() => {
                     try {
@@ -242,29 +480,56 @@ def _inject_omnibox_autoselect_js() -> None:
                             el.setSelectionRange(0, el.value.length);
                         }
                     } catch (e) {}
-                }, 15);
+                }, 10);
             };
 
-            doc.addEventListener('focusin', (e) => {
+            doc.addEventListener('pointerdown', (e) => {
                 const t = e.target;
-                if (t && t.tagName === 'INPUT') {
-                    selectAllInInput(t);
+                if (!t || !t.closest) return;
+                const sb = t.closest('div[data-testid="stSelectbox"]');
+                if (sb && isOmniboxSelect(sb)) {
+                    const inp = sb.querySelector('input');
+                    if (inp) {
+                        inp.removeAttribute('readonly');
+                        inp.readOnly = false;
+                        inp.setAttribute('inputmode', 'search');
+                    }
                 }
             }, true);
 
             doc.addEventListener('click', (e) => {
                 const t = e.target;
-                if (!t) return;
-                if (t.tagName === 'INPUT') {
-                    selectAllInInput(t);
+                if (!t || !t.closest) return;
+                const sb = t.closest('div[data-testid="stSelectbox"]');
+                if (sb && isOmniboxSelect(sb)) {
+                    const inp = sb.querySelector('input');
+                    if (inp) {
+                        clearOmniboxForTyping(inp);
+                    }
                     return;
                 }
-                const selBox = t.closest && t.closest('[data-baseweb="select"]');
-                if (selBox) {
-                    const inp = selBox.querySelector('input');
-                    if (inp) {
-                        selectAllInInput(inp);
+                if (t.tagName === 'INPUT' && !sb) {
+                    selectAllRegularInput(t);
+                }
+            }, true);
+
+            doc.addEventListener('focusin', (e) => {
+                const t = e.target;
+                if (!t || t.tagName !== 'INPUT') return;
+                const sb = t.closest && t.closest('div[data-testid="stSelectbox"]');
+                if (sb) {
+                    if (isOmniboxSelect(sb)) {
+                        clearOmniboxForTyping(t);
                     }
+                } else {
+                    selectAllRegularInput(t);
+                }
+            }, true);
+
+            doc.addEventListener('focusout', (e) => {
+                const t = e.target;
+                if (t && t.tagName === 'INPUT' && t.dataset) {
+                    t.dataset.zaraCleared = '0';
                 }
             }, true);
         } catch (err) {}
@@ -1002,16 +1267,27 @@ def _render_mobile_intershops_section(
 
         def _fmt_mitt(code_val: str) -> str:
             if not code_val:
-                return "🔍 Digita codice (es. 3680) o scegli mittente..."
-            nm = names_lookup.get(code_val, "")
+                return "🔍 Digita codice (es. 3534) o nome negozio mittente..."
+            nm = names_lookup.get(str(code_val), "")
             return f"{code_val} — {nm}" if nm else f"Store {code_val}"
 
-        mitt_sel = st.selectbox(
+        mitt_sb_key = f"{key_prefix}_mitt_sb_{bolla_id}"
+        if mitt_sb_key in st.session_state:
+            st.session_state[mitt_sb_key] = _resolve_omnibox_store_code(
+                st.session_state[mitt_sb_key],
+                mitt_opts,
+                names_lookup,
+            )
+
+        mitt_sel_raw = st.selectbox(
             "🔍 Negozio Mittente (Omnibox)",
             options=mitt_opts,
             format_func=_fmt_mitt,
-            key=f"{key_prefix}_mitt_sb_{bolla_id}",
+            accept_new_options=True,
+            filter_mode="fuzzy",
+            key=mitt_sb_key,
         )
+        mitt_sel = _resolve_omnibox_store_code(mitt_sel_raw, mitt_opts, names_lookup)
 
         c_m2, c_m3 = st.columns([1.0, 1.3])
         with c_m2:
@@ -1063,7 +1339,8 @@ def render_mobile_two_buttons_view(
     Interfaccia Smartphone / Palmare:
     - Font e box proporzionati per schermi mobile (nessun testo gigante che sborda)
     - Nessun filtro sui giri (rimosso come richiesto)
-    - Selezione negozio tramite OMNIBOX ricercabile con auto-selezione dell'intera stringa al clic
+    - Selezione negozio tramite OMNIBOX ricercabile con apertura tastiera garantita e svuotamento rapido al tocco
+    - Insegna completa (es. STRADIVARIUS ROM-EUROMA2, ZARA ROM-ROMA EST) sincronizzata tra Anagrafica e Bolle
     - TASTO 1: 📋 SPUNTA NEGOZIO (1-Tap Conforme, conteggio manuale + Trasferimenti)
     - TASTO 2: ➕ AGGIUNGI COLLI & TRASFERIMENTI (sia per negozi già spuntati sia per negozi NON spuntati!)
     """
@@ -1177,17 +1454,7 @@ def render_mobile_two_buttons_view(
     n_spuntati = len(spuntati_df)
     n_da_spuntare = len(da_spuntare_df)
 
-    all_store_codes_list = sorted(list({str(r["id_store"]).strip() for _, r in df_b_date.iterrows()}))
-    store_names_lookup: Dict[str, str] = {}
-    if not df_stores_side.empty:
-        sc_col = "store_id" if "store_id" in df_stores_side.columns else "id_store"
-        if sc_col in df_stores_side.columns:
-            for _, sr in df_stores_side.iterrows():
-                store_names_lookup[str(sr[sc_col]).strip()] = _clean_str(sr.get("store_name"))
-    for _, br in df_b_date.iterrows():
-        s_c = str(br["id_store"]).strip()
-        if s_c not in store_names_lookup or not store_names_lookup[s_c]:
-            store_names_lookup[s_c] = _clean_str(br.get("store_name"))
+    all_store_codes_list, store_names_lookup = _build_unified_stores_lookup(df_stores_side, df_b_date)
 
     # Barra stato avanzamento compatta
     pct_done = int(round((n_spuntati / tot_stores) * 100)) if tot_stores > 0 else 0
@@ -1243,13 +1510,13 @@ def render_mobile_two_buttons_view(
             st.success("🎉 Tutti i negozi sono stati spuntati!")
             return
 
-        # Costruzione mappa Omnibox: ricerca istantanea digitando codice negozio o nome
+        # Costruzione mappa Omnibox con Insegna + Nome Negozio completo (es. 2917 — STRADIVARIUS ROM-EUROMA2)
         omnibox_options: List[int] = []
         omnibox_labels: Dict[int, str] = {}
         for _, r in working_df.iterrows():
             b_id_val = int(r["id"])
             s_code = str(r["id_store"]).strip()
-            s_name = _clean_str(r.get("store_name"))
+            s_disp = _format_store_display(s_code, r, store_names_lookup)
             t_tag = "/9 DOPPIA" if str(r.get("tipo_cons", "")).upper() == "DOPPIA" else "/0 STD"
             st_icon = "🟢" if int(r.get("spuntato", 0)) == 1 else "⏳"
             p_tot_r = sum(
@@ -1262,30 +1529,48 @@ def render_mobile_two_buttons_view(
                     for k in ["colli_abbigl", "colli_calzat", "colli_ecom", "colli_others", "colli_vario"]
                 )
             omnibox_options.append(b_id_val)
-            omnibox_labels[b_id_val] = f"{st_icon} {s_code} — {s_name} ({t_tag} • {p_tot_r} colli)"
+            omnibox_labels[b_id_val] = f"{st_icon} {s_code} — {s_disp} ({t_tag} • {p_tot_r} colli)"
 
         if "mob2_selected_bid" not in st.session_state or st.session_state["mob2_selected_bid"] not in omnibox_options:
             st.session_state["mob2_selected_bid"] = omnibox_options[0]
 
         curr_bid = int(st.session_state["mob2_selected_bid"])
+
+        if "mob2_omnibox_spunta" in st.session_state:
+            resolved_sp = _resolve_omnibox_bid(
+                st.session_state["mob2_omnibox_spunta"],
+                omnibox_options,
+                omnibox_labels,
+                curr_bid,
+            )
+            curr_bid = resolved_sp
+            st.session_state["mob2_selected_bid"] = curr_bid
+            st.session_state["mob2_omnibox_spunta"] = curr_bid
+
         curr_pos = omnibox_options.index(curr_bid)
 
-        # OMNIBOX + frecce compatte
-        selected_bid = st.selectbox(
-            "🔍 Omnibox Negozio (tocca il box e digita codice es. 3680 o nome negozio)",
+        # OMNIBOX + frecce compatte (accept_new_options=True sblocca sempre la tastiera su mobile anche con <= 10 negozi)
+        selected_raw = st.selectbox(
+            "🔍 Omnibox Negozio (tocca il box e digita codice es. 3534, insegna o centro es. Roma Est / Stradivarius)",
             options=omnibox_options,
             index=curr_pos,
             format_func=lambda bid_k: omnibox_labels.get(bid_k, str(bid_k)),
+            accept_new_options=True,
+            filter_mode="fuzzy",
             key="mob2_omnibox_spunta",
         )
+        selected_bid = _resolve_omnibox_bid(selected_raw, omnibox_options, omnibox_labels, curr_bid)
         if selected_bid != curr_bid:
             st.session_state["mob2_selected_bid"] = selected_bid
+            st.session_state["mob2_omnibox_spunta"] = selected_bid
             st.rerun()
 
         c_nav_prev, c_nav_info, c_nav_next = st.columns([1, 1.8, 1])
         with c_nav_prev:
             if st.button("◀️ Prec.", use_container_width=True, disabled=(curr_pos <= 0), key="mob2_prev_btn"):
-                st.session_state["mob2_selected_bid"] = omnibox_options[curr_pos - 1]
+                prev_bid = omnibox_options[curr_pos - 1]
+                st.session_state["mob2_selected_bid"] = prev_bid
+                st.session_state["mob2_omnibox_spunta"] = prev_bid
                 st.rerun()
         with c_nav_info:
             st.markdown(
@@ -1295,13 +1580,15 @@ def render_mobile_two_buttons_view(
             )
         with c_nav_next:
             if st.button("Succ. ▶️", use_container_width=True, disabled=(curr_pos >= len(omnibox_options) - 1), key="mob2_next_btn"):
-                st.session_state["mob2_selected_bid"] = omnibox_options[curr_pos + 1]
+                next_bid = omnibox_options[curr_pos + 1]
+                st.session_state["mob2_selected_bid"] = next_bid
+                st.session_state["mob2_omnibox_spunta"] = next_bid
                 st.rerun()
 
         b_row = working_df[working_df["id"] == selected_bid].iloc[0]
         bid = int(b_row["id"])
         sid = str(b_row["id_store"]).strip()
-        sname = _clean_str(b_row.get("store_name"))
+        sname = _format_store_display(sid, b_row, store_names_lookup)
         tipo_lbl = "/9 DOPPIA" if str(b_row.get("tipo_cons", "")).upper() == "DOPPIA" else "/0 STD"
         is_done = int(b_row.get("spuntato", 0)) == 1
 
@@ -1416,7 +1703,7 @@ def render_mobile_two_buttons_view(
             for _, s_r in df_b_date.iterrows():
                 s_bid = int(s_r["id"])
                 s_id = str(s_r["id_store"]).strip()
-                s_nm = _clean_str(s_r.get("store_name"))
+                s_nm = _format_store_display(s_id, s_r, store_names_lookup)
                 s_tc = "/9 DOPPIA" if str(s_r.get("tipo_cons", "")).upper() == "DOPPIA" else "/0 STD"
                 is_sp = int(s_r.get("spuntato", 0)) == 1
                 icon_sp = "🟢 Spuntato" if is_sp else "⏳ Da spuntare"
@@ -1426,16 +1713,30 @@ def render_mobile_two_buttons_view(
                 )
                 all_store_opts[s_bid] = f"{s_id} — {s_nm} ({s_tc} • {icon_sp} • Attuali: {s_tot} colli)"
 
-            target_bid = st.selectbox(
-                "🔍 1️⃣ Omnibox Negozio (tocca il box e digita codice es. 3680 o nome per cercare)",
-                options=list(all_store_opts.keys()),
-                format_func=lambda k: all_store_opts[k],
+            add_opt_keys = list(all_store_opts.keys())
+            default_add_bid = add_opt_keys[0]
+            if "mob2_add_store_omnibox" in st.session_state:
+                default_add_bid = _resolve_omnibox_bid(
+                    st.session_state["mob2_add_store_omnibox"],
+                    add_opt_keys,
+                    all_store_opts,
+                    default_add_bid,
+                )
+                st.session_state["mob2_add_store_omnibox"] = default_add_bid
+
+            target_raw = st.selectbox(
+                "🔍 1️⃣ Omnibox Negozio (tocca il box e digita codice es. 3534, insegna o centro es. Roma Est / Stradivarius)",
+                options=add_opt_keys,
+                format_func=lambda k: all_store_opts.get(k, str(k)),
+                accept_new_options=True,
+                filter_mode="fuzzy",
                 key="mob2_add_store_omnibox",
             )
+            target_bid = _resolve_omnibox_bid(target_raw, add_opt_keys, all_store_opts, default_add_bid)
 
             sel_row = df_b_date[df_b_date["id"] == target_bid].iloc[0]
             sel_sid = str(sel_row["id_store"]).strip()
-            sel_sname = _clean_str(sel_row.get("store_name"))
+            sel_sname = _format_store_display(sel_sid, sel_row, store_names_lookup)
             sel_is_spuntato = int(sel_row.get("spuntato", 0)) == 1
 
             if "mob2_add_qty" not in st.session_state:
