@@ -1247,12 +1247,16 @@ def _render_mobile_intershops_section(
                 c_txt, c_del = st.columns([3.5, 1])
                 with c_txt:
                     m_s = _clean_str(item.get("mittente")) or "N/D"
+                    m_nm = names_lookup.get(m_s, "")
+                    m_disp = f"{m_s} ({m_nm})" if m_nm else m_s
                     c_s = int(float(item.get("colli", 0) or 0))
                     t_s = _clean_str(item.get("tipo")) or "MERCE"
+                    d_s = _clean_str(item.get("descrizione"))
+                    desc_html = f" <em>({html.escape(d_s)})</em>" if d_s and d_s.upper() != t_s.upper() else ""
                     st.markdown(
                         f"<div style='font-size:13px; background:#F0F9FF; border:1px solid #BAE6FD; "
                         f"border-radius:8px; padding:6px 10px; margin-bottom:4px;'>"
-                        f"📦 <strong>{c_s} colli {html.escape(t_s)}</strong> da Negozio <strong>{html.escape(m_s)}</strong></div>",
+                        f"📦 <strong>{c_s} colli {html.escape(t_s)}</strong>{desc_html} da Negozio <strong>{html.escape(m_disp)}</strong></div>",
                         unsafe_allow_html=True,
                     )
                 with c_del:
@@ -1306,8 +1310,20 @@ def _render_mobile_intershops_section(
                 key=f"{key_prefix}_tipo_{bolla_id}",
             )
 
+        tr_desc = st.text_input(
+            "📝 Descrizione Materiale da Trasferire (opzionale)",
+            placeholder="Es. manichini, grucce, buste, vetrofanie, scatole...",
+            key=f"{key_prefix}_desc_{bolla_id}",
+        )
+        clean_tr_desc = _clean_str(tr_desc)
+        btn_tr_label = (
+            f"➕ AGGIUNGI TRASFERIMENTO ({int(tr_colli)}C {tr_tipo} - {clean_tr_desc})"
+            if clean_tr_desc
+            else f"➕ AGGIUNGI TRASFERIMENTO ({int(tr_colli)}C {tr_tipo})"
+        )
+
         if st.button(
-            f"➕ AGGIUNGI TRASFERIMENTO ({int(tr_colli)}C {tr_tipo})",
+            btn_tr_label,
             type="secondary",
             use_container_width=True,
             key=f"{key_prefix}_add_btn_{bolla_id}",
@@ -1317,6 +1333,7 @@ def _render_mobile_intershops_section(
                 mittente=mitt_sel.strip(),
                 colli=int(tr_colli),
                 tipo=tr_tipo,
+                descrizione=clean_tr_desc,
             )
             if res_tr.get("status") == "ok":
                 st.session_state["flash_bolle_msg"] = (

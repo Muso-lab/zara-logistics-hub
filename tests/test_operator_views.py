@@ -425,3 +425,45 @@ def test_mobile_omnibox_store_completeness_and_resolution():
     assert _resolve_omnibox_store_code("zara roma est", mitt_opts, lookup) == "3534"
     assert _resolve_omnibox_store_code("5306", mitt_opts, lookup) == "5306"
 
+
+def test_mobile_intershop_material_description(tmp_path):
+    """
+    Verifica che nella sezione Trasferimenti da Mobile sia possibile aggiungere
+    la descrizione del materiale da trasferire e che compaia sia nella stringa
+    sia nella stampa della bolla.
+    """
+    db_path = tmp_path / "test_inter_desc.db"
+    init_bolle_tables(db_path=db_path)
+
+    bid = save_or_update_bolla(
+        {
+            "data": "2026-11-14",
+            "data_consegna": "2026-11-14",
+            "id_store": "3534",
+            "punto_vendita": "ZARA",
+            "store_name": "ROM-ROMA EST",
+            "tipo_cons": "STD",
+            "colli_abbigl": 100,
+        },
+        db_path=db_path,
+        sync_cloud=False,
+    )
+
+    res = add_intershop_to_bolla(
+        bolla_id=bid,
+        mittente="3680",
+        colli=3,
+        tipo="VARIO",
+        descrizione="Manichini vetrina e grucce",
+        db_path=db_path,
+    )
+    assert res["status"] == "ok"
+    assert "3C VARIO (Manichini vetrina e grucce) da 3680" in res["stringa"]
+    assert res["intershops_list"][0]["descrizione"] == "Manichini vetrina e grucce"
+
+    bolla_rec = get_bolla_by_id(bid, db_path=db_path)
+    html_out = render_bolla_printable_html([bolla_rec], auto_print=False)
+    assert "VARIO — Manichini vetrina e grucce" in html_out
+    assert "3680" in html_out
+
+

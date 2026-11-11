@@ -518,7 +518,7 @@ def get_bolla_by_id(bolla_id: int, db_path: Path = DB_PATH) -> Optional[Dict[str
 def format_intershops_string(intershops_list: List[Dict[str, Any]]) -> str:
     """
     Formats list of intershop items into string:
-    e.g. [{"mittente": "3680", "colli": 6, "tipo": "MERCE"}] -> "6C MERCE da 3680"
+    e.g. [{"mittente": "3680", "colli": 6, "tipo": "MERCE", "descrizione": "Manichini"}] -> "6C MERCE (Manichini) da 3680"
     """
     parts = []
     for item in intershops_list:
@@ -530,10 +530,13 @@ def format_intershops_string(intershops_list: List[Dict[str, Any]]) -> str:
             continue
         p = f"{int(c)}C"
         t = str(item.get("tipo", "")).strip()
+        d = str(item.get("descrizione", "") or "").strip()
         m = str(item.get("mittente", "")).strip()
-        if t and t.upper() != "NONE":
+        if t and t.upper() not in ("NONE", "NAN"):
             p += f" {t}"
-        if m and m.upper() != "NONE":
+        if d and d.upper() not in ("NONE", "NAN") and d.upper() != t.upper():
+            p += f" ({d})"
+        if m and m.upper() not in ("NONE", "NAN"):
             p += f" da {m}"
         parts.append(p)
     return " ".join(parts)
@@ -1432,10 +1435,15 @@ def render_bolla_printable_html(
             for item in inter_list:
                 m = item.get("mittente", "")
                 c = float(item.get("colli", 0) or 0)
-                t = item.get("tipo", "")
+                t = str(item.get("tipo", "") or "").strip()
+                d_mat = str(item.get("descrizione", "") or "").strip()
+                if d_mat and d_mat.upper() not in ("NONE", "NAN") and d_mat.upper() != t.upper():
+                    t_disp = f"{t} — {d_mat}" if t else d_mat
+                else:
+                    t_disp = t
                 if c > 0:
                     tot_inter_colli += int(c)
-                    inter_rows_html += f"<tr><td>{m}</td><td style='text-align:center;'>{int(c)}</td><td>{t}</td></tr>"
+                    inter_rows_html += f"<tr><td>{m}</td><td style='text-align:center;'>{int(c)}</td><td>{t_disp}</td></tr>"
 
         if not inter_rows_html and stringa:
             inter_rows_html = f"<tr><td colspan='3' style='font-style:italic;'>{stringa}</td></tr>"
@@ -1552,7 +1560,7 @@ def render_bolla_printable_html(
                         <tr>
                             <th style="width: 25%; text-align:left;">NEGOZIO MITTENTE</th>
                             <th style="width: 20%; text-align:center;">NUMERO COLLI</th>
-                            <th style="text-align:left;">TIPOLOGIA MERCE</th>
+                            <th style="text-align:left;">TIPOLOGIA / DESCRIZIONE MATERIALE</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1872,10 +1880,12 @@ def add_intershop_to_bolla(
     mittente: str,
     colli: int,
     tipo: str = "MERCE",
+    descrizione: str = "",
     db_path: Path = DB_PATH,
 ) -> Dict[str, Any]:
     """
     Aggiunge un trasferimento inter-negozio (Intershop) a una bolla direttamente da Mobile.
+    Supporta anche la descrizione libera del materiale trasferito (es. manichini, grucce, ceste).
     Aggiorna intershops_json e ricalcola automaticamente il campo stringa.
     """
     if int(colli or 0) <= 0:
@@ -1896,11 +1906,17 @@ def add_intershop_to_bolla(
 
     clean_mitt = str(mittente or "").strip()
     clean_tipo = str(tipo or "MERCE").strip().upper() or "MERCE"
-    inter_list.append({
+    clean_desc = str(descrizione or "").strip()
+    if clean_desc.lower() in ("nan", "none", "null"):
+        clean_desc = ""
+    new_item: Dict[str, Any] = {
         "mittente": clean_mitt,
         "colli": int(colli),
         "tipo": clean_tipo,
-    })
+    }
+    if clean_desc:
+        new_item["descrizione"] = clean_desc
+    inter_list.append(new_item)
 
     bolla["intershops_list"] = inter_list
     bolla["intershops_json"] = json.dumps(inter_list)
