@@ -440,6 +440,12 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
     finally:
         conn.close()
 
+    try:
+        from src.bolle_manager import heal_shifted_bolle_dates
+        heal_shifted_bolle_dates(DB_PATH)
+    except Exception:
+        pass
+
     return {"status": "ok", "restored": restored_counts}
 
 

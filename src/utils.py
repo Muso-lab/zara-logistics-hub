@@ -65,26 +65,11 @@ def format_currency_it(val: Any) -> str:
     return f"{s} €" if s != "-" else "-"
 
 
-def format_date_it(dt: Any) -> str:
-    """
-    Formats dates into Italian format DD/MM/YYYY.
-    """
-    if dt is None or pd.isna(dt):
-        return ""
-    if isinstance(dt, str):
-        try:
-            dt = datetime.strptime(dt[:10], "%Y-%m-%d").date()
-        except Exception:
-            return dt
-    if isinstance(dt, (datetime, date)):
-        return dt.strftime("%d/%m/%Y")
-    return str(dt)
-
-
 def parse_date_obj(val: Any, default: Optional[date] = None) -> date:
     """
     Safely parses strings, datetimes or dates into a datetime.date object.
-    Supports YYYY-MM-DD, timestamps (YYYY-MM-DD HH:MM:SS), DD/MM/YYYY, etc.
+    Supports YYYY-MM-DD, ISO 8601 UTC strings from Google Sheets (e.g. 2026-11-06T23:00:00.000Z -> 2026-11-07),
+    timestamps (YYYY-MM-DD HH:MM:SS), DD/MM/YYYY, etc.
     """
     fallback = default or (date.today() + timedelta(days=1))
     if val is None or pd.isna(val):
@@ -94,8 +79,18 @@ def parse_date_obj(val: Any, default: Optional[date] = None) -> date:
     if isinstance(val, date):
         return val
     s = str(val).strip()
-    if not s:
+    if not s or s.lower() in ("nan", "none", "null", "nat"):
         return fallback
+    # Handle ISO 8601 UTC timestamps from Google Sheets Apps Script (e.g. "2026-11-06T23:00:00.000Z")
+    # where midnight Europe/Rome (CET UTC+1 / CEST UTC+2) becomes 23:00Z or 22:00Z of the previous UTC day.
+    if "T" in s and (s.endswith("Z") or "+" in s[10:] or "-" in s[10:]):
+        try:
+            iso_s = s[:-1] + "+00:00" if s.endswith("Z") else s
+            dt_utc = datetime.fromisoformat(iso_s)
+            if dt_utc.tzinfo is not None:
+                return (dt_utc + timedelta(hours=3)).date()
+        except Exception:
+            pass
     if len(s) >= 10 and s[4] == '-' and s[7] == '-':
         try:
             return datetime.strptime(s[:10], "%Y-%m-%d").date()
@@ -112,3 +107,24 @@ def parse_date_obj(val: Any, default: Optional[date] = None) -> date:
         except Exception:
             pass
     return fallback
+
+
+def format_date_it(dt: Any) -> str:
+    """
+    Formats dates into Italian format DD/MM/YYYY.
+    """
+    if dt is None or pd.isna(dt):
+        return ""
+    if isinstance(dt, str):
+        s = dt.strip()
+        if not s:
+            return ""
+        try:
+            d_obj = parse_date_obj(s, default=date(1900, 1, 1))
+            if d_obj != date(1900, 1, 1):
+                return d_obj.strftime("%d/%m/%Y")
+        except Exception:
+            return dt
+    if isinstance(dt, (datetime, date)):
+        return dt.strftime("%d/%m/%Y")
+    return str(dt)

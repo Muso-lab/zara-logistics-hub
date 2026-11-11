@@ -25,6 +25,7 @@ from src.bolle_manager import (
     get_bolla_by_id,
     get_bolle_by_date,
     get_bolle_dates,
+    heal_shifted_bolle_dates,
     remove_intershop_from_bolla,
     render_bolla_printable_html,
 )
@@ -33,25 +34,32 @@ from src.config import DATA_DIR, DB_PATH
 from src.db import get_stores_df, load_run_data
 from src.pipeline import run_pipeline
 from src.scraper import InditexExtranetScraper
-from src.utils import get_cycle_date_range
+from src.utils import get_cycle_date_range, parse_date_obj
+
+
+def _clean_str(val: Any) -> str:
+    """Pulisce valori None, NaN, 'nan', 'null' restituendo stringa vuota."""
+    if val is None or pd.isna(val):
+        return ""
+    s = str(val).strip()
+    if s.lower() in ("nan", "none", "null", "nat"):
+        return ""
+    return s
 
 
 def format_date_it(d_val: Any) -> str:
-    if not d_val:
+    if d_val is None or pd.isna(d_val) or str(d_val).strip() == "":
         return ""
-    if isinstance(d_val, (date, datetime)):
-        return d_val.strftime("%d/%m/%Y")
-    s = str(d_val).strip()[:10]
     try:
-        return datetime.strptime(s, "%Y-%m-%d").strftime("%d/%m/%Y")
+        return parse_date_obj(d_val).strftime("%d/%m/%Y")
     except Exception:
-        return s
+        return str(d_val).strip()[:10]
 
 
-def format_date_weekday_it(d_str: str) -> str:
+def format_date_weekday_it(d_str: Any) -> str:
     days_it = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
     try:
-        dt = datetime.strptime(str(d_str).strip()[:10], "%Y-%m-%d").date()
+        dt = parse_date_obj(d_str)
         return f"{days_it[dt.weekday()]} {dt.strftime('%d/%m/%Y')}"
     except Exception:
         return format_date_it(d_str)
@@ -69,18 +77,8 @@ def format_number_it(val: Any, decimals: int = 0) -> str:
 
 
 def cleanup_legacy_wrong_bolle(db_path: Path = DB_PATH) -> None:
-    """Rimuove eventuali record di test (2098/2099/2100) o date errate residue dal DB locale."""
-    try:
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "DELETE FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data LIKE '%2100%' "
-                "OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR data_consegna LIKE '%2100%' "
-                "OR data_consegna = '2026-10-23' OR (data_consegna = '2026-10-24' AND tipo_cons = 'DOPPIA') "
-                "OR id_store = '9999'"
-            )
-            conn.commit()
-    except Exception:
-        pass
+    """Corregge eventuali date traslate da UTC Google Sheets, rimuove record di test e pulisce 'nan'."""
+    heal_shifted_bolle_dates(db_path=db_path)
 
 
 def ensure_bolle_for_latest_run(runs_df: pd.DataFrame) -> bool:
@@ -95,9 +93,8 @@ def ensure_bolle_for_latest_run(runs_df: pd.DataFrame) -> bool:
     try:
         latest = runs_df.iloc[0]
         latest_id = int(latest["id"])
-        r_date_str = str(latest["run_date"])[:10]
         r_cycle = str(latest.get("cycle_type", "LUN-MER"))
-        dt_base = datetime.strptime(r_date_str, "%Y-%m-%d").date()
+        dt_base = parse_date_obj(latest["run_date"], default=date.today())
         date_dop, date_std = compute_inditex_delivery_dates(dt_base, r_cycle)
         b_std = get_bolle_by_date(date_std)
         b_dop = get_bolle_by_date(date_dop)
@@ -107,6 +104,173 @@ def ensure_bolle_for_latest_run(runs_df: pd.DataFrame) -> bool:
     except Exception:
         pass
     return False
+
+
+def _inject_omnibox_autoselect_js() -> None:
+    """
+    Inietta CSS proporzionato per Mobile/Desktop e listener JavaScript sul documento padre:
+    - Quando l'operatore clicca/tocca sull'Omnibox (selectbox) o su qualsiasi campo di testo/numero,
+      seleziona automaticamente l'intera stringa (evidenziata in blu) così digitando
+      si sovrascrive/cancella in un colpo solo il vecchio valore senza dover premere Backspace.
+    """
+    st.markdown("""
+    <style>
+    /* Sovrascrive il CSS globale mobile che ingrandiva a 28px e tagliava i testi nei box */
+    div[data-testid="stSelectbox"] [data-baseweb="select"] > div {
+        min-height: 42px !important;
+        height: auto !important;
+        padding: 4px 10px !important;
+        border-radius: 10px !important;
+        border: 1.5px solid #CBD5E1 !important;
+        background-color: #FFFFFF !important;
+        align-items: center !important;
+    }
+    div[data-testid="stSelectbox"] [data-baseweb="select"] div,
+    div[data-testid="stSelectbox"] [data-baseweb="select"] span {
+        font-size: 14px !important;
+        font-weight: 700 !important;
+        line-height: 1.3 !important;
+        color: #0F172A !important;
+        text-align: left !important;
+    }
+    /* Rimuove il doppio bordo e il font 28px dall'input interno del selectbox (Omnibox) */
+    div[data-testid="stSelectbox"] [data-baseweb="select"] input {
+        min-height: 0 !important;
+        height: 22px !important;
+        font-size: 14px !important;
+        font-weight: 700 !important;
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        text-align: left !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    /* Evidenzia tutta la stringa dell'Omnibox in blu selezione appena si clicca sul box */
+    div[data-testid="stSelectbox"] [data-baseweb="select"]:focus-within > div > div:first-child > div:first-child {
+        background-color: #BFDBFE !important;
+        color: #1E3A8A !important;
+        border-radius: 4px !important;
+        padding: 1px 5px !important;
+    }
+    /* Menu a tendina Omnibox leggibile e compatto */
+    ul[data-testid="stSelectboxVirtualDropdown"] li,
+    div[data-baseweb="popover"] li {
+        font-size: 13.5px !important;
+        font-weight: 600 !important;
+        line-height: 1.3 !important;
+        padding: 8px 12px !important;
+    }
+    /* Input numerici e di testo proporzionati e mai tagliati */
+    div[data-testid="stNumberInput"] [data-baseweb="input"],
+    div[data-testid="stTextInput"] [data-baseweb="input"],
+    div[data-testid="stTextInput"] [data-baseweb="base-input"] {
+        min-height: 42px !important;
+        height: 42px !important;
+        border-radius: 10px !important;
+        border: 1.5px solid #CBD5E1 !important;
+        background-color: #FFFFFF !important;
+        align-items: center !important;
+    }
+    div[data-testid="stNumberInput"] input[type="number"] {
+        min-height: 38px !important;
+        height: 38px !important;
+        font-size: 16px !important;
+        font-weight: 800 !important;
+        line-height: 1.2 !important;
+        padding: 2px 8px !important;
+        border: none !important;
+        text-align: center !important;
+        background: transparent !important;
+    }
+    div[data-testid="stTextInput"] input[type="text"] {
+        min-height: 38px !important;
+        height: 38px !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        line-height: 1.2 !important;
+        padding: 4px 10px !important;
+        border: none !important;
+        text-align: left !important;
+        background: transparent !important;
+    }
+    div[data-testid="stNumberInput"] button {
+        min-width: 38px !important;
+        min-height: 38px !important;
+        height: 38px !important;
+        font-size: 17px !important;
+        font-weight: 800 !important;
+        border: none !important;
+        border-left: 1px solid #E2E8F0 !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+    }
+    label, [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] span, [data-testid="stWidgetLabel"] label {
+        font-size: 13.5px !important;
+        font-weight: 700 !important;
+        line-height: 1.3 !important;
+        margin-bottom: 4px !important;
+    }
+    div[data-testid="stButton"] > button {
+        min-height: 44px !important;
+        font-size: 13.5px !important;
+        font-weight: 700 !important;
+        padding: 6px 12px !important;
+        line-height: 1.25 !important;
+        border-radius: 10px !important;
+        white-space: normal !important;
+        word-wrap: break-word !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.components.v1.html("""
+    <script>
+    (function() {
+        try {
+            const doc = (window.parent && window.parent.document) ? window.parent.document : document;
+            if (doc._zaraOmniboxAutoSelectInstalled) return;
+            doc._zaraOmniboxAutoSelectInstalled = true;
+
+            const selectAllInInput = (el) => {
+                if (!el || el.tagName !== 'INPUT') return;
+                setTimeout(() => {
+                    try {
+                        el.focus();
+                        el.select();
+                        if (el.value && el.setSelectionRange) {
+                            el.setSelectionRange(0, el.value.length);
+                        }
+                    } catch (e) {}
+                }, 15);
+            };
+
+            doc.addEventListener('focusin', (e) => {
+                const t = e.target;
+                if (t && t.tagName === 'INPUT') {
+                    selectAllInInput(t);
+                }
+            }, true);
+
+            doc.addEventListener('click', (e) => {
+                const t = e.target;
+                if (!t) return;
+                if (t.tagName === 'INPUT') {
+                    selectAllInInput(t);
+                    return;
+                }
+                const selBox = t.closest && t.closest('[data-baseweb="select"]');
+                if (selBox) {
+                    const inp = selBox.querySelector('input');
+                    if (inp) {
+                        selectAllInInput(inp);
+                    }
+                }
+            }, true);
+        } catch (err) {}
+    })();
+    </script>
+    """, height=0, width=0)
 
 
 # ==============================================================================
@@ -445,6 +609,8 @@ def render_magazzino_simplified_view(
     if "flash_bolle_msg" in st.session_state:
         st.success(f"🎉 **{st.session_state.pop('flash_bolle_msg')}**")
 
+    _inject_omnibox_autoselect_js()
+
     # Assicura automaticamente che le bolle dell'ultima previsione siano state create e pulisce date anomale
     ensure_bolle_for_latest_run(runs_side)
 
@@ -466,7 +632,7 @@ def render_magazzino_simplified_view(
     if not runs_side.empty:
         try:
             lr = runs_side.iloc[0]
-            lr_dt = datetime.strptime(str(lr["run_date"])[:10], "%Y-%m-%d").date()
+            lr_dt = parse_date_obj(lr["run_date"])
             lr_cyc = str(lr.get("cycle_type", "LUN-MER"))
             d_dop_o, d_std_o = compute_inditex_delivery_dates(lr_dt, lr_cyc)
             latest_std_str = str(d_std_o)
@@ -789,6 +955,7 @@ def _render_mobile_intershops_section(
     store_name: str,
     all_store_codes: List[str],
     key_prefix: str = "mob_inter",
+    store_names_map: Optional[Dict[str, str]] = None,
 ):
     """Box compatto mobile per vedere, aggiungere o rimuovere Trasferimenti tra Negozi (Intershops)."""
     b_fresh = get_bolla_by_id(int(bolla_id)) or {}
@@ -801,9 +968,11 @@ def _render_mobile_intershops_section(
     except Exception:
         inter_list = []
 
+    names_lookup = store_names_map or {}
+
     with st.container(border=True):
         st.markdown(
-            f"<div style='font-size:14px; font-weight:800; color:#0369A1; margin-bottom:6px;'>"
+            f"<div style='font-size:13.5px; font-weight:800; color:#0369A1; margin-bottom:6px;'>"
             f"🔄 Trasferimenti tra Negozi (Intershops) — Store {html.escape(str(store_id))}</div>",
             unsafe_allow_html=True,
         )
@@ -812,9 +981,9 @@ def _render_mobile_intershops_section(
             for idx_i, item in enumerate(inter_list):
                 c_txt, c_del = st.columns([3.5, 1])
                 with c_txt:
-                    m_s = str(item.get("mittente", "")).strip() or "N/D"
+                    m_s = _clean_str(item.get("mittente")) or "N/D"
                     c_s = int(float(item.get("colli", 0) or 0))
-                    t_s = str(item.get("tipo", "MERCE")).strip()
+                    t_s = _clean_str(item.get("tipo")) or "MERCE"
                     st.markdown(
                         f"<div style='font-size:13px; background:#F0F9FF; border:1px solid #BAE6FD; "
                         f"border-radius:8px; padding:6px 10px; margin-bottom:4px;'>"
@@ -829,23 +998,22 @@ def _render_mobile_intershops_section(
         else:
             st.caption("Nessun trasferimento registrato per questo negozio.")
 
-        c_m1, c_m2, c_m3 = st.columns([1.6, 1.0, 1.3])
-        with c_m1:
-            mitt_opts = [""] + [s for s in all_store_codes if s != str(store_id)]
-            mitt_sel = st.selectbox(
-                "Negozio Mittente (Omnibox)",
-                options=mitt_opts,
-                format_func=lambda x: "🔍 Digita o scegli mittente..." if x == "" else f"Store {x}",
-                key=f"{key_prefix}_mitt_sb_{bolla_id}",
-            )
-            mitt_free = st.text_input(
-                "Oppure codice mittente libero",
-                value="",
-                placeholder="es. 3680",
-                key=f"{key_prefix}_mitt_txt_{bolla_id}",
-                label_visibility="collapsed",
-            )
-            final_mitt = mitt_free.strip() or mitt_sel.strip()
+        mitt_opts = [""] + [s for s in all_store_codes if s != str(store_id)]
+
+        def _fmt_mitt(code_val: str) -> str:
+            if not code_val:
+                return "🔍 Digita codice (es. 3680) o scegli mittente..."
+            nm = names_lookup.get(code_val, "")
+            return f"{code_val} — {nm}" if nm else f"Store {code_val}"
+
+        mitt_sel = st.selectbox(
+            "🔍 Negozio Mittente (Omnibox)",
+            options=mitt_opts,
+            format_func=_fmt_mitt,
+            key=f"{key_prefix}_mitt_sb_{bolla_id}",
+        )
+
+        c_m2, c_m3 = st.columns([1.0, 1.3])
         with c_m2:
             tr_colli = st.number_input(
                 "N° Colli",
@@ -870,7 +1038,7 @@ def _render_mobile_intershops_section(
         ):
             res_tr = add_intershop_to_bolla(
                 bolla_id=int(bolla_id),
-                mittente=final_mitt,
+                mittente=mitt_sel.strip(),
                 colli=int(tr_colli),
                 tipo=tr_tipo,
             )
@@ -895,7 +1063,7 @@ def render_mobile_two_buttons_view(
     Interfaccia Smartphone / Palmare:
     - Font e box proporzionati per schermi mobile (nessun testo gigante che sborda)
     - Nessun filtro sui giri (rimosso come richiesto)
-    - Selezione negozio tramite OMNIBOX ricercabile (digita codice o nome)
+    - Selezione negozio tramite OMNIBOX ricercabile con auto-selezione dell'intera stringa al clic
     - TASTO 1: 📋 SPUNTA NEGOZIO (1-Tap Conforme, conteggio manuale + Trasferimenti)
     - TASTO 2: ➕ AGGIUNGI COLLI & TRASFERIMENTI (sia per negozi già spuntati sia per negozi NON spuntati!)
     """
@@ -903,22 +1071,7 @@ def render_mobile_two_buttons_view(
         st.success(f"🎉 **{st.session_state.pop('flash_bolle_msg')}**")
 
     ensure_bolle_for_latest_run(runs_side)
-
-    # CSS Mobile calibrato: caratteri leggibili e ben contenuti nei box
-    st.markdown("""
-    <style>
-    div[data-testid="stButton"] > button {
-        min-height: 44px !important;
-        font-size: 13.5px !important;
-        font-weight: 700 !important;
-        padding: 6px 10px !important;
-        line-height: 1.25 !important;
-        border-radius: 10px !important;
-        white-space: normal !important;
-        word-wrap: break-word !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    _inject_omnibox_autoselect_js()
 
     if allow_classic_toggle:
         c_title_m, c_tog_m = st.columns([2.8, 1.2])
@@ -935,25 +1088,74 @@ def render_mobile_two_buttons_view(
     if not all_dates:
         all_dates = [tomorrow_str, today_str]
 
+    # Calcola date /0 STD e /9 DOPPIA dell'ultima Run per i pulsanti rapidi e per il default intelligente
+    latest_std_str = None
+    latest_dop_str = None
+    if not runs_side.empty:
+        try:
+            lr = runs_side.iloc[0]
+            dt_b = parse_date_obj(lr["run_date"], default=date.today())
+            d_dop, d_std = compute_inditex_delivery_dates(dt_b, str(lr.get("cycle_type", "LUN-MER")))
+            latest_std_str = str(d_std)
+            latest_dop_str = str(d_dop)
+        except Exception:
+            pass
+
     if "mob2_date" not in st.session_state or st.session_state["mob2_date"] not in all_dates:
         if today_str in all_dates:
             st.session_state["mob2_date"] = today_str
         elif tomorrow_str in all_dates:
             st.session_state["mob2_date"] = tomorrow_str
+        elif latest_std_str and latest_std_str in all_dates:
+            st.session_state["mob2_date"] = latest_std_str
         else:
             st.session_state["mob2_date"] = all_dates[0]
+
+    def _fmt_mob_date(d_iso: str) -> str:
+        df_tmp = get_bolle_by_date(d_iso)
+        if df_tmp.empty:
+            return format_date_weekday_it(d_iso)
+        types = {str(x).upper() for x in df_tmp["tipo_cons"].dropna().unique()}
+        if types == {"STD"}:
+            tag = "🚚 /0 STD"
+        elif types == {"DOPPIA"}:
+            tag = "🔁 /9 DOPPIA"
+        else:
+            tag = "/0 + /9"
+        return f"{format_date_weekday_it(d_iso)} ({tag} • {len(df_tmp)} neg.)"
 
     # Selezione Data Consegna (senza filtro Giri come richiesto)
     mob_date = st.selectbox(
         "📅 Data di Consegna",
         options=all_dates,
         index=all_dates.index(st.session_state["mob2_date"]),
-        format_func=lambda d: f"{format_date_weekday_it(d)}",
+        format_func=_fmt_mob_date,
         key="mob2_date_sb",
     )
     if mob_date != st.session_state["mob2_date"]:
         st.session_state["mob2_date"] = mob_date
         st.rerun()
+
+    if latest_std_str and latest_dop_str and latest_std_str in all_dates and latest_dop_str in all_dates:
+        c_qd1, c_qd2 = st.columns(2)
+        with c_qd1:
+            if st.button(
+                f"🚚 /0 STD: {format_date_weekday_it(latest_std_str)}",
+                type="primary" if mob_date == latest_std_str else "secondary",
+                use_container_width=True,
+                key="mob2_quick_b0_dt",
+            ):
+                st.session_state["mob2_date"] = latest_std_str
+                st.rerun()
+        with c_qd2:
+            if st.button(
+                f"🔁 /9 DOPPIA: {format_date_weekday_it(latest_dop_str)}",
+                type="primary" if mob_date == latest_dop_str else "secondary",
+                use_container_width=True,
+                key="mob2_quick_b9_dt",
+            ):
+                st.session_state["mob2_date"] = latest_dop_str
+                st.rerun()
 
     df_b_date = get_bolle_by_date(mob_date)
     if df_b_date.empty:
@@ -976,6 +1178,16 @@ def render_mobile_two_buttons_view(
     n_da_spuntare = len(da_spuntare_df)
 
     all_store_codes_list = sorted(list({str(r["id_store"]).strip() for _, r in df_b_date.iterrows()}))
+    store_names_lookup: Dict[str, str] = {}
+    if not df_stores_side.empty:
+        sc_col = "store_id" if "store_id" in df_stores_side.columns else "id_store"
+        if sc_col in df_stores_side.columns:
+            for _, sr in df_stores_side.iterrows():
+                store_names_lookup[str(sr[sc_col]).strip()] = _clean_str(sr.get("store_name"))
+    for _, br in df_b_date.iterrows():
+        s_c = str(br["id_store"]).strip()
+        if s_c not in store_names_lookup or not store_names_lookup[s_c]:
+            store_names_lookup[s_c] = _clean_str(br.get("store_name"))
 
     # Barra stato avanzamento compatta
     pct_done = int(round((n_spuntati / tot_stores) * 100)) if tot_stores > 0 else 0
@@ -1037,7 +1249,7 @@ def render_mobile_two_buttons_view(
         for _, r in working_df.iterrows():
             b_id_val = int(r["id"])
             s_code = str(r["id_store"]).strip()
-            s_name = str(r.get("store_name", "")).strip()
+            s_name = _clean_str(r.get("store_name"))
             t_tag = "/9 DOPPIA" if str(r.get("tipo_cons", "")).upper() == "DOPPIA" else "/0 STD"
             st_icon = "🟢" if int(r.get("spuntato", 0)) == 1 else "⏳"
             p_tot_r = sum(
@@ -1060,7 +1272,7 @@ def render_mobile_two_buttons_view(
 
         # OMNIBOX + frecce compatte
         selected_bid = st.selectbox(
-            "🔍 Omnibox Negozio (digita codice es. 3680 o nome negozio per cercare)",
+            "🔍 Omnibox Negozio (tocca il box e digita codice es. 3680 o nome negozio)",
             options=omnibox_options,
             index=curr_pos,
             format_func=lambda bid_k: omnibox_labels.get(bid_k, str(bid_k)),
@@ -1070,14 +1282,14 @@ def render_mobile_two_buttons_view(
             st.session_state["mob2_selected_bid"] = selected_bid
             st.rerun()
 
-        c_nav_prev, c_nav_info, c_nav_next = st.columns([1, 2, 1])
+        c_nav_prev, c_nav_info, c_nav_next = st.columns([1, 1.8, 1])
         with c_nav_prev:
             if st.button("◀️ Prec.", use_container_width=True, disabled=(curr_pos <= 0), key="mob2_prev_btn"):
                 st.session_state["mob2_selected_bid"] = omnibox_options[curr_pos - 1]
                 st.rerun()
         with c_nav_info:
             st.markdown(
-                f"<div style='text-align:center; font-size:12px; color:#475569; padding-top:10px;'>"
+                f"<div style='text-align:center; font-size:12px; color:#475569; padding-top:8px;'>"
                 f"Negozio <strong>{curr_pos + 1}</strong> di <strong>{len(omnibox_options)}</strong></div>",
                 unsafe_allow_html=True,
             )
@@ -1088,8 +1300,8 @@ def render_mobile_two_buttons_view(
 
         b_row = working_df[working_df["id"] == selected_bid].iloc[0]
         bid = int(b_row["id"])
-        sid = str(b_row["id_store"])
-        sname = str(b_row.get("store_name", ""))
+        sid = str(b_row["id_store"]).strip()
+        sname = _clean_str(b_row.get("store_name"))
         tipo_lbl = "/9 DOPPIA" if str(b_row.get("tipo_cons", "")).upper() == "DOPPIA" else "/0 STD"
         is_done = int(b_row.get("spuntato", 0)) == 1
 
@@ -1116,11 +1328,11 @@ def render_mobile_two_buttons_view(
                 <span style="background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 99px;">{tipo_lbl}</span>
                 <span>{badge_status}</span>
             </div>
-            <div style="font-size: 16.5px; font-weight: 800; margin-top: 5px; line-height: 1.25; word-break: break-word;">
+            <div style="font-size: 15.5px; font-weight: 800; margin-top: 5px; line-height: 1.25; word-break: break-word;">
                 🏪 {sid} — {html.escape(sname)}
             </div>
             <div style="font-size: 12.5px; color: #DBEAFE; margin-top: 4px; line-height: 1.35;">
-                📦 Previsti: <strong style="color: #FDE047; font-size: 14px;">{prev_tot} colli</strong>
+                📦 Previsti: <strong style="color: #FDE047; font-size: 13.5px;">{prev_tot} colli</strong>
                 (Abb: {prev_abb} | Calz: {prev_cal} | Ecom: {prev_eco} | Altri: {prev_oth})
             </div>
         </div>
@@ -1152,7 +1364,12 @@ def render_mobile_two_buttons_view(
                 in_cal = st.number_input(f"👟 Calzat. (Prev: {prev_cal})", min_value=0, value=cur_cal, step=1, key=f"m2_cal_{bid}")
                 in_oth = st.number_input(f"📦 Altri (Prev: {prev_oth})", min_value=0, value=cur_oth, step=1, key=f"m2_oth_{bid}")
             in_var = st.number_input(f"📦 Mat. Vario (Prev: {prev_var})", min_value=0, value=cur_var, step=1, key=f"m2_var_{bid}")
-            in_note = st.text_input("📝 Note Banchina (opzionale)", value=str(b_row.get("note", "") or ""), key=f"m2_note_{bid}")
+            in_note = st.text_input(
+                "📝 Note Banchina (opzionale)",
+                value=_clean_str(b_row.get("note")),
+                placeholder="Inserisci eventuale nota...",
+                key=f"m2_note_{bid}",
+            )
 
             manual_tot = int(in_abb + in_cal + in_eco + in_oth + in_var)
             if st.button(
@@ -1169,7 +1386,7 @@ def render_mobile_two_buttons_view(
                     colli_ecom=int(in_eco),
                     colli_others=int(in_oth),
                     colli_vario=int(in_var),
-                    note=in_note,
+                    note=_clean_str(in_note),
                 )
                 if res_sp["status"] == "ok":
                     st.session_state["flash_bolle_msg"] = (
@@ -1185,6 +1402,7 @@ def render_mobile_two_buttons_view(
             store_name=sname,
             all_store_codes=all_store_codes_list,
             key_prefix="mob_sp_tr",
+            store_names_map=store_names_lookup,
         )
 
     # ==========================================================================
@@ -1198,7 +1416,7 @@ def render_mobile_two_buttons_view(
             for _, s_r in df_b_date.iterrows():
                 s_bid = int(s_r["id"])
                 s_id = str(s_r["id_store"]).strip()
-                s_nm = str(s_r.get("store_name", "")).strip()
+                s_nm = _clean_str(s_r.get("store_name"))
                 s_tc = "/9 DOPPIA" if str(s_r.get("tipo_cons", "")).upper() == "DOPPIA" else "/0 STD"
                 is_sp = int(s_r.get("spuntato", 0)) == 1
                 icon_sp = "🟢 Spuntato" if is_sp else "⏳ Da spuntare"
@@ -1209,7 +1427,7 @@ def render_mobile_two_buttons_view(
                 all_store_opts[s_bid] = f"{s_id} — {s_nm} ({s_tc} • {icon_sp} • Attuali: {s_tot} colli)"
 
             target_bid = st.selectbox(
-                "🔍 1️⃣ Omnibox Negozio (digita codice es. 3680 o nome per cercare qualsiasi negozio)",
+                "🔍 1️⃣ Omnibox Negozio (tocca il box e digita codice es. 3680 o nome per cercare)",
                 options=list(all_store_opts.keys()),
                 format_func=lambda k: all_store_opts[k],
                 key="mob2_add_store_omnibox",
@@ -1217,7 +1435,7 @@ def render_mobile_two_buttons_view(
 
             sel_row = df_b_date[df_b_date["id"] == target_bid].iloc[0]
             sel_sid = str(sel_row["id_store"]).strip()
-            sel_sname = str(sel_row.get("store_name", "")).strip()
+            sel_sname = _clean_str(sel_row.get("store_name"))
             sel_is_spuntato = int(sel_row.get("spuntato", 0)) == 1
 
             if "mob2_add_qty" not in st.session_state:
@@ -1293,7 +1511,7 @@ def render_mobile_two_buttons_view(
                     bolla_id=int(target_bid),
                     colli_to_add=int(qty_to_add),
                     category=cat_choice,
-                    note_reason=reason_note,
+                    note_reason=_clean_str(reason_note),
                     mark_spuntato=bool(mark_as_spuntato),
                 )
                 if res_add.get("status") == "ok":
@@ -1313,4 +1531,5 @@ def render_mobile_two_buttons_view(
             store_name=sel_sname,
             all_store_codes=all_store_codes_list,
             key_prefix="mob_add_tr",
+            store_names_map=store_names_lookup,
         )

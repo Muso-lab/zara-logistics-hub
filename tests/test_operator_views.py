@@ -303,3 +303,74 @@ def test_formatting_helpers():
     assert "11/11/2026" in format_date_weekday_it("2026-11-11")
     assert format_number_it(1234.56, 0) == "1.235"
     assert format_number_it(27.9, 1) == "27,9"
+
+
+def test_iso_utc_date_parsing_and_heal_shifted_bolle_dates(tmp_path):
+    """
+    Verifica che i timestamp UTC provenienti da Google Sheets (es. '2026-11-06T23:00:00.000Z',
+    che corrisponde a Sabato 07/11/2026 00:00 in Europe/Rome) vengano convertiti a 2026-11-07
+    e che heal_shifted_bolle_dates riallinei Venerdì 06/11 -> Sabato 07/11 (/0 STD) e
+    Sabato 07/11 -> Domenica 08/11 (/9 DOPPIA) preservando le spunte e ripulendo i 'nan'.
+    """
+    from src.utils import parse_date_obj
+    from src.bolle_manager import heal_shifted_bolle_dates
+    from src.operator_views import _clean_str
+
+    assert parse_date_obj("2026-11-06T23:00:00.000Z") == date(2026, 11, 7)
+    assert parse_date_obj("2026-11-07T23:00:00.000Z") == date(2026, 11, 8)
+    assert parse_date_obj("2026-07-10T22:00:00.000Z") == date(2026, 7, 11)
+    assert _clean_str(float("nan")) == ""
+    assert _clean_str("nan") == ""
+    assert _clean_str("NaN") == ""
+    assert _clean_str(None) == ""
+    assert _clean_str("Nota valida") == "Nota valida"
+
+    db_path = tmp_path / "test_heal_dates.db"
+    init_bolle_tables(db_path=db_path)
+
+    # Inseriamo una bolla STD scalata a Venerdì 2026-11-06 con note='nan'
+    save_or_update_bolla(
+        {
+            "data": "2026-11-06",
+            "data_consegna": "2026-11-06",
+            "id_store": "10265",
+            "store_name": "PES-VITTORIO E",
+            "tipo_cons": "STD",
+            "prev_abbigl": 40,
+            "prev_calzat": 1,
+            "colli_abbigl": 40,
+            "colli_calzat": 1,
+            "note": "nan",
+            "spuntato": 0,
+        },
+        db_path=db_path,
+    )
+    # Inseriamo una bolla DOPPIA scalata a Sabato 2026-11-07 già spuntata (spuntato=1)
+    save_or_update_bolla(
+        {
+            "data": "2026-11-07",
+            "data_consegna": "2026-11-07",
+            "id_store": "14010",
+            "store_name": "ROM-OTTAVIANO",
+            "tipo_cons": "DOPPIA",
+            "prev_abbigl": 50,
+            "colli_abbigl": 50,
+            "note": "nan",
+            "spuntato": 1,
+        },
+        db_path=db_path,
+    )
+
+    res_heal = heal_shifted_bolle_dates(db_path=db_path)
+    assert res_heal >= 2
+
+    df_fri = get_bolle_by_date("2026-11-06", db_path=db_path)
+    df_sat = get_bolle_by_date("2026-11-07", db_path=db_path)
+    df_sun = get_bolle_by_date("2026-11-08", db_path=db_path)
+
+    assert df_fri.empty, "Venerdì 06/11 non deve più avere bolle!"
+    assert len(df_sat) == 1 and df_sat.iloc[0]["id_store"] == "10265" and df_sat.iloc[0]["tipo_cons"] == "STD"
+    assert df_sat.iloc[0]["note"] == ""
+    assert len(df_sun) == 1 and df_sun.iloc[0]["id_store"] == "14010" and df_sun.iloc[0]["tipo_cons"] == "DOPPIA"
+    assert int(df_sun.iloc[0]["spuntato"]) == 1
+    assert df_sun.iloc[0]["note"] == ""

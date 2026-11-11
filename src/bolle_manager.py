@@ -107,10 +107,126 @@ def init_bolle_tables(db_path: Path = DB_PATH):
     """)
     conn.commit()
     conn.close()
+    heal_shifted_bolle_dates(db_path=db_path)
+
+
+def heal_shifted_bolle_dates(db_path: Path = DB_PATH) -> int:
+    """
+    Corregge automaticamente eventuali date traslate di -1 giorno a causa della
+    serializzazione ISO UTC di Google Sheets (es. 2026-11-06T23:00:00.000Z -> Venerdì 06/11
+    invece di Sabato 07/11 per /0 STD, e Sabato 07/11 invece di Domenica 08/11 per /9 DOPPIA),
+    rimuove i duplicati traslati e ripulisce eventuali stringhe 'nan'.
+    """
+    from src.utils import parse_date_obj
+    fixed_count = 0
+    try:
+        conn = get_db_connection(db_path)
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS deleted_bolle (bolla_id INTEGER PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+
+        # 1. Ripulisce stringhe 'nan' / 'None' nei campi testuali
+        for col_txt in ["note", "sigillo", "stringa", "anomalie_scarico", "autista", "cell_autista", "indirizzo_destino"]:
+            try:
+                cur.execute(f"UPDATE bolle SET {col_txt} = '' WHERE LOWER(TRIM(COALESCE({col_txt}, ''))) IN ('nan', 'none', 'null', 'nat')")
+            except Exception:
+                pass
+
+        # 2. Normalizza eventuali timestamp ISO UTC (con 'T') in bolle e runs
+        cur.execute("SELECT id, data, data_consegna FROM bolle WHERE data LIKE '%T%' OR data_consegna LIKE '%T%'")
+        for bid, d_val, dc_val in cur.fetchall():
+            new_d = parse_date_obj(d_val).strftime("%Y-%m-%d") if d_val else d_val
+            new_dc = parse_date_obj(dc_val).strftime("%Y-%m-%d") if dc_val else new_d
+            cur.execute("UPDATE bolle SET data = ?, data_consegna = ? WHERE id = ?", (new_d, new_dc, bid))
+            fixed_count += 1
+
+        try:
+            cur.execute("SELECT id, run_date FROM runs WHERE run_date LIKE '%T%'")
+            for rid, r_dt in cur.fetchall():
+                new_rd = parse_date_obj(r_dt).strftime("%Y-%m-%d") if r_dt else r_dt
+                cur.execute("UPDATE runs SET run_date = ? WHERE id = ?", (new_rd, rid))
+        except Exception:
+            pass
+
+        # 3. Elimina record di test noti
+        cur.execute(
+            "SELECT id FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data LIKE '%2100%' "
+            "OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR data_consegna LIKE '%2100%' "
+            "OR id_store = '9999' "
+            "OR (data_consegna = '2026-11-01' AND tipo_cons = 'STD') "
+            "OR (data_consegna = '2026-11-02' AND tipo_cons = 'DOPPIA') "
+            "OR data_consegna = '2026-10-23' "
+            "OR (data_consegna = '2026-10-24' AND tipo_cons = 'DOPPIA') "
+            "OR (data_consegna = '2026-10-22' AND tipo_cons = 'STD')"
+        )
+        bad_ids = [int(r[0]) for r in cur.fetchall()]
+        if bad_ids:
+            for b_id in bad_ids:
+                cur.execute("INSERT OR REPLACE INTO deleted_bolle (bolla_id) VALUES (?)", (b_id,))
+            ph = ",".join("?" for _ in bad_ids)
+            cur.execute(f"DELETE FROM bolle WHERE id IN ({ph})", bad_ids)
+            fixed_count += len(bad_ids)
+
+        # 4. Riallinea le bolle traslate di -1/-2/-3 giorni a causa della conversione UTC di Google Sheets:
+        #    - W46 LUN-MER: Martedì 10/11 STD -> Mercoledì 11/11 STD; Mercoledì 11/11 DOPPIA -> Giovedì 12/11 DOPPIA
+        #    - W45 GIOV-DOM: Venerdì 06/11 (o 05/11, 03/11) STD -> Sabato 07/11 STD;
+        #                    Sabato 07/11 (o 06/11, 04/11) DOPPIA -> Domenica 08/11 DOPPIA
+        #    - W44 GIOV-DOM: Venerdì 30/10 STD -> Sabato 31/10 STD; Sabato 31/10 DOPPIA -> Domenica 01/11 DOPPIA
+        shift_pairs = [
+            ("2026-11-11", "DOPPIA", "2026-11-12", "2026-11-09"),
+            ("2026-11-10", "STD", "2026-11-11", "2026-11-09"),
+            ("2026-11-07", "DOPPIA", "2026-11-08", "2026-11-05"),
+            ("2026-11-06", "DOPPIA", "2026-11-08", "2026-11-05"),
+            ("2026-11-04", "DOPPIA", "2026-11-08", "2026-11-05"),
+            ("2026-11-06", "STD", "2026-11-07", "2026-11-05"),
+            ("2026-11-05", "STD", "2026-11-07", "2026-11-05"),
+            ("2026-11-03", "STD", "2026-11-07", "2026-11-05"),
+            ("2026-10-31", "DOPPIA", "2026-11-01", "2026-10-29"),
+            ("2026-10-30", "STD", "2026-10-31", "2026-10-29"),
+        ]
+        for wrong_dc, t_cons, right_dc, right_data in shift_pairs:
+            cur.execute(
+                "SELECT id, id_store, spuntato, colli_abbigl, colli_calzat, colli_ecom, colli_others, colli_vario, note, intershops_json, stringa "
+                "FROM bolle WHERE data_consegna = ? AND UPPER(tipo_cons) = ?",
+                (wrong_dc, t_cons),
+            )
+            wrong_rows = cur.fetchall()
+            for w_row in wrong_rows:
+                w_id, w_sid, w_sp, w_abb, w_cal, w_eco, w_oth, w_var, w_note, w_ij, w_str = w_row
+                cur.execute(
+                    "SELECT id, spuntato FROM bolle WHERE data_consegna = ? AND id_store = ? AND UPPER(tipo_cons) = ?",
+                    (right_dc, w_sid, t_cons),
+                )
+                existing_right = cur.fetchone()
+                if existing_right:
+                    r_id, r_sp = existing_right
+                    if int(w_sp or 0) == 1 and int(r_sp or 0) == 0:
+                        cur.execute(
+                            "UPDATE bolle SET spuntato = 1, colli_abbigl = ?, colli_calzat = ?, colli_ecom = ?, "
+                            "colli_others = ?, colli_vario = ?, note = COALESCE(NULLIF(?, ''), note), "
+                            "intershops_json = COALESCE(NULLIF(?, ''), intershops_json), "
+                            "stringa = COALESCE(NULLIF(?, ''), stringa) WHERE id = ?",
+                            (w_abb, w_cal, w_eco, w_oth, w_var, w_note, w_ij, w_str, r_id),
+                        )
+                    cur.execute("INSERT OR REPLACE INTO deleted_bolle (bolla_id) VALUES (?)", (w_id,))
+                    cur.execute("DELETE FROM bolle WHERE id = ?", (w_id,))
+                else:
+                    cur.execute(
+                        "UPDATE bolle SET data_consegna = ?, data = ? WHERE id = ?",
+                        (right_dc, right_data, w_id),
+                    )
+                fixed_count += 1
+
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+    return fixed_count
 
 
 def get_bolle_dates(limit: int = 100, db_path: Path = DB_PATH) -> List[str]:
     """Returns sorted unique delivery dates available in bolle."""
+    from src.utils import parse_date_obj
+    heal_shifted_bolle_dates(db_path=db_path)
     conn = get_db_connection(db_path)
     cur = conn.cursor()
     cur.execute("""
@@ -126,10 +242,14 @@ def get_bolle_dates(limit: int = 100, db_path: Path = DB_PATH) -> List[str]:
     cleaned = []
     for r in rows:
         val = str(r[0]).strip() if r[0] else ""
-        if len(val) >= 10 and val[4] == '-' and val[7] == '-':
-            cleaned.append(val[:10])
-        elif val and "2098" not in val and "2099" not in val and "2100" not in val:
-            cleaned.append(val)
+        if not val or "2098" in val or "2099" in val or "2100" in val:
+            continue
+        try:
+            d_iso = parse_date_obj(val).strftime("%Y-%m-%d")
+            cleaned.append(d_iso)
+        except Exception:
+            if len(val) >= 10 and val[4] == '-' and val[7] == '-':
+                cleaned.append(val[:10])
     return list(dict.fromkeys(cleaned))
 
 
@@ -369,7 +489,14 @@ def get_bolle(
 
 def get_bolle_by_date(delivery_date: Any, db_path: Path = DB_PATH) -> pd.DataFrame:
     """Returns all bolle for a given delivery date (YYYY-MM-DD or date object)."""
-    d_str = delivery_date.strftime("%Y-%m-%d") if isinstance(delivery_date, (date, datetime)) else str(delivery_date).strip()[:10]
+    from src.utils import parse_date_obj
+    if isinstance(delivery_date, (date, datetime)):
+        d_str = delivery_date.strftime("%Y-%m-%d")
+    else:
+        try:
+            d_str = parse_date_obj(delivery_date).strftime("%Y-%m-%d")
+        except Exception:
+            d_str = str(delivery_date).strip()[:10]
     return get_bolle(data_consegna=d_str, db_path=db_path)
 
 
@@ -652,9 +779,10 @@ def compute_inditex_delivery_dates(dt_base: Any, cycle_type: str = "LUN-MER") ->
         - Ciclo GIOV-DOM: Domenica (monday + 6 giorni)
     Ritorna: (date_b9, date_b0)
     """
+    from src.utils import parse_date_obj
     if isinstance(dt_base, str):
         try:
-            dt_base = datetime.strptime(dt_base[:10], "%Y-%m-%d").date()
+            dt_base = parse_date_obj(dt_base, default=date.today())
         except:
             dt_base = date.today()
     elif isinstance(dt_base, datetime):
@@ -711,12 +839,14 @@ def generate_bolle_from_forecast(
         conn.close()
         raise ValueError(f"Run {run_id} non trovata.")
 
-    run_date = str(df_run.iloc[0]["run_date"])[:10]
+    from src.utils import parse_date_obj
+    raw_run_date = df_run.iloc[0]["run_date"]
     cycle_type = str(df_run.iloc[0].get("cycle_type", "LUN-MER")).strip().upper()
     try:
-        dt_base = datetime.strptime(run_date, "%Y-%m-%d").date()
+        dt_base = parse_date_obj(raw_run_date, default=date.today())
     except:
         dt_base = date.today()
+    run_date = dt_base.strftime("%Y-%m-%d")
 
     default_dop_dt, default_std_dt = compute_inditex_delivery_dates(dt_base, cycle_type)
 

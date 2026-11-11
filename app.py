@@ -265,76 +265,111 @@ st.markdown("""
             padding-bottom: 110px !important;
         }
 
-        /* Tipografia ad altissima visibilità per magazzino & smartphone */
+        /* Tipografia proporzionata e perfettamente centrata nei box per smartphone */
         p, span, div {
-            font-size: 16.5px;
+            font-size: 14px;
         }
         .main-header {
-            font-size: 24px !important;
-            font-weight: 900 !important;
+            font-size: 20px !important;
+            font-weight: 800 !important;
         }
         .sub-header {
+            font-size: 13px !important;
+        }
+
+        /* Etichette e Label di input: chiare e compatte */
+        label, [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] span, [data-testid="stWidgetLabel"] label {
+            font-size: 14px !important;
+            font-weight: 700 !important;
+            color: #0F172A !important;
+            line-height: 1.3 !important;
+            margin-bottom: 4px !important;
+        }
+
+        /* Selectbox / Omnibox: testo nitido, centrato verticalmente e senza doppio riquadro interno */
+        [data-baseweb="select"] {
+            min-height: 44px !important;
             font-size: 15px !important;
         }
-
-        /* Etichette e Label di input: GRANDI E AD ALTO CONTRASTO */
-        label, [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] span, [data-testid="stWidgetLabel"] label {
-            font-size: 18.5px !important;
-            font-weight: 800 !important;
-            color: #0F172A !important;
-            line-height: 1.35 !important;
-            margin-bottom: 6px !important;
+        [data-baseweb="select"] > div {
+            min-height: 44px !important;
+            padding: 2px 10px !important;
+            border-radius: 10px !important;
+            display: flex !important;
+            align-items: center !important;
+        }
+        [data-baseweb="select"] span,
+        [data-baseweb="select"] div,
+        [data-baseweb="select"] input {
+            font-size: 15px !important;
+            font-weight: 700 !important;
+            line-height: 1.25 !important;
+            min-height: unset !important;
+            height: auto !important;
+            border: none !important;
+            background: transparent !important;
+            text-align: left !important;
+            box-shadow: none !important;
         }
 
-        /* Number Inputs: Cifre giganti e leggibili da lontano */
-        input[type="number"], input[type="text"], [data-baseweb="input"] input {
-            min-height: 58px !important;
-            font-size: 28px !important;
-            font-weight: 900 !important;
-            border-radius: 12px !important;
+        /* Number Inputs: cifre leggibili e contenute nel box */
+        [data-testid="stNumberInput"] input[type="number"] {
+            min-height: 44px !important;
+            height: 44px !important;
+            font-size: 18px !important;
+            font-weight: 800 !important;
+            border-radius: 8px !important;
             text-align: center !important;
             color: #0F172A !important;
             background-color: #FFFFFF !important;
-            border: 2px solid #CBD5E1 !important;
+            padding: 4px 8px !important;
         }
 
-        /* Pulsanti +/- grandi e facili da premere */
+        /* Text Inputs: testo proporzionato e allineato a sinistra */
+        [data-testid="stTextInput"] input[type="text"] {
+            min-height: 44px !important;
+            height: 44px !important;
+            font-size: 15px !important;
+            font-weight: 600 !important;
+            border-radius: 8px !important;
+            text-align: left !important;
+            color: #0F172A !important;
+            background-color: #FFFFFF !important;
+            padding: 6px 12px !important;
+        }
+
+        /* Pulsanti +/- compatti e ben allineati */
         [data-testid="stNumberInput"] button {
-            min-width: 58px !important;
-            min-height: 58px !important;
-            font-size: 28px !important;
-            font-weight: 900 !important;
+            min-width: 44px !important;
+            min-height: 44px !important;
+            height: 44px !important;
+            font-size: 20px !important;
+            font-weight: 800 !important;
             background-color: #F1F5F9 !important;
             color: #0F172A !important;
-            border: 1.5px solid #CBD5E1 !important;
-            border-radius: 10px !important;
+            border-radius: 8px !important;
         }
 
-        /* Pulsanti touch ampi con testo chiaro */
+        /* Pulsanti touch ergonomici */
         .stButton > button {
-            min-height: 56px !important;
-            font-size: 18px !important;
+            min-height: 46px !important;
+            font-size: 15px !important;
             font-weight: 800 !important;
-            border-radius: 12px !important;
-            padding: 12px 18px !important;
+            border-radius: 10px !important;
+            padding: 8px 14px !important;
         }
 
-        /* Testo degli avvisi (Alert) grande e chiaro */
+        /* Testo degli avvisi (Alert) */
         [data-testid="stAlert"] div, [data-testid="stAlert"] p {
-            font-size: 16.5px !important;
+            font-size: 14px !important;
             font-weight: 600 !important;
-            line-height: 1.4 !important;
+            line-height: 1.35 !important;
         }
 
         [data-testid="stPopover"] button {
-            min-height: 54px !important;
-            font-size: 17px !important;
-            font-weight: 800 !important;
-        }
-
-        [data-baseweb="select"] {
-            min-height: 52px !important;
-            font-size: 17px !important;
+            min-height: 44px !important;
+            font-size: 14px !important;
+            font-weight: 700 !important;
         }
 
         .mobile-bottom-nav {
@@ -350,12 +385,13 @@ st.markdown("""
             z-index: 999999 !important;
         }
         .mobile-bottom-nav button {
-            min-height: 48px !important;
-            font-size: 13.5px !important;
+            min-height: 44px !important;
+            font-size: 13px !important;
             font-weight: 800 !important;
             padding: 6px 4px !important;
             border-radius: 8px !important;
         }
+    }
     }
 
     /* Floating Processing Banner centrale ad alto impatto visivo */
@@ -842,13 +878,17 @@ runs_side = get_all_runs()
 # Auto-restore trasparente da Google Sheets all'avvio se il database locale del container è vuoto
 if "cloud_auto_checked" not in st.session_state:
     st.session_state["cloud_auto_checked"] = True
+    try:
+        if hasattr(bm, "heal_shifted_bolle_dates"):
+            bm.heal_shifted_bolle_dates(DB_PATH)
+    except Exception:
+        pass
     if get_cloud_url():
         try:
-            if runs_side.empty or len(df_stores_side) < 10:
-                r_pull = pull_all_from_cloud(timeout=15)
-                if r_pull.get("status") == "ok":
-                    df_stores_side = get_stores_df()
-                    runs_side = get_all_runs()
+            r_pull = pull_all_from_cloud(timeout=15)
+            if r_pull.get("status") == "ok":
+                df_stores_side = get_stores_df()
+                runs_side = get_all_runs()
         except Exception:
             pass
 
