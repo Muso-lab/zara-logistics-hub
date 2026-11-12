@@ -15,9 +15,11 @@ import pandas as pd
 import streamlit as st
 
 from src.bolle_manager import (
+    SPLIT_CAT_KEYS,
     add_colli_to_bolla_spuntata,
     add_intershop_to_bolla,
     clear_sigilli_by_date,
+    compute_equal_split_parts,
     compute_inditex_delivery_dates,
     confirm_bolla_spunta,
     export_bolle_excel,
@@ -28,6 +30,7 @@ from src.bolle_manager import (
     heal_shifted_bolle_dates,
     remove_intershop_from_bolla,
     render_bolla_printable_html,
+    split_bolla_for_printing,
 )
 from src.cloud_sync import get_extranet_credentials, set_extranet_credentials
 from src.config import DATA_DIR, DB_PATH
@@ -1082,11 +1085,12 @@ def render_magazzino_simplified_view(
         elif "Solo Barra 9" in sel_tipo:
             df_filtered = df_filtered[df_filtered["tipo_cons"].astype(str).str.upper() == "DOPPIA"]
 
+        _, mag_names_lookup = _build_unified_stores_lookup(df_stores_side, df_filtered)
         store_options: Dict[int, str] = {}
         for _, brow in df_filtered.iterrows():
             bid = int(brow["id"])
-            sid = str(brow["id_store"])
-            sname = str(brow.get("store_name", ""))
+            sid = str(brow["id_store"]).strip()
+            sname = _format_store_display(sid, brow, mag_names_lookup)
             t_c = "/9 DOPPIA" if str(brow.get("tipo_cons", "")).upper() == "DOPPIA" else "/0 STD"
             g_lbl = str(brow.get("giro", "")) or "—"
             tot_c = int(brow["tot_colli"])
@@ -1106,19 +1110,312 @@ def render_magazzino_simplified_view(
         else:
             df_to_print = df_filtered.copy()
 
+    # --- STEP 2B: DIVIDI BOLLA IN N FURGONI (2 / 3 / 4) IN FASE DI STAMPA ---
+    split_records_by_bid: Dict[int, List[Dict[str, Any]]] = {}
+    with st.expander("✂️ Dividi Consegna di un Negozio in più Furgoni (2 / 3 / 4) — Totale Colli Garantito", expanded=(len(selected_bolla_ids) == 1)):
+        st.caption(
+            "Se la consegna di uno specifico negozio richiede più furgoni, selezionalo qui sotto e scegli in quante bolle (2, 3 o 4) dividerla. "
+            "Il **totale colli rimane invariato al 100%** (l'ultimo furgone calcola sempre il saldo automatico per differenza)."
+        )
+        candidate_split_opts = {int(r["id"]): store_options.get(int(r["id"]), str(r["id"])) for _, r in df_to_print.iterrows()}
+        default_split_ids = [selected_bolla_ids[0]] if len(selected_bolla_ids) == 1 and selected_bolla_ids[0] in candidate_split_opts else []
+        split_target_bids = st.multiselect(
+            "🚛 Seleziona il/i negozio/i da dividere su più furgoni in stampa",
+            options=list(candidate_split_opts.keys()),
+            default=default_split_ids,
+            format_func=lambda b_k: candidate_split_opts.get(b_k, str(b_k)),
+            placeholder="Scegli uno o più negozi da dividere in 2, 3 o 4 bolle...",
+            key=f"mag_split_targets_{target_date}_{sel_giro}",
+        )
+
+        for sp_bid in split_target_bids:
+            b_orig = get_bolla_by_id(int(sp_bid))
+            if not b_orig:
+                continue
+            sp_sid = str(b_orig.get("id_store", "")).strip()
+            sp_disp = _format_store_display(sp_sid, b_orig, mag_names_lookup)
+            orig_cats = {k: max(0, int(round(float(b_orig.get(k, 0) or 0)))) for k in SPLIT_CAT_KEYS}
+            orig_total = sum(orig_cats.values())
+            has_inter = bool(
+                (b_orig.get("intershops_json") and str(b_orig.get("intershops_json")).strip() not in ("", "[]"))
+                or (b_orig.get("stringa") and str(b_orig.get("stringa")).strip())
+            )
+
+            with st.container(border=True):
+                st.markdown(
+                    f"<div style='background:#EFF6FF; border-left:4px solid #2563EB; padding:8px 12px; border-radius:6px; margin-bottom:8px;'>"
+                    f"<strong>🏪 Store {html.escape(sp_sid)} — {html.escape(sp_disp)}</strong> • "
+                    f"Totale da ripartire: <strong style='color:#1D4ED8;'>{orig_total} colli</strong> "
+                    f"(Abb: {orig_cats['colli_abbigl']} | Calz: {orig_cats['colli_calzat']} | "
+                    f"Ecom: {orig_cats['colli_ecom']} | Altri: {orig_cats['colli_others']} | Vario: {orig_cats['colli_vario']})"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                c_cfg1, c_cfg2, c_cfg3 = st.columns([1.1, 1.8, 1.1])
+                with c_cfg1:
+                    n_vans = st.radio(
+                        "🚛 Numero Furgoni",
+                        options=[2, 3, 4],
+                        format_func=lambda n_v: f"{n_v} Furgoni",
+                        horizontal=True,
+                        key=f"mag_sp_nvans_{sp_bid}",
+                    )
+                with c_cfg2:
+                    sp_mode = st.radio(
+                        "⚖️ Modalità Ripartizione Colli",
+                        options=["equa", "totale", "categorie"],
+                        format_func=lambda m: (
+                            "⚡ Equa Automatica"
+                            if m == "equa"
+                            else ("🔢 Per Totale Furgone" if m == "totale" else "🎛️ Per Singola Categoria")
+                        ),
+                        horizontal=True,
+                        key=f"mag_sp_mode_{sp_bid}",
+                    )
+                with c_cfg3:
+                    inter_van = st.selectbox(
+                        "🔄 Furgone Trasferimenti",
+                        options=list(range(1, n_vans + 1)),
+                        format_func=lambda v_i: f"Furgone {v_i}/{n_vans}",
+                        disabled=(not has_inter),
+                        help="Scegli su quale furgone caricare eventuali Trasferimenti (Intershops) per non duplicarli.",
+                        key=f"mag_sp_inter_{sp_bid}_{n_vans}",
+                    )
+
+                eq_defaults = compute_equal_split_parts(b_orig, n_vans)
+                custom_parts_cfg: List[Dict[str, Any]] = []
+                rem_tot_running = orig_total
+                rem_cats_running = dict(orig_cats)
+
+                for v_i in range(n_vans):
+                    van_num = v_i + 1
+                    is_last_van = (v_i == n_vans - 1)
+                    van_spec: Dict[str, Any] = {}
+
+                    if sp_mode == "totale":
+                        if not is_last_van:
+                            def_t = min(eq_defaults[v_i]["tot_colli"], rem_tot_running)
+                            c_vt1, c_vt2, c_vt3 = st.columns([1.4, 1.3, 1.3])
+                            with c_vt1:
+                                v_tot_in = st.number_input(
+                                    f"🚛 Colli Furgone {van_num}/{n_vans} (max {rem_tot_running})",
+                                    min_value=0,
+                                    max_value=max(0, rem_tot_running),
+                                    value=int(def_t),
+                                    step=1,
+                                    key=f"mag_sp_vtot_{sp_bid}_{n_vans}_{v_i}",
+                                )
+                            with c_vt2:
+                                v_aut_in = st.text_input(
+                                    f"👤 Autista Furgone {van_num} (opz.)",
+                                    value="",
+                                    placeholder=str(b_orig.get("autista") or "Default bolla"),
+                                    key=f"mag_sp_vaut_{sp_bid}_{n_vans}_{v_i}",
+                                )
+                            with c_vt3:
+                                v_sig_in = st.text_input(
+                                    f"🔒 Sigillo Furgone {van_num} (opz.)",
+                                    value="",
+                                    placeholder=sigillo_session_val.strip() or "Opzionale",
+                                    key=f"mag_sp_vsig_{sp_bid}_{n_vans}_{v_i}",
+                                )
+                            van_spec["target_total"] = int(v_tot_in)
+                            van_spec["autista"] = v_aut_in.strip()
+                            van_spec["sigillo"] = v_sig_in.strip()
+                            rem_tot_running = max(0, rem_tot_running - int(v_tot_in))
+                        else:
+                            c_vt1, c_vt2, c_vt3 = st.columns([1.4, 1.3, 1.3])
+                            with c_vt1:
+                                st.markdown(
+                                    f"<div style='background:#DCFCE7; border:1px solid #86EFAC; border-radius:8px; padding:8px 10px; margin-top:4px; font-size:13px;'>"
+                                    f"🔒 <strong>Furgone {van_num}/{n_vans} (Saldo Automatico): {rem_tot_running} colli</strong></div>",
+                                    unsafe_allow_html=True,
+                                )
+                            with c_vt2:
+                                v_aut_in = st.text_input(
+                                    f"👤 Autista Furgone {van_num} (opz.)",
+                                    value="",
+                                    placeholder=str(b_orig.get("autista") or "Default bolla"),
+                                    key=f"mag_sp_vaut_{sp_bid}_{n_vans}_{v_i}",
+                                )
+                            with c_vt3:
+                                v_sig_in = st.text_input(
+                                    f"🔒 Sigillo Furgone {van_num} (opz.)",
+                                    value="",
+                                    placeholder=sigillo_session_val.strip() or "Opzionale",
+                                    key=f"mag_sp_vsig_{sp_bid}_{n_vans}_{v_i}",
+                                )
+                            van_spec["autista"] = v_aut_in.strip()
+                            van_spec["sigillo"] = v_sig_in.strip()
+
+                    elif sp_mode == "categorie":
+                        if not is_last_van:
+                            st.markdown(f"**🚛 Furgone {van_num} di {n_vans}** *(imposta colli per categoria)*:")
+                            cc1, cc2, cc3, cc4, cc5, cc6, cc7 = st.columns([1, 1, 1, 1, 1, 1.3, 1.3])
+                            cat_labels_short = [
+                                ("colli_abbigl", "Abbigl."),
+                                ("colli_calzat", "Calzat."),
+                                ("colli_ecom", "E-Com"),
+                                ("colli_others", "Altri"),
+                                ("colli_vario", "Vario"),
+                            ]
+                            for col_ui, (ck, clbl) in zip([cc1, cc2, cc3, cc4, cc5], cat_labels_short):
+                                with col_ui:
+                                    max_c = max(0, rem_cats_running[ck])
+                                    def_c = min(eq_defaults[v_i][ck], max_c)
+                                    val_c = st.number_input(
+                                        f"{clbl} (≤{max_c})",
+                                        min_value=0,
+                                        max_value=max_c,
+                                        value=int(def_c),
+                                        step=1,
+                                        key=f"mag_sp_cat_{sp_bid}_{n_vans}_{v_i}_{ck}",
+                                    )
+                                    van_spec[ck] = int(val_c)
+                                    rem_cats_running[ck] = max(0, rem_cats_running[ck] - int(val_c))
+                            with cc6:
+                                v_aut_in = st.text_input(
+                                    f"👤 Autista F.{van_num}",
+                                    value="",
+                                    placeholder="Opzionale",
+                                    key=f"mag_sp_vaut_{sp_bid}_{n_vans}_{v_i}",
+                                )
+                            with cc7:
+                                v_sig_in = st.text_input(
+                                    f"🔒 Sigillo F.{van_num}",
+                                    value="",
+                                    placeholder="Opzionale",
+                                    key=f"mag_sp_vsig_{sp_bid}_{n_vans}_{v_i}",
+                                )
+                            van_spec["autista"] = v_aut_in.strip()
+                            van_spec["sigillo"] = v_sig_in.strip()
+                        else:
+                            rem_sum_last = sum(rem_cats_running.values())
+                            c_l1, c_l2, c_l3 = st.columns([2.4, 1.3, 1.3])
+                            with c_l1:
+                                st.markdown(
+                                    f"<div style='background:#DCFCE7; border:1px solid #86EFAC; border-radius:8px; padding:8px 10px; margin-top:4px; font-size:13px;'>"
+                                    f"🔒 <strong>Furgone {van_num}/{n_vans} (Saldo Automatico): {rem_sum_last} colli</strong> "
+                                    f"(Abb: {rem_cats_running['colli_abbigl']} | Calz: {rem_cats_running['colli_calzat']} | "
+                                    f"Ecom: {rem_cats_running['colli_ecom']} | Altri: {rem_cats_running['colli_others']} | Vario: {rem_cats_running['colli_vario']})"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
+                            with c_l2:
+                                v_aut_in = st.text_input(
+                                    f"👤 Autista F.{van_num}",
+                                    value="",
+                                    placeholder="Opzionale",
+                                    key=f"mag_sp_vaut_{sp_bid}_{n_vans}_{v_i}",
+                                )
+                            with c_l3:
+                                v_sig_in = st.text_input(
+                                    f"🔒 Sigillo F.{van_num}",
+                                    value="",
+                                    placeholder="Opzionale",
+                                    key=f"mag_sp_vsig_{sp_bid}_{n_vans}_{v_i}",
+                                )
+                            van_spec["autista"] = v_aut_in.strip()
+                            van_spec["sigillo"] = v_sig_in.strip()
+                    else:
+                        # Modalità Equa Automatica: mostra riepilogo colli + campi opzionali Autista/Sigillo
+                        eq_p = eq_defaults[v_i]
+                        c_eq1, c_eq2, c_eq3 = st.columns([2.2, 1.3, 1.3])
+                        with c_eq1:
+                            st.markdown(
+                                f"<div style='background:#F8FAFC; border:1px solid #CBD5E1; border-radius:8px; padding:8px 10px; margin-top:4px; font-size:13px;'>"
+                                f"🚛 <strong>Furgone {van_num}/{n_vans}: {eq_p['tot_colli']} colli</strong> "
+                                f"(Abb: {eq_p['colli_abbigl']} | Calz: {eq_p['colli_calzat']} | "
+                                f"Ecom: {eq_p['colli_ecom']} | Altri: {eq_p['colli_others']} | Vario: {eq_p['colli_vario']})"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                        with c_eq2:
+                            v_aut_in = st.text_input(
+                                f"👤 Autista Furgone {van_num} (opz.)",
+                                value="",
+                                placeholder=str(b_orig.get("autista") or "Default bolla"),
+                                key=f"mag_sp_vaut_{sp_bid}_{n_vans}_{v_i}",
+                            )
+                        with c_eq3:
+                            v_sig_in = st.text_input(
+                                f"🔒 Sigillo Furgone {van_num} (opz.)",
+                                value="",
+                                placeholder=sigillo_session_val.strip() or "Opzionale",
+                                key=f"mag_sp_vsig_{sp_bid}_{n_vans}_{v_i}",
+                            )
+                        van_spec["autista"] = v_aut_in.strip()
+                        van_spec["sigillo"] = v_sig_in.strip()
+
+                    custom_parts_cfg.append(van_spec)
+
+                split_recs_for_store = split_bolla_for_printing(
+                    b_orig,
+                    n_parts=n_vans,
+                    custom_parts=custom_parts_cfg,
+                    intershops_part_idx=inter_van,
+                )
+                split_records_by_bid[int(sp_bid)] = split_recs_for_store
+
+                parts_summary_str = " + ".join(
+                    f"Furgone {sr['split_index']}/{n_vans} ({int(sr['TOT_COLLI'])} colli)"
+                    for sr in split_recs_for_store
+                )
+                sum_check = sum(int(sr["TOT_COLLI"]) for sr in split_recs_for_store)
+                st.markdown(
+                    f"<div style='background:#ECFDF5; border:1px solid #34D399; color:#065F46; border-radius:8px; "
+                    f"padding:7px 12px; font-size:12.5px; font-weight:700; margin:6px 0;'>"
+                    f"✅ Quadratura Colli Garantita: {parts_summary_str} = <strong>{sum_check} / {orig_total} colli</strong> (100%)"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                if st.button(
+                    f"🖨️ STAMPA SUBITO LE {n_vans} BOLLE DIVISE DI STORE {sp_sid} ({orig_total} COLLI TOTALI)",
+                    type="primary",
+                    use_container_width=True,
+                    key=f"mag_sp_print_now_{sp_bid}",
+                ):
+                    html_sp = render_bolla_printable_html(
+                        split_recs_for_store,
+                        auto_print=True,
+                        override_sigillo=sigillo_session_val.strip(),
+                    ) + f"\n<!-- print_ts: {datetime.now().isoformat()} -->"
+                    st.session_state["mag_simp_print_html"] = html_sp
+                    st.session_state["mag_simp_print_title"] = f"Bolle_Store_{sp_sid}_{n_vans}_Furgoni_{target_date}.html"
+
+    def _expand_bolle_with_splits(df_sub: pd.DataFrame) -> List[Dict[str, Any]]:
+        expanded: List[Dict[str, Any]] = []
+        for _, r_sub in df_sub.iterrows():
+            r_bid = int(r_sub["id"])
+            if r_bid in split_records_by_bid:
+                expanded.extend(split_records_by_bid[r_bid])
+            else:
+                b_rec = get_bolla_by_id(r_bid)
+                if b_rec:
+                    expanded.append(b_rec)
+        return expanded
+
     # --- STEP 3: TASTONE STAMPA BOLLE ---
-    n_bolle = len(df_to_print)
+    n_bolle_stores = len(df_to_print)
+    extra_split_sheets = sum(len(v) - 1 for k, v in split_records_by_bid.items() if k in set(df_to_print["id"].astype(int)))
+    n_sheets_total = n_bolle_stores + extra_split_sheets
     tot_colli_print = int(df_to_print["tot_colli"].sum()) if not df_to_print.empty else 0
+    sheets_lbl = (
+        f"{n_sheets_total} FOGLI PER {n_bolle_stores} NEGOZI"
+        if extra_split_sheets > 0
+        else f"{n_bolle_stores} BOLLE"
+    )
 
     if st.button(
-        f"🖨️ STAMPA BOLLE SELEZIONATE ({n_bolle} BOLLE — {tot_colli_print} COLLI)",
+        f"🖨️ STAMPA BOLLE SELEZIONATE ({sheets_lbl} — {tot_colli_print} COLLI)",
         type="primary",
         use_container_width=True,
-        disabled=(n_bolle == 0),
+        disabled=(n_bolle_stores == 0),
         key="mag_simp_big_print_btn",
     ):
-        recs = [get_bolla_by_id(int(r["id"])) for _, r in df_to_print.iterrows()]
-        recs = [r for r in recs if r]
+        recs = _expand_bolle_with_splits(df_to_print)
         html_out = render_bolla_printable_html(
             recs,
             auto_print=True,
@@ -1126,7 +1423,7 @@ def render_magazzino_simplified_view(
         )
         html_out += f"\n<!-- print_ts: {datetime.now().isoformat()} -->"
         st.session_state["mag_simp_print_html"] = html_out
-        st.session_state["mag_simp_print_title"] = f"Bolle_{target_date}_{n_bolle}.html"
+        st.session_state["mag_simp_print_title"] = f"Bolle_{target_date}_{n_sheets_total}.html"
 
     # Bottoni rapidi /0, /9, Excel
     c_q1, c_q2, c_q3 = st.columns(3)
@@ -1140,8 +1437,7 @@ def render_magazzino_simplified_view(
             disabled=df_only_b0.empty,
             key="mag_simp_print_b0",
         ):
-            recs = [get_bolla_by_id(int(r["id"])) for _, r in df_only_b0.iterrows()]
-            recs = [r for r in recs if r]
+            recs = _expand_bolle_with_splits(df_only_b0)
             html_out = render_bolla_printable_html(
                 recs,
                 auto_print=True,
@@ -1157,8 +1453,7 @@ def render_magazzino_simplified_view(
             disabled=df_only_b9.empty,
             key="mag_simp_print_b9",
         ):
-            recs = [get_bolla_by_id(int(r["id"])) for _, r in df_only_b9.iterrows()]
-            recs = [r for r in recs if r]
+            recs = _expand_bolle_with_splits(df_only_b9)
             html_out = render_bolla_printable_html(
                 recs,
                 auto_print=True,
@@ -1193,7 +1488,7 @@ def render_magazzino_simplified_view(
 
     # Riepilogo pulito in sola lettura
     if not df_to_print.empty:
-        with st.expander(f"📋 Anteprima Elenco Bolle Selezionate ({n_bolle} negozi — {tot_colli_print} colli)", expanded=True):
+        with st.expander(f"📋 Anteprima Elenco Bolle Selezionate ({n_bolle_stores} negozi — {tot_colli_print} colli)", expanded=True):
             disp_df = pd.DataFrame({
                 "Giro": df_to_print["giro"],
                 "Store ID": df_to_print["id_store"],

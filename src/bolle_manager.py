@@ -1366,6 +1366,173 @@ def export_bolle_excel(df_bolle: pd.DataFrame, delivery_date: str) -> bytes:
     return buf.getvalue()
 
 
+SPLIT_CAT_KEYS = ["colli_abbigl", "colli_calzat", "colli_ecom", "colli_others", "colli_vario"]
+
+
+def compute_equal_split_parts(bolla: Dict[str, Any], n_parts: int = 2) -> List[Dict[str, int]]:
+    """
+    Calcola la ripartizione equa automatica di una bolla in `n_parts` (2, 3 o 4 furgoni).
+    Ogni categoria viene divisa in parti intere distribuendo il resto sui primi furgoni,
+    così la somma per ogni singola categoria e il totale complessivo coincidono sempre al 100%.
+    """
+    n = max(1, min(4, int(n_parts or 1)))
+    orig = {k: max(0, int(round(float(bolla.get(k, 0) or 0)))) for k in SPLIT_CAT_KEYS}
+    parts: List[Dict[str, int]] = [{k: 0 for k in SPLIT_CAT_KEYS} for _ in range(n)]
+    for k in SPLIT_CAT_KEYS:
+        base_q = orig[k] // n
+        rem_q = orig[k] % n
+        for i in range(n):
+            parts[i][k] = base_q + (1 if i < rem_q else 0)
+    for i in range(n):
+        parts[i]["tot_colli"] = sum(parts[i][k] for k in SPLIT_CAT_KEYS)
+    return parts
+
+
+def _allocate_total_proportionally(remaining_cats: Dict[str, int], target_total: int) -> Dict[str, int]:
+    """
+    Spalma un totale colli desiderato (`target_total`) sulle categorie disponibili in `remaining_cats`
+    in modo proporzionale, garantendo che nessuna categoria superi il residuo disponibile
+    e che la somma finale sia esattamente `min(target_total, sum(remaining_cats))`.
+    """
+    rem_tot = sum(remaining_cats.get(k, 0) for k in SPLIT_CAT_KEYS)
+    clamped_target = max(0, min(int(target_total or 0), rem_tot))
+    if clamped_target == 0:
+        return {k: 0 for k in SPLIT_CAT_KEYS}
+    if clamped_target == rem_tot:
+        return {k: int(remaining_cats.get(k, 0)) for k in SPLIT_CAT_KEYS}
+
+    alloc: Dict[str, int] = {}
+    fracs = []
+    for k in SPLIT_CAT_KEYS:
+        avail = int(remaining_cats.get(k, 0))
+        exact = (avail * clamped_target) / float(rem_tot)
+        fl = min(avail, int(exact))
+        alloc[k] = fl
+        fracs.append((exact - fl, avail - fl, k))
+
+    diff = clamped_target - sum(alloc.values())
+    fracs.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    for _, _, k in fracs:
+        if diff <= 0:
+            break
+        if alloc[k] < remaining_cats[k]:
+            alloc[k] += 1
+            diff -= 1
+
+    # Fallback se restano unità da assegnare
+    if diff > 0:
+        for k in SPLIT_CAT_KEYS:
+            while diff > 0 and alloc[k] < remaining_cats[k]:
+                alloc[k] += 1
+                diff -= 1
+
+    return alloc
+
+
+def split_bolla_for_printing(
+    bolla: Dict[str, Any],
+    n_parts: int = 2,
+    custom_parts: Optional[List[Dict[str, Any]]] = None,
+    intershops_part_idx: int = 1,
+) -> List[Dict[str, Any]]:
+    """
+    Divide una bolla in `n_parts` (2, 3 o 4) sotto-bolle per la stampa su più furgoni.
+    - Garantisce matematicamente che la somma dei colli delle `n_parts` sotto-bolle sia
+      SEMPRE identica al 100% al totale della bolla originale (l'ultimo furgone assorbe
+      sempre a saldo la differenza residua).
+    - Non modifica il database: opera esclusivamente sui record destinati alla stampa.
+    - Supporta l'assegnazione opzionale di Autista, Sigillo e Mezzo per ciascun furgone
+      e l'assegnazione dei Trasferimenti (Intershops) a uno specifico furgone (default: Furgone 1).
+    """
+    n = max(1, min(4, int(n_parts or 1)))
+    if n <= 1:
+        return [dict(bolla)]
+
+    orig_cats = {k: max(0, int(round(float(bolla.get(k, 0) or 0)))) for k in SPLIT_CAT_KEYS}
+    orig_total = sum(orig_cats.values())
+    rem_cats = dict(orig_cats)
+
+    eq_parts = compute_equal_split_parts(bolla, n)
+    computed_cats: List[Dict[str, int]] = []
+
+    for idx in range(n):
+        if idx == n - 1:
+            # L'ultimo furgone (Furgone N) riceve SEMPRE il saldo esatto residuo!
+            part_c = {k: max(0, rem_cats[k]) for k in SPLIT_CAT_KEYS}
+        else:
+            c_spec = custom_parts[idx] if (custom_parts and idx < len(custom_parts) and isinstance(custom_parts[idx], dict)) else None
+            if c_spec is not None and any(k in c_spec for k in SPLIT_CAT_KEYS):
+                part_c = {}
+                for k in SPLIT_CAT_KEYS:
+                    req_v = max(0, int(round(float(c_spec.get(k, 0) or 0))))
+                    actual_v = min(req_v, rem_cats[k])
+                    part_c[k] = actual_v
+                    rem_cats[k] -= actual_v
+            elif c_spec is not None and "target_total" in c_spec and c_spec["target_total"] is not None:
+                part_c = _allocate_total_proportionally(rem_cats, int(c_spec["target_total"]))
+                for k in SPLIT_CAT_KEYS:
+                    rem_cats[k] -= part_c[k]
+            else:
+                part_c = {}
+                for k in SPLIT_CAT_KEYS:
+                    req_v = eq_parts[idx][k]
+                    actual_v = min(req_v, rem_cats[k])
+                    part_c[k] = actual_v
+                    rem_cats[k] -= actual_v
+        computed_cats.append(part_c)
+
+    target_inter_idx = max(1, min(n, int(intershops_part_idx or 1)))
+    has_inter = bool(
+        (bolla.get("intershops_json") and str(bolla.get("intershops_json")).strip() not in ("", "[]"))
+        or (bolla.get("stringa") and str(bolla.get("stringa")).strip())
+    )
+
+    out_records: List[Dict[str, Any]] = []
+    base_note = str(bolla.get("note") or "").strip()
+    if base_note.lower() in ("nan", "none"):
+        base_note = ""
+
+    for idx in range(n):
+        part_num = idx + 1
+        sub_b = dict(bolla)
+        p_cats = computed_cats[idx]
+        part_tot = sum(p_cats.values())
+
+        for k in SPLIT_CAT_KEYS:
+            sub_b[k] = p_cats[k]
+        sub_b["TOT_COLLI"] = part_tot
+        sub_b["split_index"] = part_num
+        sub_b["split_total"] = n
+        sub_b["split_parent_total_colli"] = orig_total
+        sub_b["split_part_label"] = f"FURGONE {part_num}/{n}"
+
+        # Personalizzazioni opzionali per singolo furgone (Autista, Sigillo, Mezzo)
+        c_spec = custom_parts[idx] if (custom_parts and idx < len(custom_parts) and isinstance(custom_parts[idx], dict)) else {}
+        custom_aut = str(c_spec.get("autista") or "").strip()
+        custom_sig = str(c_spec.get("sigillo") or "").strip()
+        custom_mez = str(c_spec.get("tipo_mezzo") or "").strip()
+        if custom_aut:
+            sub_b["autista"] = custom_aut
+        if custom_sig:
+            sub_b["sigillo"] = custom_sig
+            sub_b["split_sigillo"] = custom_sig
+        if custom_mez:
+            sub_b["tipo_mezzo"] = custom_mez
+
+        # Gestione Trasferimenti (Intershops): assegnati solo al furgone prescelto per non duplicarli
+        if part_num != target_inter_idx:
+            sub_b["intershops_json"] = "[]"
+            sub_b["stringa"] = ""
+
+        split_note = f"🚛 CONSEGNA DIVISA SU {n} FURGONI — QUOTA FURGONE {part_num}/{n}: {part_tot} colli (su {orig_total} colli totali negozio)"
+        if has_inter and part_num != target_inter_idx:
+            split_note += f" • [Trasferimenti caricati su Furgone {target_inter_idx}/{n}]"
+        sub_b["note"] = f"{split_note} | {base_note}" if base_note else split_note
+        out_records.append(sub_b)
+
+    return out_records
+
+
 def render_bolla_printable_html(
     bolla_records: List[Dict[str, Any]],
     title: str = "Bolla di Consegna Inditex",
@@ -1375,13 +1542,18 @@ def render_bolla_printable_html(
     """
     Generates a clean, professional printable HTML page for one or multiple bolle.
     Includes page breaks between notes for batch printing without blank intermediate pages.
+    Supports split bolle (2-3-4 vans per store) with clear part numbering and total verification.
     """
     html_pages = []
 
     for b in bolla_records:
         bid = b.get("id", "")
         access_id = b.get("access_id")
-        doc_num = f"{access_id}" if access_id else f"{bid:05d}" if bid else "BOZZA"
+        base_doc_num = f"{access_id}" if access_id else f"{bid:05d}" if isinstance(bid, int) else (str(bid) if bid else "BOZZA")
+        split_idx = int(b.get("split_index", 1) or 1)
+        split_tot = int(b.get("split_total", 1) or 1)
+        is_split = split_tot > 1
+        doc_num = f"{base_doc_num}/{split_idx}" if is_split else base_doc_num
 
         data_cons = b.get("data_consegna") or b.get("data") or ""
         # Format DD/MM/YYYY
@@ -1402,7 +1574,9 @@ def render_bolla_printable_html(
         indirizzo = b.get("indirizzo_destino", "")
 
         aut_line = f"<strong>Autista:</strong> {autista}<br>" if autista else ""
-        if override_sigillo is not None:
+        if b.get("split_sigillo"):
+            sigillo_val = str(b.get("split_sigillo")).strip()
+        elif override_sigillo is not None:
             sigillo_val = str(override_sigillo).strip()
         else:
             sigillo_val = str(b.get("sigillo") or "").strip()
@@ -1420,6 +1594,23 @@ def render_bolla_printable_html(
         stringa = b.get("stringa", "")
 
         tot_operativa = c_abb + c_calz + c_eco + c_oth + c_var
+        parent_tot_colli = int(b.get("split_parent_total_colli", tot_operativa) or tot_operativa)
+        split_badge_html = (
+            f" <span class='badge' style='background:#7c3aed; color:white; margin-left:6px;'>"
+            f"🚛 FURGONE {split_idx} DI {split_tot} (Quota: {tot_operativa}/{parent_tot_colli} colli)</span>"
+            if is_split
+            else ""
+        )
+        total_row_label = (
+            f"TOTALE COLLI SU QUESTO MEZZO (FURGONE {split_idx} DI {split_tot})"
+            if is_split
+            else "TOTALE COLLI OPERATIVA CONSEGNATI"
+        )
+        total_row_note = (
+            f"Quota Furgone {split_idx}/{split_tot} (Totale Complessivo Negozio: {parent_tot_colli} colli)"
+            if is_split
+            else "-"
+        )
 
         # Parse intershops if JSON or text
         inter_rows_html = ""
@@ -1479,7 +1670,7 @@ def render_bolla_printable_html(
             <!-- TITLE BAR -->
             <div class="title-bar">
                 <div style="font-size: 18px; font-weight: bold;">
-                    BOLLA DI CONSEGNA N° <span style="color:#d9534f;">{doc_num}</span> {badge_tipo}
+                    BOLLA DI CONSEGNA N° <span style="color:#d9534f;">{doc_num}</span> {badge_tipo}{split_badge_html}
                 </div>
                 <div style="font-size: 15px; font-weight: bold;">
                     DATA CONSEGNA: <span style="text-decoration: underline;">{data_cons_fmt}</span>
@@ -1545,9 +1736,9 @@ def render_bolla_printable_html(
                         <td>Stand / Ceste / Materiali</td>
                     </tr>
                     <tr class="total-row">
-                        <td>TOTALE COLLI OPERATIVA CONSEGNATI</td>
+                        <td>{total_row_label}</td>
                         <td class="num" style="font-size: 15px;">{tot_operativa}</td>
-                        <td>-</td>
+                        <td>{total_row_note}</td>
                     </tr>
                 </tbody>
             </table>

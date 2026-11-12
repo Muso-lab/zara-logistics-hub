@@ -467,3 +467,75 @@ def test_mobile_intershop_material_description(tmp_path):
     assert "3680" in html_out
 
 
+def test_split_bolla_for_printing_in_n_vans():
+    """
+    Verifica la divisione di una bolla in 2, 3 o 4 furgoni in fase di stampa:
+    1) Ripartizione equa automatica: il totale colli e ogni singola categoria quadrano al 100%.
+    2) Ripartizione personalizzata per totale furgone e per categoria: l'ultimo furgone
+       assorbe automaticamente il saldo per differenza senza mai perdere o inventare colli.
+    3) Personalizzazione Autista, Sigillo e Furgone destinatario dei Trasferimenti (Intershops).
+    """
+    from src.bolle_manager import SPLIT_CAT_KEYS, split_bolla_for_printing
+
+    base_bolla = {
+        "id": 846,
+        "data": "2026-11-11",
+        "data_consegna": "2026-11-11",
+        "id_store": "3534",
+        "punto_vendita": "ZARA",
+        "store_name": "ROM-ROMA EST",
+        "tipo_cons": "STD",
+        "colli_abbigl": 200,
+        "colli_calzat": 35,
+        "colli_ecom": 20,
+        "colli_others": 10,
+        "colli_vario": 2,
+        "intershops_json": '[{"mittente": "3680", "colli": 4, "tipo": "STAND", "descrizione": "Manichini"}]',
+        "stringa": "4C STAND (Manichini) da 3680",
+    }
+    orig_total = 200 + 35 + 20 + 10 + 2  # 267 colli
+
+    # 1. Divisione equa su 2, 3 e 4 furgoni
+    for n_v in (2, 3, 4):
+        parts = split_bolla_for_printing(base_bolla, n_parts=n_v)
+        assert len(parts) == n_v
+        assert sum(int(p["TOT_COLLI"]) for p in parts) == orig_total
+        for ck in SPLIT_CAT_KEYS:
+            assert sum(int(p[ck]) for p in parts) == base_bolla[ck]
+
+    # 2. Divisione su 3 furgoni con totale personalizzato sui primi 2 e saldo automatico sul 3°
+    #    + Autista/Sigillo dedicati e Trasferimenti sul Furgone 2
+    custom_3 = [
+        {"target_total": 100, "autista": "ROSSI MARIO", "sigillo": "SIG-F1"},
+        {"target_total": 90, "autista": "BIANCHI LUIGI", "sigillo": "SIG-F2"},
+        {"autista": "VERDI PAOLO", "sigillo": "SIG-F3"},
+    ]
+    parts_3 = split_bolla_for_printing(
+        base_bolla,
+        n_parts=3,
+        custom_parts=custom_3,
+        intershops_part_idx=2,
+    )
+    assert [int(p["TOT_COLLI"]) for p in parts_3] == [100, 90, 77]
+    assert sum(int(p["TOT_COLLI"]) for p in parts_3) == orig_total
+    for ck in SPLIT_CAT_KEYS:
+        assert sum(int(p[ck]) for p in parts_3) == base_bolla[ck]
+
+    # Verifica che i trasferimenti siano SOLO sul Furgone 2 e non duplicati su 1 e 3
+    assert parts_3[0]["intershops_json"] == "[]"
+    assert "3680" in parts_3[1]["intershops_json"]
+    assert parts_3[2]["intershops_json"] == "[]"
+
+    # Verifica HTML stampabile
+    html_split = render_bolla_printable_html(parts_3, auto_print=False, override_sigillo="")
+    assert "00846/1" in html_split
+    assert "00846/2" in html_split
+    assert "00846/3" in html_split
+    assert "FURGONE 1 DI 3" in html_split
+    assert "FURGONE 2 DI 3" in html_split
+    assert "FURGONE 3 DI 3" in html_split
+    assert "SIG-F1" in html_split and "SIG-F2" in html_split and "SIG-F3" in html_split
+    assert "ROSSI MARIO" in html_split and "BIANCHI LUIGI" in html_split and "VERDI PAOLO" in html_split
+
+
+
