@@ -860,6 +860,44 @@ def render_ufficio_simplified_view(
             key_prefix=f"uff_simp_{rid_disp}",
         )
 
+    with st.expander("🔄 Ricezione Automatica XML su Server Windows / BeOne (Zero FTP & Zero Whitelist Firewall)", expanded=False):
+        from src.gcs_storage import (
+            generate_windows_autosync_installer_script,
+            generate_windows_download_script,
+            get_gcs_config,
+        )
+        gcs_cfg_uff = get_gcs_config()
+        auto_installer_bat = generate_windows_autosync_installer_script(gcs_cfg_uff)
+        _, manual_dl_bat = generate_windows_download_script(gcs_cfg_uff)
+        st.markdown(
+            "Invece di aprire porte FTP sul firewall o gestire IP statici in whitelist, il server Windows preleva in automatico "
+            "i nuovi file XML dal bucket `gs://lacchi-tms-zara` tramite normale connessione **HTTPS in uscita (porta 443)**:\n"
+            "- **Installatore Servizio Automatico (`installa_sync_automatico_tms.bat`)**: eseguilo **una sola volta** sul server/PC di BeOne. "
+            "Attiva un controllo silenzioso ogni 60 secondi che scarica i file XML in `C:\\IMPORT_SGA\\RICEZIONE_ORDINI\\ZARA` **solo quando viene generata una nuova operativa** (senza mai riscaricare due volte lo stesso lotto).\n"
+            "- **Scarico Manuale 1-Click (`scarica_xml_tms.bat`)**: per forzare a comando lo scarico immediato sul PC."
+        )
+        c_dl_a1, c_dl_a2 = st.columns(2)
+        with c_dl_a1:
+            st.download_button(
+                "⚡ Scarica Installatore Sync Automatico 60s (.bat)",
+                data=auto_installer_bat.encode("utf-8"),
+                file_name="installa_sync_automatico_tms.bat",
+                mime="application/x-bat",
+                type="primary",
+                use_container_width=True,
+                key="uff_dl_autosync_installer_bat",
+            )
+        with c_dl_a2:
+            st.download_button(
+                "📥 Scarica Lanciatore Manuale 1-Click (.bat)",
+                data=manual_dl_bat.encode("utf-8"),
+                file_name="scarica_xml_tms.bat",
+                mime="application/x-bat",
+                type="secondary",
+                use_container_width=True,
+                key="uff_dl_manual_sync_bat",
+            )
+
 
 # ==============================================================================
 # 2. MODALITÀ MAGAZZINO SEMPLIFICATA (SOLO SELEZIONE DATA, NEGOZI E STAMPA BOLLE)
