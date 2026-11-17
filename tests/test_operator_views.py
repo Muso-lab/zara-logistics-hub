@@ -587,7 +587,7 @@ def test_calendario_dal_13_dicembre_domenica_lunedi_e_automazione():
 
 
 def test_perfume_inbox_parser():
-    """Verifica l'estrazione automatica delle quantità profumi dal corpo email."""
+    """Verifica l'estrazione automatica delle quantità profumi dal corpo email, escludendo recapiti telefonici."""
     from src.perfume_inbox import parse_perfumes_from_text
 
     text = """
@@ -601,6 +601,29 @@ def test_perfume_inbox_parser():
     assert res["3680"] == 140.0
     assert res["9226"] == 55.0
     assert res["3591"] == 70.0
+
+    # Test con caso reale inviato dal cliente contenente firma e recapito telefonico (+39 342 133 7918)
+    real_email_text = """
+    Buongiorno a tutti,
+    Profumi di domani:
+    3591 - 1135 pz
+    3680 - 1433 pz
+    9226 - 1302 pz
+    Grazie e saluti
+    Alina Leon
+    CUSTOMER SERVICE EMPLOYEE
+    Trasporti Internazionali Transmec s.p.a.
+    Via Strasburgo, 31, 41011 Campogalliano (MO
+    Mob.: +39 342 133 7918
+    aleon@transmecgroup.com
+    www.transmecgroup.com
+    """
+    res_real = parse_perfumes_from_text(real_email_text)
+    assert res_real.get("3591") == 1135.0
+    assert res_real.get("3680") == 1433.0
+    assert res_real.get("9226") == 1302.0
+    assert "342" not in res_real, "Il numero di telefono 342 non deve essere scambiato per un negozio!"
+    assert len(res_real) == 3
 
 
 def test_auto_operativa_friday_trigger():

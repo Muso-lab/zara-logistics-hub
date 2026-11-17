@@ -108,55 +108,88 @@ def _decode_mime_header(header_val: Optional[str]) -> str:
     return " ".join(decoded_fragments).strip()
 
 
-def parse_perfumes_from_text(text: str) -> Dict[str, float]:
+def get_valid_perfume_store_ids() -> set[str]:
     """
-    Estrae coppie {codice_negozio: quantita_pezzi} da una stringa di testo.
-    Supporta formati come:
-    - 3680: 120
-    - 3680 - 120 pz
-    - Negozio 3680 = 120
-    - Store 9226 45
-    - 3591 | 80 pezzi
+    Restituisce l'insieme dei codici negozio per i quali in Anagrafica Negozi
+    è attiva la lavorazione profumi (scorporo_profumi = 'SI').
+    Se il database non è raggiungibile o non ha record marcati, usa come fallback i negozi noti.
+    """
+    try:
+        from src.db import get_stores_df
+        df = get_stores_df()
+        if not df.empty and "scorporo_profumi" in df.columns:
+            matches = (
+                df[df["scorporo_profumi"].fillna("NO").astype(str).str.upper() == "SI"]["store_id"]
+                .astype(str)
+                .str.strip()
+                .tolist()
+            )
+            if matches:
+                return set(matches)
+    except Exception:
+        pass
+    return {"3591", "3680", "9226"}
+
+
+def parse_perfumes_from_text(text: str, allowed_store_ids: Optional[set[str]] = None) -> Dict[str, float]:
+    """
+    Estrae coppie {codice_negozio: quantita_pezzi} da una stringa di testo,
+    filtrando RIGOROSAMENTE solo per i negozi abilitati allo scorporo profumi
+    (escludendo numeri di telefono, firme, recapiti o codici non abilitati).
     """
     res: Dict[str, float] = {}
     if not text:
         return res
 
+    valid_stores = allowed_store_ids if allowed_store_ids is not None else get_valid_perfume_store_ids()
+
     lines = text.splitlines()
-    # Pattern regex per righe con codice negozio (3-5 cifre) e quantità (1-5 cifre)
-    # Esempi:
-    # "3680: 120", "Negozio 3680 - 120 pz", "3680  120", "3680 = 120 colli"
     pattern = re.compile(
         r"(?:(?:neg(?:ozio)?|store|cod(?:ice)?)\s*)?(?P<store>\b\d{3,5}\b)\s*[:=\-|\t ]+\s*(?P<qty>\b\d{1,6}\b)(?:\s*(?:pz|pezzi|colli|profumi|bt|bultos))?",
         re.IGNORECASE
     )
+
+    skip_markers = ("mob.", "mob:", "cell.", "cell:", "tel.", "tel:", "phone:", "fax:", "http", "www.", "@", "via ")
 
     for line in lines:
         line_clean = line.strip()
         if not line_clean or line_clean.startswith("#"):
             continue
 
-        # Cerca match
+        line_lower = line_clean.lower()
+        # Se la riga è chiaramente un recapito o firma e non contiene un negozio profumi noto
+        if any(sm in line_lower for sm in skip_markers):
+            if not any(f" {sid} " in f" {line_clean} " or line_clean.startswith(sid) for sid in valid_stores):
+                continue
+
         matches = pattern.finditer(line_clean)
         for m in matches:
             sid = m.group("store").strip()
             qty_str = m.group("qty").strip()
+            # Filtro fondamentale: accetta SOLO negozi abilitati ai profumi
+            if valid_stores and sid not in valid_stores:
+                continue
+
             try:
                 q_val = float(qty_str)
-                # Filtra anni (es. 2026) o numeri improbabili
-                if 100 <= int(sid) <= 99999 and int(sid) != 2026 and int(sid) != 2025:
-                    res[sid] = q_val
+                res[sid] = q_val
             except Exception:
                 pass
 
     return res
 
 
-def parse_perfumes_from_excel_bytes(file_bytes: bytes, filename: str = "") -> Dict[str, float]:
-    """Estrae profumi da un allegato Excel o CSV."""
+def parse_perfumes_from_excel_bytes(
+    file_bytes: bytes,
+    filename: str = "",
+    allowed_store_ids: Optional[set[str]] = None,
+) -> Dict[str, float]:
+    """Estrae profumi da un allegato Excel o CSV filtrando per negozi abilitati."""
     res: Dict[str, float] = {}
     if not file_bytes:
         return res
+
+    valid_stores = allowed_store_ids if allowed_store_ids is not None else get_valid_perfume_store_ids()
 
     try:
         import pandas as pd
@@ -187,6 +220,8 @@ def parse_perfumes_from_excel_bytes(file_bytes: bytes, filename: str = "") -> Di
             for _, r in df.iterrows():
                 try:
                     s_raw = str(r[store_col]).strip().split(".")[0]
+                    if valid_stores and s_raw not in valid_stores:
+                        continue
                     q_raw = float(r[qty_col])
                     if s_raw.isdigit():
                         res[s_raw] = q_raw
@@ -197,6 +232,8 @@ def parse_perfumes_from_excel_bytes(file_bytes: bytes, filename: str = "") -> Di
             for _, r in df.iterrows():
                 try:
                     s_raw = str(r.iloc[0]).strip().split(".")[0]
+                    if valid_stores and s_raw not in valid_stores:
+                        continue
                     q_raw = float(r.iloc[1])
                     if s_raw.isdigit():
                         res[s_raw] = q_raw
@@ -300,6 +337,7 @@ def fetch_latest_perfumes_from_email(config_override: Optional[Dict[str, Any]] =
 
         keywords = [k.lower() for k in cfg.get("subject_keywords", ["profum", "scorporo", "pezzi"])]
         sender_flt = (cfg.get("sender_filter", "") or "").lower().strip()
+        valid_stores = get_valid_perfume_store_ids()
 
         matched_perfumes: Dict[str, float] = {}
         matched_subject = ""
@@ -343,7 +381,7 @@ def fetch_latest_perfumes_from_email(config_override: Optional[Dict[str, Any]] =
                     if "attachment" in content_disposition.lower() or filename.lower().endswith((".xlsx", ".xls", ".csv")):
                         payload = part.get_payload(decode=True)
                         if payload:
-                            att_res = parse_perfumes_from_excel_bytes(payload, filename)
+                            att_res = parse_perfumes_from_excel_bytes(payload, filename, allowed_store_ids=valid_stores)
                             if att_res:
                                 attachment_perfumes.update(att_res)
                     elif content_type in ("text/plain", "text/html") and "attachment" not in content_disposition.lower():
@@ -361,7 +399,7 @@ def fetch_latest_perfumes_from_email(config_override: Optional[Dict[str, Any]] =
                     except Exception:
                         body_text = payload.decode("latin1", errors="ignore")
 
-            text_perfumes = parse_perfumes_from_text(body_text)
+            text_perfumes = parse_perfumes_from_text(body_text, allowed_store_ids=valid_stores)
 
             # Preferenza: allegato se trovato, altrimenti corpo testo
             if attachment_perfumes:
