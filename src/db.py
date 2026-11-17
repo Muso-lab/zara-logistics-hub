@@ -1307,14 +1307,14 @@ def get_email_config(db_path=None) -> Dict[str, Any]:
     from src.config import DATA_DIR
 
     cfg = {
-        "smtp_host": "",
+        "smtp_host": "smtp.gmail.com",
         "smtp_port": 587,
-        "smtp_user": "",
-        "smtp_password": "",
+        "smtp_user": "traffico@lacchi.com",
+        "smtp_password": "ceii jrps rmjx yyal",
         "smtp_security": "STARTTLS",
         "sender_name": "Logistica Zara Hub",
-        "default_to": "operativa@trasporti.it, traffico@trasporti.it",
-        "default_cc": "",
+        "default_to": "andriisup.lavoro@gmail.com,g.pedrazzoli@lacchi.com,l.pimpini@lacchi.com,gabriele.azlogistics@gmail.com",
+        "default_cc": "l.liberati@lacchi.com,m.serafini@lacchi.com",
         "subject_template": "[ZARA LOGISTICS] File Operativa & Flussi SGA - Spedizione del {date}",
         "body_template": (
             "Gentili Colleghi,\n\n"

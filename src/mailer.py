@@ -122,10 +122,9 @@ def send_operativa_email(
 
     # Dry-run / simulation mode
     att_names = [p.name for p in valid_attachments]
-    return True, (
-        f"Simulazione invio completata con successo a {', '.join(clean_recipients)}. "
-        f"Allegati inclusi: {', '.join(att_names) if att_names else 'Nessuno'}. "
-        "Per l'invio reale definitivo, configura i parametri SMTP nella scheda 'Configurazione Email' o inserisci le credenziali nel sistema."
+    return False, (
+        f"Errore invio email: Credenziali SMTP incomplete (Host: '{smtp_host}', Utente: '{smtp_user}'). "
+        "L'email non è stata spedita. Configura le credenziali SMTP o verifica i parametri."
     )
 
 

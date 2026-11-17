@@ -201,6 +201,14 @@ def execute_auto_operativa_run(
     2) Esegue run_pipeline -> Genera Excel + Bolle (/0 e /9 con regola 13 Dicembre) + XML TMS su GCS
     3) Invia automaticamente l'email operativa con gli allegati configurati.
     """
+    # 0. Sincronizzazione preventiva da Google Sheets (ripristina credenziali, anagrafica negozi e storico)
+    try:
+        from src.cloud_sync import pull_all_from_cloud
+        pull_res = pull_all_from_cloud(timeout=30)
+        print(f"Pre-run Cloud Pull: {pull_res.get('status')}")
+    except Exception as pull_err:
+        print(f"Pre-run Cloud Pull warning: {pull_err}")
+
     cfg = get_auto_operativa_config()
     dt = target_date or now_rome().date()
     dt_iso = dt.strftime("%Y-%m-%d")
@@ -242,13 +250,17 @@ def execute_auto_operativa_run(
             try:
                 from src.perfume_inbox import fetch_latest_perfumes_from_email
                 inbox_res = fetch_latest_perfumes_from_email()
+                print(f"Verifica automatica profumi da email: {inbox_res.get('status')} - {inbox_res.get('message')}")
                 if inbox_res.get("status") == "ok" and inbox_res.get("perfumes"):
                     perf_from_email = inbox_res["perfumes"]
                     perf_map.update(perf_from_email)
                     p_details = ", ".join([f"{k}: {int(v)}pz" for k, v in perf_from_email.items()])
                     perf_source_note = f" (Scorporo profumi rilevato via email: {p_details})"
-            except Exception:
-                pass
+                    print(f"Profumi applicati: {p_details}")
+                else:
+                    print(f"Nessun dato profumi applicato: {inbox_res.get('message')}")
+            except Exception as e:
+                print(f"Errore lettura profumi da email: {e}")
 
         clean_perf = {str(k): float(v or 0) for k, v in (perf_map or {}).items()}
 
@@ -410,3 +422,6 @@ if __name__ == "__main__":
     out = execute_auto_operativa_run(target_date=t_date, force=(args.force or args.run_now))
     clean_out = {k: v for k, v in out.items() if k != "run_result"}
     print(json.dumps(clean_out, indent=2, ensure_ascii=False))
+    if out.get("status") == "ok" and not out.get("email_ok"):
+        print(f"ERRORE CRITICO: Elaborazione completata ma invio email fallito: {out.get('email_message')}", file=sys.stderr)
+        sys.exit(2)
