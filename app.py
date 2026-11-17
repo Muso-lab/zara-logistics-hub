@@ -103,6 +103,7 @@ get_actuals_for_planner = bm.get_actuals_for_planner
 render_bolla_printable_html = bm.render_bolla_printable_html
 format_intershops_string = bm.format_intershops_string
 compute_inditex_delivery_dates = getattr(bm, "compute_inditex_delivery_dates", None)
+SUNDAY_MONDAY_SWITCH_DATE = getattr(bm, "SUNDAY_MONDAY_SWITCH_DATE", date(2026, 12, 13))
 export_bolle_excel = getattr(bm, "export_bolle_excel", None)
 if export_bolle_excel is None:
     from src.exporters import export_bolle_excel
@@ -111,6 +112,13 @@ from src.exporters import export_planner_roma, export_sintesi_operativa, export_
 from src.mailer import send_operativa_email, send_test_email, build_operativa_zip
 from src.scraper import InditexExtranetScraper
 from src.utils import get_cycle_date_range, format_number_it, format_date_it, parse_date_obj
+from src.auto_operativa import (
+    start_auto_operativa_daemon,
+    get_auto_operativa_config,
+    save_auto_operativa_config,
+    execute_auto_operativa_run,
+)
+start_auto_operativa_daemon()
 from src.components import (
     render_lavorazioni_piattaforma,
     render_spunta_arrivi_modern,
@@ -1758,11 +1766,17 @@ if "Previsione & Arrivi" in menu:
                     run_date = st.date_input("📅 Data Riferimento", value=date.today(), format="DD/MM/YYYY")
                 with col_meta2:
                     default_idx = 0 if run_date.weekday() <= 2 else 1
+                    is_post_dec13 = (run_date >= SUNDAY_MONDAY_SWITCH_DATE)
+                    sat_label = (
+                        "GIOV-DOM (Consegna Domenica/Lunedì — Spedizioni da Giovedì a Domenica) [Regola 13/12]"
+                        if is_post_dec13
+                        else "GIOV-DOM (Consegna Sabato — Spedizioni da Giovedì a Domenica)"
+                    )
                     cycle_choice = st.selectbox(
                         "🔄 Ciclo Settimanale Operativo",
                         [
                             "LUN-MER (Consegna Mercoledì — Spedizioni da Lunedì a Mercoledì)",
-                            "GIOV-DOM (Consegna Sabato — Spedizioni da Giovedì a Domenica)",
+                            sat_label,
                         ],
                         index=default_idx,
                     )
@@ -1771,6 +1785,19 @@ if "Previsione & Arrivi" in menu:
                     notes = st.text_input("📝 Note / Riferimento", value=f"Elaborazione W{run_date.isocalendar()[1]} ({cycle_type})")
 
                 cycle_desde, cycle_hasta = get_cycle_date_range(cycle_type, run_date)
+
+                if compute_inditex_delivery_dates:
+                    calc_dop, calc_std = compute_inditex_delivery_dates(run_date, cycle_type)
+                    if is_post_dec13 and cycle_type == "GIOV-DOM":
+                        st.info(
+                            f"📅 **Regola Operativa Attiva (dal 13/12/2026):** Consegna 1ª Uscita `/0 STD`: **Domenica {format_date_it(calc_std)}** | "
+                            f"2ª Uscita `/9 DOPPIA`: **Lunedì {format_date_it(calc_dop)}** (Spedizioni: {format_date_it(cycle_desde)} → {format_date_it(cycle_hasta)})"
+                        )
+                    else:
+                        st.caption(
+                            f"🚚 **Uscite di consegna calcolate:** 1ª Uscita `/0 STD`: **{format_date_it(calc_std)}** | "
+                            f"2ª Uscita `/9 DOPPIA`: **{format_date_it(calc_dop)}** (Spedizioni: {format_date_it(cycle_desde)} → {format_date_it(cycle_hasta)})"
+                        )
 
                 # 2. Scorporo Profumi SEMPRE VISIBILE (letto dinamicamente dai negozi con Scorporo Profumi = 'SI' in Anagrafica)
                 df_all_stores = get_stores_df()
@@ -1802,6 +1829,81 @@ if "Previsione & Arrivi" in menu:
                 else:
                     st.info("Nessun negozio ha l'opzione 'Scorporo Profumi = SI' attiva in Anagrafica Negozi.")
                 st.markdown('</div>', unsafe_allow_html=True)
+
+                with st.expander("🤖 Automazione Martedì & Sabato (Estrazione Extranet + XML + Invio Email Automatico)", expanded=False):
+                    adm_auto_cfg = get_auto_operativa_config()
+                    st.markdown(
+                        "Configura l'esecuzione automatica programmata nei giorni di arrivo mezzi (**Martedì** per l'operativa *Mercoledì/Giovedì* e **Sabato** per l'operativa *Sabato/Domenica*, "
+                        "che dal **13 Dicembre 2026** diventa automaticamente **Domenica `/0` + Lunedì `/9`**).\n"
+                        "All'orario stabilito il sistema:\n"
+                        "1. **Scarica automaticamente i file da Inditex Extranet** con le credenziali salvate;\n"
+                        "2. **Elabora i Giri, le Bolle e genera i file XML TMS** caricandoli in cloud (o pronti per il download);\n"
+                        "3. **Invia in automatico l'Email Operativa** con tutti gli allegati (Sintesi, ZARA, SGA) agli indirizzi configurati."
+                    )
+                    c_au1, c_au2, c_au3, c_au4 = st.columns([1.1, 1.1, 1.1, 1.2])
+                    with c_au1:
+                        adm_au_en = st.checkbox("🟢 Attiva Scheduler", value=bool(adm_auto_cfg.get("enabled", True)), key="adm_au_en")
+                    with c_au2:
+                        adm_au_tue = st.checkbox("📅 Ogni Martedì (LUN-MER)", value=bool(adm_auto_cfg.get("run_on_tuesday", True)), key="adm_au_tue")
+                    with c_au3:
+                        adm_au_sat = st.checkbox("📅 Ogni Sabato (GIOV-DOM)", value=bool(adm_auto_cfg.get("run_on_saturday", True)), key="adm_au_sat")
+                    with c_au4:
+                        adm_au_time = st.text_input(
+                            "⏰ Orario Avvio (HH:MM)",
+                            value=str(adm_auto_cfg.get("schedule_time", "08:00")),
+                            help="Orario italiano (Europe/Rome) per l'avvio automatico Martedì e Sabato.",
+                            key="adm_au_time",
+                        )
+
+                    st.markdown("**📎 Allegati da allegare nell'invio Email automatico:**")
+                    ca1, ca2, ca3, ca4 = st.columns(4)
+                    with ca1:
+                        adm_att_sin = st.checkbox("Sintesi_Operativa.xlsx", value=bool(adm_auto_cfg.get("attach_sintesi", True)), key="adm_au_sin")
+                    with ca2:
+                        adm_att_zar = st.checkbox("ZARA.xlsx", value=bool(adm_auto_cfg.get("attach_zara", True)), key="adm_au_zar")
+                    with ca3:
+                        adm_att_s0 = st.checkbox("barrazero_Sga.xlsx", value=bool(adm_auto_cfg.get("attach_sga0", False)), key="adm_au_s0")
+                    with ca4:
+                        adm_att_s9 = st.checkbox("barranove_Sga.xlsx", value=bool(adm_auto_cfg.get("attach_sga9", False)), key="adm_au_s9")
+
+                    if adm_auto_cfg.get("last_auto_run_timestamp"):
+                        st.caption(
+                            f"📌 **Ultima esecuzione automatica:** {adm_auto_cfg.get('last_auto_run_timestamp')} — "
+                            f"{adm_auto_cfg.get('last_auto_run_summary', '')}"
+                        )
+
+                    c_ab1, c_ab2 = st.columns(2)
+                    with c_ab1:
+                        if st.button("💾 Salva Impostazioni Automazione Martedì/Sabato", type="primary", use_container_width=True, key="adm_au_save_btn"):
+                            save_auto_operativa_config({
+                                "enabled": bool(adm_au_en),
+                                "run_on_tuesday": bool(adm_au_tue),
+                                "run_on_saturday": bool(adm_au_sat),
+                                "schedule_time": adm_au_time.strip() or "08:00",
+                                "attach_sintesi": bool(adm_att_sin),
+                                "attach_zara": bool(adm_att_zar),
+                                "attach_sga0": bool(adm_att_s0),
+                                "attach_sga9": bool(adm_att_s9),
+                                "preset_perfumes": perfume_corrections,
+                            })
+                            st.success("✅ Programmazione automatica Martedì & Sabato salvata!")
+                            st.rerun()
+                    with c_ab2:
+                        if st.button("⚡ Esegui Ora Ciclo Automatico Completo (Estrazione + XML + Email)", type="secondary", use_container_width=True, key="adm_au_run_now_btn"):
+                            with st.spinner("Esecuzione completa in corso: Scarico Extranet -> Generazione XML Cloud -> Invio Email..."):
+                                res_auto = execute_auto_operativa_run(
+                                    target_date=run_date,
+                                    force=True,
+                                    perfume_override=perfume_corrections,
+                                )
+                                if res_auto.get("status") == "ok":
+                                    st.session_state["last_run"] = res_auto["run_result"]
+                                    st.session_state["active_view_run_id"] = res_auto["run_id"]
+                                    st.session_state["p1_subview"] = "view"
+                                    st.success(f"🎉 Ciclo completato con successo! Run #{res_auto['run_id']} creata.")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ Errore durante l'automazione: {res_auto.get('message')}")
 
                 # 3. Sorgente Dati: Default = Prelievo Automatico da Extranet | Secondario = Caricamento Manuale (Emergenza)
                 tab_src_extranet, tab_src_upload = st.tabs([
@@ -2117,9 +2219,11 @@ elif "Bolle di Consegna" in menu:
                     sel_gen_run = st.selectbox("Previsione (Run)", list(run_opts.keys()), format_func=lambda x: run_opts[x], key="pop_gen_run")
                     
                     # Calcolo automatico della data di consegna operativa Inditex:
-                    # - LUN-MER: Consegna /9 Mercoledi, /0 Giovedi
-                    # - GIOV-DOM: Consegna /0 Sabato, /9 Domenica
+                    # - LUN-MER: Consegna /0 Mercoledì, /9 Giovedì
+                    # - GIOV-DOM fino al 12/12/2026: Consegna /0 Sabato, /9 Domenica
+                    # - GIOV-DOM dal 13/12/2026: Consegna /0 Domenica, /9 Lunedì
                     r_sel_row = runs_side[runs_side["id"] == sel_gen_run]
+                    is_post_13dec = False
                     if not r_sel_row.empty:
                         r_cyc = str(r_sel_row.iloc[0].get("cycle_type", "LUN-MER")).upper()
                         r_dt_raw = str(r_sel_row.iloc[0].get("run_date", ""))[:10]
@@ -2127,6 +2231,7 @@ elif "Bolle di Consegna" in menu:
                             r_dt_obj = datetime.strptime(r_dt_raw, "%Y-%m-%d").date()
                         except:
                             r_dt_obj = date.today()
+                        is_post_13dec = (r_dt_obj >= SUNDAY_MONDAY_SWITCH_DATE)
                         if compute_inditex_delivery_dates:
                             date_dop_calc, date_std_calc = compute_inditex_delivery_dates(r_dt_obj, r_cyc)
                         else:
@@ -2136,8 +2241,12 @@ elif "Bolle di Consegna" in menu:
                                 date_std_calc = mon_d + timedelta(days=2) # Mercoledi (/0 STD)
                                 date_dop_calc = mon_d + timedelta(days=3) # Giovedi (/9 DOPPIA)
                             else:
-                                date_std_calc = mon_d + timedelta(days=5) # Sabato (/0 STD)
-                                date_dop_calc = mon_d + timedelta(days=6) # Domenica (/9 DOPPIA)
+                                if is_post_13dec:
+                                    date_std_calc = mon_d + timedelta(days=6) # Domenica (/0 STD)
+                                    date_dop_calc = mon_d + timedelta(days=7) # Lunedi (/9 DOPPIA)
+                                else:
+                                    date_std_calc = mon_d + timedelta(days=5) # Sabato (/0 STD)
+                                    date_dop_calc = mon_d + timedelta(days=6) # Domenica (/9 DOPPIA)
                     else:
                         date_dop_calc = date.today()
                         date_std_calc = date.today() + timedelta(days=1)
@@ -2148,7 +2257,10 @@ elif "Bolle di Consegna" in menu:
                     with c_pop_d2:
                         sel_gen_std = st.date_input("Data Consegna /0 (STD)", value=date_std_calc, format="DD/MM/YYYY", key=f"pop_gen_std_{sel_gen_run}")
 
-                    st.caption(f"🗓️ Date operative: **/9 DOPPIA il {format_date_it(sel_gen_dop)}** | **/0 STD il {format_date_it(sel_gen_std)}**")
+                    if is_post_13dec and "GIOV" in r_cyc:
+                        st.info(f"📅 **Regola dal 13/12/2026 attiva per {r_cyc}:** **/0 STD** il {format_date_it(sel_gen_std)} (Domenica) | **/9 DOPPIA** il {format_date_it(sel_gen_dop)} (Lunedì)")
+                    else:
+                        st.caption(f"🗓️ Date operative: **/0 STD il {format_date_it(sel_gen_std)}** | **/9 DOPPIA il {format_date_it(sel_gen_dop)}**")
                     ovw_gen = st.checkbox("Sovrascrivi bolle esistenti delle date selezionate", value=True, key="pop_gen_ovw")
                     if st.button("🚀 Genera Tutte le Bolle Ora", type="primary", use_container_width=True, key="btn_exec_gen_bolle"):
                         c_cnt, s_cnt = generate_bolle_from_forecast(
@@ -4194,9 +4306,10 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
     st.markdown('<div class="main-header">⚙️ Impostazioni, Invio Email, Cloud & Backup</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Configurazione server SMTP per invio email operative, sincronizzazione Google Sheets, archivio storico e backup database.</div>', unsafe_allow_html=True)
 
-    tab_email, tab_ftp_tms, tab_cloud_gs, tab_hist, tab_backup = st.tabs([
+    tab_email, tab_ftp_tms, tab_auto, tab_cloud_gs, tab_hist, tab_backup = st.tabs([
         "✉️ Posta & Parametri Invio Email",
         "📡 Connessione FTP TMS (BeOne)",
+        "🤖 Automazione Martedì/Sabato & Cloud Sync",
         "🟢 Cloud Google Sheets (Apps Script)",
         "📊 Archivio & Storico Elaborazioni",
         "💾 Backup File Database (.db)",
@@ -4554,6 +4667,115 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
                 use_container_width=True,
                 key="btn_dl_gcs_ps1"
             )
+
+        st.markdown("---")
+        st.markdown("##### 🤖 Metodo 3 (Trick A): Sincronizzazione Automatica Senza Toccare Nulla (Task Scheduler Windows)")
+        st.info(
+            "Installa un'attività pianificata invisibile su Windows che controlla ogni 10 minuti il Cloud Storage: "
+            "appena l'operativa o l'automazione Martedì/Sabato genera i file XML, questi vengono depositati istantaneamente "
+            "nella cartella locale del TMS BeOne (`C:\\IMPORT_SGA\\RICEZIONE_ORDINI\\ZARA`) senza alcun bisogno di aprire porte sul firewall."
+        )
+        from src.gcs_storage import generate_windows_autosync_installer_script
+        autosync_bat = generate_windows_autosync_installer_script(gcs_cfg_view)
+        st.download_button(
+            "⚡ Scarica Installer Windows Sync Automatico (.bat) — Trick A",
+            data=autosync_bat.encode("utf-8"),
+            file_name="installa_sync_automatico_tms.bat",
+            mime="application/x-bat",
+            type="primary",
+            use_container_width=True,
+            key="btn_dl_autosync_ftp_bat",
+        )
+
+    with tab_auto:
+        st.markdown("#### 🤖 Automazione Martedì & Sabato (Estrazione Extranet + XML Cloud + Invio Email)")
+        st.markdown(
+            "Questa automazione esegue il flusso completo nei giorni di arrivo dei mezzi (**Martedì** e **Sabato**):\n"
+            "1. **Estrazione Extranet**: prelievo automatico degli ordini con credenziali salvate;\n"
+            "2. **Elaborazione Giri & Bolle**: calcolo consegne `/0 STD` e `/9 DOPPIA` e scorporo profumi dinamico;\n"
+            "3. **File XML TMS**: generazione dei singoli file XML e upload sul Bucket Cloud (Trick A / PULL zero firewall);\n"
+            "4. **Spedizione Email**: invio dell'email operativa con gli allegati selezionati ai destinatari configurati."
+        )
+
+        st.info(
+            "📅 **Regola Consegne (Switch dal 13 Dicembre 2026):**\n"
+            "- **Arrivi Martedì**: Consegne invariate tutto l'anno a **Mercoledì (`/0 STD`)** e **Giovedì (`/9 DOPPIA`)**.\n"
+            "- **Arrivi Sabato**: Fino al 12/12/2026 consegna **Sabato (`/0 STD`)** e **Domenica (`/9 DOPPIA`)**; "
+            "dal **13 Dicembre 2026 in poi** diventa automaticamente **Domenica (`/0 STD`)** e **Lunedì (`/9 DOPPIA`)**."
+        )
+
+        auto_cfg_tab = get_auto_operativa_config()
+
+        with st.form("form_auto_operativa_settings"):
+            c_a1, c_a2, c_a3, c_a4 = st.columns([1.1, 1.1, 1.1, 1.2])
+            with c_a1:
+                t_au_en = st.checkbox("🟢 Attiva Scheduler Automatico", value=bool(auto_cfg_tab.get("enabled", True)), key="t_au_en")
+            with c_a2:
+                t_au_tue = st.checkbox("📅 Ogni Martedì (LUN-MER)", value=bool(auto_cfg_tab.get("run_on_tuesday", True)), key="t_au_tue")
+            with c_a3:
+                t_au_sat = st.checkbox("📅 Ogni Sabato (GIOV-DOM)", value=bool(auto_cfg_tab.get("run_on_saturday", True)), key="t_au_sat")
+            with c_a4:
+                t_au_time = st.text_input(
+                    "⏰ Orario Avvio (HH:MM)",
+                    value=str(auto_cfg_tab.get("schedule_time", "08:00")),
+                    help="Orario italiano (Europe/Rome) in cui far partire il processo.",
+                    key="t_au_time",
+                )
+
+            st.markdown("**📎 Allegati Email:**")
+            col_att1, col_att2, col_att3, col_att4 = st.columns(4)
+            with col_att1:
+                t_att_sin = st.checkbox("Sintesi_Operativa.xlsx", value=bool(auto_cfg_tab.get("attach_sintesi", True)), key="t_au_sin")
+            with col_att2:
+                t_att_zar = st.checkbox("ZARA.xlsx", value=bool(auto_cfg_tab.get("attach_zara", True)), key="t_au_zar")
+            with col_att3:
+                t_att_s0 = st.checkbox("barrazero_Sga.xlsx", value=bool(auto_cfg_tab.get("attach_sga0", False)), key="t_au_s0")
+            with col_att4:
+                t_att_s9 = st.checkbox("barranove_Sga.xlsx", value=bool(auto_cfg_tab.get("attach_sga9", False)), key="t_au_s9")
+
+            btn_save_auto_tab = st.form_submit_button("💾 SALVA CONFIGURAZIONE SCHEDULER", type="primary", use_container_width=True)
+            if btn_save_auto_tab:
+                save_auto_operativa_config({
+                    "enabled": bool(t_au_en),
+                    "run_on_tuesday": bool(t_au_tue),
+                    "run_on_saturday": bool(t_au_sat),
+                    "schedule_time": t_au_time.strip() or "08:00",
+                    "attach_sintesi": bool(t_att_sin),
+                    "attach_zara": bool(t_att_zar),
+                    "attach_sga0": bool(t_att_s0),
+                    "attach_sga9": bool(t_att_s9),
+                })
+                st.success("✅ Configurazione automazione salvata!")
+                st.rerun()
+
+        if auto_cfg_tab.get("last_auto_run_timestamp"):
+            st.markdown(f"**📌 Ultima esecuzione registrata:** `{auto_cfg_tab.get('last_auto_run_timestamp')}` — {auto_cfg_tab.get('last_auto_run_summary', '')}")
+
+        st.markdown("---")
+        st.markdown("##### 📥 Trick A: Sincronizzazione Automatica XML su Server Windows BeOne (Zero Firewall)")
+        st.caption("Scarica ed esegui una sola volta questo file `.bat` con diritti di amministratore sul server o PC locale per installare l'Attività Pianificata di Windows che scarica gli XML ogni 10 minuti in `C:\\IMPORT_SGA\\RICEZIONE_ORDINI\\ZARA`:")
+        from src.gcs_storage import generate_windows_autosync_installer_script, get_gcs_config
+        gcs_curr_cfg = get_gcs_config()
+        auto_sync_installer_bat = generate_windows_autosync_installer_script(gcs_curr_cfg)
+        st.download_button(
+            "⚡ Scarica Installer Sincronizzazione Windows (.bat) — Trick A",
+            data=auto_sync_installer_bat.encode("utf-8"),
+            file_name="installa_sync_automatico_tms.bat",
+            mime="application/x-bat",
+            type="primary",
+            use_container_width=True,
+            key="btn_dl_autosync_tab_bat",
+        )
+
+        st.markdown("---")
+        st.markdown("##### ⚡ Test Manuale Immediato")
+        if st.button("🚀 Esegui Ora Ciclo Completo (Estrazione Extranet + XML + Invio Email)", type="secondary", use_container_width=True, key="btn_test_auto_tab"):
+            with st.spinner("Esecuzione ciclo in corso (Scraping -> Pipeline -> XML -> Invio Email)..."):
+                test_res = execute_auto_operativa_run(force=True)
+                if test_res.get("status") == "ok":
+                    st.success(f"🎉 Ciclo completato con successo! Run #{test_res['run_id']} generata. Controlla la casella email e la cartella XML.")
+                else:
+                    st.error(f"❌ Errore durante l'esecuzione del ciclo: {test_res.get('message')}")
 
     with tab_cloud_gs:
         st.markdown("#### 🟢 Collegamento Permanente a Google Sheets (tramite Apps Script)")
