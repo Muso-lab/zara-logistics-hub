@@ -193,7 +193,7 @@ def export_zara_spunta(
 
     for _, r in df_spunta.iterrows():
         ridx = int(r["row_idx"])
-        is_store = bool(r["is_store"])
+        is_store = bool(r.get("is_store", True)) if "is_store" in r else bool(r.get("store_code") and str(r.get("store_code")).strip() != "NEGOZIO")
 
         if not is_store:
             code_str = str(r.get("store_code", "") or "").strip()
@@ -303,76 +303,112 @@ def export_zara_spunta(
         zh = special_breakdowns.get("zara_home", {})
 
         max_spunta_row = int(df_spunta["row_idx"].max()) if not df_spunta.empty and "row_idx" in df_spunta.columns else 75
-        base_offset = max(0, (max_spunta_row + 3) - 96)
+        # Maintain template standard starting at row 96 if stores finish by row 94; otherwise shift dynamically
+        start_row = 96 if max_spunta_row <= 94 else (max_spunta_row + 2)
+        base_offset = start_row - 96
 
         # Row 96: Header
         c96 = ws.cell(row=96 + base_offset, column=1, value="TOTALI ")
         c96.font = bold_font
         c96.fill = title_fill
         ws.cell(row=96 + base_offset, column=3, value="CHECK").font = bold_font
-        ws.cell(row=96 + base_offset, column=4, value="CHECK").font = bold_font
+        ws.cell(row=96 + base_offset, column=4, value="DIFF.").font = bold_font
 
         # Row 97: Totali Teorici vs Check Spunta Colli
+        tot_c = int(round(float(checks.get("totali_teorici_colli", 0.0) or 0.0)))
+        chk_c = int(round(float(checks.get("check_colli", checks.get("totali_check_colli", 0.0)) or 0.0)))
+        diff_c = int(round(float(checks.get("diff_colli", chk_c - tot_c) or 0.0)))
         ws.cell(row=97 + base_offset, column=1, value="TOTALI TEORICI").font = bold_font
-        ws.cell(row=97 + base_offset, column=2, value=int(checks.get("totali_teorici_colli", 0))).font = bold_font
-        ws.cell(row=97 + base_offset, column=3, value=int(checks.get("totali_check_colli", 0))).font = bold_font
+        ws.cell(row=97 + base_offset, column=2, value=tot_c).font = bold_font
+        ws.cell(row=97 + base_offset, column=3, value=chk_c).font = bold_font
+        ws.cell(row=97 + base_offset, column=4, value=diff_c).font = bold_font
 
         # Row 98: Totali MC
+        tot_mc = round(float(checks.get("totali_teorici_mc", 0.0) or 0.0), 2)
+        chk_mc = round(float(checks.get("check_mc", checks.get("totali_check_mc", 0.0)) or 0.0), 2)
+        diff_mc = round(float(checks.get("diff_mc", chk_mc - tot_mc) or 0.0), 2)
         ws.cell(row=98 + base_offset, column=1, value="TOTALI MC").font = bold_font
-        c_mc_t = ws.cell(row=98 + base_offset, column=2, value=round(float(checks.get("totali_teorici_mc", 0.0)), 2))
+        c_mc_t = ws.cell(row=98 + base_offset, column=2, value=tot_mc)
         c_mc_t.font = bold_font
         c_mc_t.number_format = "0.00"
-        c_mc_c = ws.cell(row=98 + base_offset, column=3, value=round(float(checks.get("totali_check_mc", 0.0)), 2))
+        c_mc_c = ws.cell(row=98 + base_offset, column=3, value=chk_mc)
         c_mc_c.font = bold_font
         c_mc_c.number_format = "0.00"
+        c_mc_d = ws.cell(row=98 + base_offset, column=4, value=diff_mc)
+        c_mc_d.font = bold_font
+        c_mc_d.number_format = "0.00"
 
-        # Row 100: Header Tessile
-        ws.cell(row=100 + base_offset, column=2, value="TOTALI").font = bold_font
-        ws.cell(row=100 + base_offset, column=3, value="APPESI").font = bold_font
-        ws.cell(row=100 + base_offset, column=4, value="STESI").font = bold_font
-        ws.cell(row=100 + base_offset, column=10, value="CORREZIONE PROFUMI").font = bold_font
+        # Row 99: Header Tessile
+        ws.cell(row=99 + base_offset, column=2, value="TOTALI").font = bold_font
+        ws.cell(row=99 + base_offset, column=3, value="APPESI").font = bold_font
+        ws.cell(row=99 + base_offset, column=4, value="STESI").font = bold_font
+        ws.cell(row=99 + base_offset, column=13, value="CORREZIONE PROFUMI").font = bold_font
 
-        # Rows 101-103: Tessile Stores
-        row_map = {"3680": 101, "9226": 102, "3591": 103}
-        for sid, sdata in spec.items():
-            r = row_map.get(sid, 101) + base_offset
+        # Rows 100-102: Tessile Stores (3680, 9226, 3591)
+        ts_order = ["3680", "9226", "3591"]
+        for sid in spec:
+            if sid not in ts_order:
+                ts_order.append(sid)
+        for idx, sid in enumerate(ts_order):
+            sdata = spec.get(sid, {})
+            r = 100 + idx + base_offset
             ws.cell(row=r, column=1, value=f"PEZZI {sid}").font = bold_font
-            ws.cell(row=r, column=2, value=int(sdata.get("totali", 0)))
-            ws.cell(row=r, column=3, value=int(sdata.get("appesi", 0)))
-            ws.cell(row=r, column=4, value=int(sdata.get("stesi", 0)))
-            ws.cell(row=r, column=10, value=int(sdata.get("profumi", 0)))
+            tot_p = int(sdata.get("totale_pezzi", sdata.get("totali", 0)) or 0)
+            app = int(sdata.get("appesi", 0) or 0)
+            ste = int(sdata.get("stesi", 0) or 0)
+            prf = int(sdata.get("correzione_profumi", sdata.get("profumi", 0)) or 0)
+            ws.cell(row=r, column=2, value=tot_p if tot_p > 0 else "").font = bold_font
+            ws.cell(row=r, column=3, value=app if app > 0 else "").font = bold_font
+            ws.cell(row=r, column=4, value=ste if ste > 0 else "").font = bold_font
+            ws.cell(row=r, column=13, value=prf if prf > 0 else "").font = bold_font
 
         # Row 105: Header Zara Home
-        ws.cell(row=105 + base_offset, column=1, value="ZARA HOME").font = bold_font
+        c105 = ws.cell(row=105 + base_offset, column=1, value="ZARA HOME")
+        c105.font = bold_font
+        c105.fill = title_fill
         ws.cell(row=105 + base_offset, column=3, value="/0").font = bold_font
         ws.cell(row=105 + base_offset, column=4, value="/8").font = bold_font
 
-        # Rows 106-107: Zara Home Stores
-        zh_row_map = {"1984": 106, "1971": 107}
-        for sid, zdata in zh.items():
-            r = zh_row_map.get(sid, 106) + base_offset
+        # Rows 106-107: Zara Home Stores (1984, 1971)
+        zh_order = ["1984", "1971"]
+        for sid in zh:
+            if sid not in zh_order:
+                zh_order.append(sid)
+        for idx, sid in enumerate(zh_order):
+            zdata = zh.get(sid, {})
+            r = 106 + idx + base_offset
             ws.cell(row=r, column=1, value=sid).font = bold_font
-            ws.cell(row=r, column=2, value=int(zdata.get("totale", 0)))
-            ws.cell(row=r, column=3, value=int(zdata.get("barra0", 0)))
-            ws.cell(row=r, column=4, value=int(zdata.get("barra9", 0)))
+            tot_zh = int(zdata.get("totale_paqueteria", zdata.get("totale", 0)) or 0)
+            q0 = int(zdata.get("quota_barra0", zdata.get("barra0", 0)) or 0)
+            q8 = int(zdata.get("quota_barra8", zdata.get("barra8", zdata.get("barra9", 0))) or 0)
+            ws.cell(row=r, column=2, value=tot_zh if tot_zh > 0 else "").font = bold_font
+            ws.cell(row=r, column=3, value=q0 if q0 > 0 else "").font = bold_font
+            ws.cell(row=r, column=4, value=q8 if q8 > 0 else "").font = bold_font
 
         # Row 108: Totale Pezzi
         ws.cell(row=108 + base_offset, column=1, value="TOTALE PEZZI").font = bold_font
-        ws.cell(row=108 + base_offset, column=2, value=int(special_breakdowns.get("totale_pezzi_lavorati", 0))).font = bold_font
+        tot_all_pz = int(special_breakdowns.get("totale_pezzi_lavorati", 0) or 0)
+        ws.cell(row=108 + base_offset, column=2, value=tot_all_pz if tot_all_pz > 0 else "").font = bold_font
 
         # Row 110: Header Stender / PLT
-        ws.cell(row=110 + base_offset, column=1, value="SVILUPPO").font = bold_font
-        ws.cell(row=110 + base_offset, column=2, value="STENDER").font = bold_font
+        c110 = ws.cell(row=110 + base_offset, column=1, value="SVILUPPO")
+        c110.font = bold_font
+        c110.fill = title_fill
+        ws.cell(row=110 + base_offset, column=2, value="STANDER").font = bold_font
         ws.cell(row=110 + base_offset, column=3, value="PLT").font = bold_font
 
         # Rows 111-113: Sviluppo Stender
-        stnd_row_map = {"3680": 111, "9226": 112, "3591": 113}
-        for sid, sdata in spec.items():
-            r = stnd_row_map.get(sid, 111) + base_offset
-            ws.cell(row=r, column=1, value=f"{sid} /0").font = bold_font
-            ws.cell(row=r, column=2, value=int(sdata.get("stender", sdata.get("stander", 0))))
-            ws.cell(row=r, column=3, value=int(sdata.get("plt", 0)))
-            ws.cell(row=r, column=5, value=sdata.get("sviluppo_str", ""))
+        for idx, sid in enumerate(ts_order):
+            sdata = spec.get(sid, {})
+            r = 111 + idx + base_offset
+            lbl = f"{sid} /0" if sid == "3680" else sid
+            ws.cell(row=r, column=1, value=lbl).font = bold_font
+            stnd = int(sdata.get("stender", sdata.get("stander", 0)) or 0)
+            plt = int(sdata.get("bancali", sdata.get("bancali_stesi", sdata.get("plt", 0))) or 0)
+            sintesi = str(sdata.get("sintesi", sdata.get("sviluppo_str", "")) or "")
+            ws.cell(row=r, column=2, value=stnd if stnd > 0 else "").font = bold_font
+            ws.cell(row=r, column=3, value=plt if plt > 0 else "").font = bold_font
+            ws.cell(row=r, column=5, value=sintesi).font = bold_font
 
     # Auto-adjust column widths
     for col in ws.columns:
@@ -417,7 +453,7 @@ def export_sintesi_operativa(
     fill_subbar = PatternFill(start_color="E0E7FF", end_color="E0E7FF", fill_type="solid")
     fill_tbl_hdr = PatternFill(start_color="334155", end_color="334155", fill_type="solid")
     fill_giro_banner = PatternFill(start_color="E0F2FE", end_color="E0F2FE", fill_type="solid")
-    fill_subtot = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+    fill_subtot = PatternFill(start_color="E0F2FE", end_color="E0F2FE", fill_type="solid")
     fill_tot = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
     fill_standby = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
 
@@ -437,7 +473,15 @@ def export_sintesi_operativa(
         for _, s_r in df_stores.iterrows():
             map_stores[str(s_r[sid_col]).strip()] = s_r.to_dict()
 
-    stores_only = df_spunta[df_spunta["is_store"] == True].copy() if not df_spunta.empty else pd.DataFrame()
+    if not df_spunta.empty:
+        if "is_store" in df_spunta.columns:
+            stores_only = df_spunta[df_spunta["is_store"] == True].copy()
+        elif "store_code" in df_spunta.columns:
+            stores_only = df_spunta[df_spunta["store_code"].astype(str).str.strip().str.upper() != "NEGOZIO"].copy()
+        else:
+            stores_only = df_spunta.copy()
+    else:
+        stores_only = pd.DataFrame()
 
     tot_colli_all = 0
     tot_vol_all = 0.0
@@ -623,8 +667,8 @@ def export_sintesi_operativa(
                 (c_tot, align_right, "#,##0"),
                 (vol, align_right, "0.00"),
                 (ped, align_right, "#,##0"),
-                (s_mez, align_left, None),
-                (s_supp, align_left, None),
+                ("", align_left, None),
+                ("", align_left, None),
                 (s_vett, align_left, None),
                 (s_tar, align_center, None),
                 ("OPERATIVO" if is_op else "STANDBY", align_center, None)

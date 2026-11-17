@@ -29,3 +29,4 @@ data/zara_history.db
 .streamlit/secrets.toml
 
 data/email_config.json
+data/perfume_inbox_config.json

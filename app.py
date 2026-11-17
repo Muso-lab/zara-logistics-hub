@@ -904,7 +904,7 @@ if "cloud_auto_checked" not in st.session_state:
         pass
     if get_cloud_url():
         try:
-            r_pull = pull_all_from_cloud(timeout=15)
+            r_pull = pull_all_from_cloud(timeout=35)
             if r_pull.get("status") == "ok":
                 df_stores_side = get_stores_df()
                 runs_side = get_all_runs()
@@ -1720,7 +1720,18 @@ if "Previsione & Arrivi" in menu:
                 else:
                     active_run_data = load_run_data(st.session_state["active_view_run_id"])
             else:
-                st.info("ℹ️ Nessuna elaborazione presente nello storico. Passa alla scheda **'⚡ Nuova Elaborazione'** qui sopra per eseguire il primo scarico da Extranet o caricare i file Inditex.")
+                col_nr1, col_nr2 = st.columns([2.5, 1.2])
+                with col_nr1:
+                    st.info("ℹ️ Nessuna elaborazione presente nello storico locale.")
+                with col_nr2:
+                    if st.button("📥 Recupera Storico da Cloud", use_container_width=True, key="btn_pull_history_empty"):
+                        with st.spinner("Sincronizzazione da Google Sheets in corso..."):
+                            r_p = pull_all_from_cloud(timeout=35)
+                            if r_p.get("status") == "ok":
+                                st.success("Dati storici recuperati!")
+                                st.rerun()
+                            else:
+                                st.error(f"Errore sincronizzazione: {r_p.get('message')}")
 
             if active_run_data:
                 curr_rid = active_run_data["run_id"]
