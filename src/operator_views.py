@@ -430,7 +430,6 @@ def _inject_omnibox_autoselect_js() -> None:
     })();
     </script>
     """, height=0, width=0)
-    """, height=0, width=0)
 
 
 # ==============================================================================
