@@ -135,6 +135,41 @@ def build_auto_email_payload(
     ).strip()
 
     att_str = "\n".join(att_desc_lines) if att_desc_lines else "- Nessun allegato"
+
+    lav_lines = []
+    spec_bd = run_res.get("special_breakdowns", {})
+    if spec_bd:
+        spec_stores = spec_bd.get("special_stores", {})
+        zh_stores = spec_bd.get("zara_home", {})
+        tot_pezzi_lav = spec_bd.get("totale_pezzi_lavorati", 0)
+
+        lav_lines.append("Sintesi Lavorazioni di Piattaforma del Giorno:")
+        if spec_stores:
+            lav_lines.append("- Lavorazione Speciale Tessile:")
+            for sid, sdata in spec_stores.items():
+                sname = sdata.get("store_name", sid)
+                app = int(sdata.get("appesi", 0))
+                stnd = int(sdata.get("stender", sdata.get("stander", 0)))
+                ste = int(sdata.get("stesi", 0))
+                plt = int(sdata.get("bancali", sdata.get("bancali_stesi", 0)))
+                prf = int(sdata.get("correzione_profumi", 0))
+                tot_s = int(sdata.get("totale_pezzi", app + ste))
+                lav_lines.append(f"  • {sid} {sname}: {format_number_it(tot_s, 0)} capi tot | {format_number_it(app, 0)} appesi ({format_number_it(stnd, 0)} stender) | {format_number_it(ste, 0)} stesi ({format_number_it(plt, 0)} bancali) | profumi: {format_number_it(prf, 0)}")
+
+        if zh_stores:
+            lav_lines.append("- Lavorazione Zara Home (50% /0 e 50% /8):")
+            for sid, zdata in zh_stores.items():
+                zsname = zdata.get("store_name", sid)
+                paq = int(zdata.get("totale_paqueteria", zdata.get("totale", 0)))
+                q0 = int(zdata.get("quota_barra0", zdata.get("barra0", 0)))
+                q8 = int(zdata.get("quota_barra8", zdata.get("barra8", 0)))
+                lav_lines.append(f"  • {sid} {zsname}: {format_number_it(paq, 0)} pz totali (50% /0: {format_number_it(q0, 0)} pz — 50% /8: {format_number_it(q8, 0)} pz)")
+
+        if tot_pezzi_lav:
+            lav_lines.append(f"- Totale Pezzi Lavorati in Piattaforma: {format_number_it(tot_pezzi_lav, 0)} pz")
+
+    lav_section = ("\n" + "\n".join(lav_lines) + "\n") if lav_lines else ""
+
     body = (
         f"Gentili Colleghi,\n\n"
         f"in allegato trasmettiamo i file operativi generati automaticamente per gli arrivi del {format_date_it(r_date)} ({cycle_type}):\n"
@@ -145,7 +180,8 @@ def build_auto_email_payload(
         f"- Totale Colli: {format_number_it(totals.get('total_bultos', 0), 0)}\n"
         f"- Volume Complessivo: {format_number_it(totals.get('total_volume', 0.0), 2)} m³\n"
         f"- Peso Complessivo: {format_number_it(totals.get('total_weight', 0.0), 0)} kg\n"
-        f"- Pedane Stimate: {format_number_it(totals.get('total_pedane', 0.0), 0)} PLT\n\n"
+        f"- Pedane Stimate: {format_number_it(totals.get('total_pedane', 0.0), 0)} PLT\n"
+        f"{lav_section}\n"
         f"I flussi XML TMS sono stati generati e caricati automaticamente su Google Cloud Storage per l'importazione locale.\n\n"
         f"Cordiali saluti,\n"
         f"Ufficio Logistica & Traffico Zara Hub (Automazione Operativa)"
@@ -237,8 +273,8 @@ def execute_auto_operativa_run(
 
         # Invio automatico Email Operativa
         email_cfg = get_email_config()
-        to_raw = str(email_cfg.get("to_recipients", "") or "")
-        cc_raw = str(email_cfg.get("cc_recipients", "") or "")
+        to_raw = str(email_cfg.get("default_to") or email_cfg.get("to_recipients") or "")
+        cc_raw = str(email_cfg.get("default_cc") or email_cfg.get("cc_recipients") or "")
         to_list = [x.strip() for x in to_raw.split(",") if x.strip()]
         cc_list = [x.strip() for x in cc_raw.split(",") if x.strip()]
 
@@ -246,6 +282,7 @@ def execute_auto_operativa_run(
         email_msg = "Nessun destinatario configurato in Configurazione Email."
         if to_list:
             subj, body, att_paths = build_auto_email_payload(res, cfg)
+            print(f"Invio email automatica a {to_list} (CC: {cc_list}) con {len(att_paths)} allegati...")
             email_ok, email_msg = send_operativa_email(
                 recipients=to_list,
                 subject=subj,
@@ -254,6 +291,7 @@ def execute_auto_operativa_run(
                 cc_recipients=cc_list,
                 smtp_config=email_cfg,
             )
+            print(f"Esito invio email: ok={email_ok}, msg={email_msg}")
 
         gcs_res = res.get("gcs_upload") or {}
         xml_cnt = len(res.get("tms_xml_files") or [])

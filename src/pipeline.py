@@ -254,13 +254,6 @@ def run_pipeline(
     conn.commit()
     conn.close()
 
-    # Sync immediately to Google Sheets to persist across container restarts
-    try:
-        from src.cloud_sync import push_tables_to_cloud
-        push_tables_to_cloud(["runs", "planning_results", "spunta_arrivi", "stores", "sga_flows", "forecast_raw"], timeout=20)
-    except Exception as e:
-        print(f"Warning: Cloud sync skipped or failed: {e}")
-
     # Auto-generate delivery bolle (/0 and /9) pre-filled with forecast quantities
     try:
         from src.bolle_manager import generate_bolle_from_forecast
@@ -268,6 +261,13 @@ def run_pipeline(
         print(f"Auto-generated {c_b_cnt} bolle for run {run_id} ({s_b_cnt} existing)")
     except Exception as e:
         print(f"Warning: Auto bolle generation skipped: {e}")
+
+    # Sync immediately to Google Sheets to persist across container restarts (including generated bolle)
+    try:
+        from src.cloud_sync import push_tables_to_cloud
+        push_tables_to_cloud(["runs", "planning_results", "spunta_arrivi", "stores", "sga_flows", "forecast_raw", "bolle"], timeout=30)
+    except Exception as e:
+        print(f"Warning: Cloud sync skipped or failed: {e}")
 
     # 5. Export Files
     out_dir = OUTPUT_DIR / f"run_{run_id}_{run_date}"
