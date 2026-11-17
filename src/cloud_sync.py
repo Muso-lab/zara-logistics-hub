@@ -208,6 +208,27 @@ def push_tables_to_cloud(table_names=None, timeout: int = 25) -> dict:
             # SAFETY GUARD: Never overwrite cloud data with an empty table if local table has 0 rows!
             if df.empty and t in ["runs", "planning_results", "spunta_arrivi", "forecast_raw", "bolle", "stores", "store_delivery_profiles", "vehicles"]:
                 continue
+
+            if t == "runs" and not df.empty:
+                # Extra Cloud Guard: ensure older cloud runs are never overwritten by an ephemeral runner
+                try:
+                    sep = "&" if "?" in url else "?"
+                    req_c = urllib.request.Request(f"{url}{sep}table=runs", method="GET")
+                    with urllib.request.urlopen(req_c, timeout=10) as resp_c:
+                        d_c = json.loads(resp_c.read().decode("utf-8"))
+                        if d_c.get("status") == "ok" and "tables" in d_c and "runs" in d_c["tables"]:
+                            cloud_runs = d_c["tables"]["runs"]
+                            if cloud_runs:
+                                df_c = pd.DataFrame(cloud_runs)
+                                if "id" in df_c.columns and "id" in df.columns:
+                                    local_ids = set(df["id"].tolist())
+                                    missing_c = df_c[~df_c["id"].isin(local_ids)]
+                                    if not missing_c.empty:
+                                        common_c = [c for c in df.columns if c in missing_c.columns]
+                                        df = pd.concat([df, missing_c[common_c]], ignore_index=True).sort_values("id")
+                except Exception:
+                    pass
+
             payload_tables[t] = json.loads(df.to_json(orient="records"))
     finally:
         conn.close()
