@@ -32,7 +32,7 @@ DEFAULT_AUTO_OP_CONFIG: Dict[str, Any] = {
     "run_on_tuesday": True,
     "run_on_friday": True,
     "run_on_saturday": False,
-    "schedule_time": "08:00",
+    "schedule_time": "14:00",
     "attach_sintesi": True,
     "attach_zara": True,
     "attach_sga0": False,
@@ -319,11 +319,11 @@ def check_and_trigger_scheduled_operativa(now_dt: Optional[datetime] = None) -> 
     if cfg.get("last_auto_run_date") == today_iso and cfg.get("last_auto_run_status") == "ok":
         return None
 
-    sched_str = str(cfg.get("schedule_time", "08:00") or "08:00").strip()
+    sched_str = str(cfg.get("schedule_time", "14:00") or "14:00").strip()
     try:
         sh, sm = [int(x) for x in sched_str.split(":")[:2]]
     except Exception:
-        sh, sm = 8, 0
+        sh, sm = 14, 0
 
     if (cur.hour, cur.minute) >= (sh, sm):
         return execute_auto_operativa_run(target_date=cur.date(), force=False)

@@ -2,9 +2,9 @@ name: Automazione Operativa Martedì & Venerdì (Inditex -> XML -> Email)
 
 on:
   schedule:
-    # 07:00 UTC corrisponde alle 08:00 (ora solare italiana) / 09:00 (ora legale)
-    # Cron: Minuto (0) Ora (7) GiornoDelMese (*) Mese (*) GiornoDellaSettimana (2=Martedì, 5=Venerdì)
-    - cron: '0 7 * * 2,5'
+    # 13:00 UTC corrisponde esattamente alle 14:00 (ora solare italiana)
+    # Cron: Minuto (0) Ora (13) GiornoDelMese (*) Mese (*) GiornoDellaSettimana (2=Martedì, 5=Venerdì)
+    - cron: '0 13 * * 2,5'
   workflow_dispatch: # Permette anche il lancio manuale con un clic da GitHub Actions
 
 jobs:
