@@ -118,7 +118,10 @@ from src.auto_operativa import (
     save_auto_operativa_config,
     execute_auto_operativa_run,
 )
-start_auto_operativa_daemon()
+# Nota: lo scheduler automatico è gestito in modo affidabile e centralizzato da GitHub Actions
+# (o tramite trigger esterno/webhook), evitando doppie esecuzioni al riavvio dei container Cloud Run.
+if os.environ.get("ENABLE_INAPP_SCHEDULER") == "1":
+    start_auto_operativa_daemon()
 from src.components import (
     render_lavorazioni_piattaforma,
     render_spunta_arrivi_modern,

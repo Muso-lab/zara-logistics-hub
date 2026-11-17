@@ -396,85 +396,9 @@ def _inject_omnibox_autoselect_js() -> None:
     (function() {
         try {
             const doc = (window.parent && window.parent.document) ? window.parent.document : document;
-            const win = (window.parent) ? window.parent : window;
-
-            const isOmniboxSelect = (sbContainer) => {
-                if (!sbContainer) return false;
-                const txt = (sbContainer.innerText || sbContainer.textContent || '').toLowerCase();
-                if (txt.indexOf('omnibox') !== -1) return true;
-                const inp = sbContainer.querySelector('input');
-                if (inp) {
-                    const al = (inp.getAttribute('aria-label') || '').toLowerCase();
-                    if (al.indexOf('omnibox') !== -1) return true;
-                }
-                return false;
-            };
-
-            const unlockOmniboxInputs = () => {
-                const boxes = doc.querySelectorAll('div[data-testid="stSelectbox"]');
-                boxes.forEach((sb) => {
-                    if (!isOmniboxSelect(sb)) return;
-                    const inp = sb.querySelector('input');
-                    if (inp) {
-                        if (inp.hasAttribute('readonly') || inp.readOnly) {
-                            inp.removeAttribute('readonly');
-                            inp.readOnly = false;
-                        }
-                        if (inp.getAttribute('inputmode') !== 'search') {
-                            inp.setAttribute('inputmode', 'search');
-                        }
-                        inp.setAttribute('autocomplete', 'off');
-                        inp.setAttribute('autocorrect', 'off');
-                        inp.setAttribute('autocapitalize', 'off');
-                        inp.setAttribute('spellcheck', 'false');
-                    }
-                });
-            };
-
-            unlockOmniboxInputs();
-
-            if (doc._zaraOmniboxV2Installed) return;
-            doc._zaraOmniboxV2Installed = true;
-
-            const obs = new MutationObserver(() => {
-                unlockOmniboxInputs();
-            });
-            obs.observe(doc.body, { childList: true, subtree: true });
-
-            const clearOmniboxForTyping = (inp) => {
-                if (!inp) return;
-                inp.removeAttribute('readonly');
-                inp.readOnly = false;
-                inp.setAttribute('inputmode', 'search');
-
-                const curVal = inp.value || '';
-                if (curVal && inp.dataset.zaraCleared !== '1') {
-                    inp.placeholder = '🔍 Digita codice o nome (attuale: ' + curVal + ')';
-                    inp.dataset.zaraCleared = '1';
-                    try {
-                        const tracker = inp._valueTracker;
-                        if (tracker) {
-                            tracker.setValue(curVal);
-                        }
-                        const setter = Object.getOwnPropertyDescriptor(
-                            win.HTMLInputElement.prototype,
-                            'value'
-                        ).set;
-                        if (setter) {
-                            setter.call(inp, '');
-                        } else {
-                            inp.value = '';
-                        }
-                        inp.dispatchEvent(new Event('input', { bubbles: true }));
-                    } catch (err) {}
-                }
-                try {
-                    inp.focus();
-                } catch (err) {}
-            };
 
             const selectAllRegularInput = (el) => {
-                if (!el || el.tagName !== 'INPUT') return;
+                if (!el || el.tagName !== 'INPUT' || el.type === 'checkbox' || el.type === 'radio') return;
                 setTimeout(() => {
                     try {
                         el.focus();
@@ -486,32 +410,12 @@ def _inject_omnibox_autoselect_js() -> None:
                 }, 10);
             };
 
-            doc.addEventListener('pointerdown', (e) => {
-                const t = e.target;
-                if (!t || !t.closest) return;
-                const sb = t.closest('div[data-testid="stSelectbox"]');
-                if (sb && isOmniboxSelect(sb)) {
-                    const inp = sb.querySelector('input');
-                    if (inp) {
-                        inp.removeAttribute('readonly');
-                        inp.readOnly = false;
-                        inp.setAttribute('inputmode', 'search');
-                    }
-                }
-            }, true);
-
             doc.addEventListener('click', (e) => {
                 const t = e.target;
                 if (!t || !t.closest) return;
-                const sb = t.closest('div[data-testid="stSelectbox"]');
-                if (sb && isOmniboxSelect(sb)) {
-                    const inp = sb.querySelector('input');
-                    if (inp) {
-                        clearOmniboxForTyping(inp);
-                    }
-                    return;
-                }
-                if (t.tagName === 'INPUT' && !sb) {
+                // Non toccare i selectbox per non disturbare la ricerca testuale
+                if (t.closest('div[data-testid="stSelectbox"]')) return;
+                if (t.tagName === 'INPUT') {
                     selectAllRegularInput(t);
                 }
             }, true);
@@ -519,25 +423,13 @@ def _inject_omnibox_autoselect_js() -> None:
             doc.addEventListener('focusin', (e) => {
                 const t = e.target;
                 if (!t || t.tagName !== 'INPUT') return;
-                const sb = t.closest && t.closest('div[data-testid="stSelectbox"]');
-                if (sb) {
-                    if (isOmniboxSelect(sb)) {
-                        clearOmniboxForTyping(t);
-                    }
-                } else {
-                    selectAllRegularInput(t);
-                }
-            }, true);
-
-            doc.addEventListener('focusout', (e) => {
-                const t = e.target;
-                if (t && t.tagName === 'INPUT' && t.dataset) {
-                    t.dataset.zaraCleared = '0';
-                }
+                if (t.closest && t.closest('div[data-testid="stSelectbox"]')) return;
+                selectAllRegularInput(t);
             }, true);
         } catch (err) {}
     })();
     </script>
+    """, height=0, width=0)
     """, height=0, width=0)
 
 
@@ -880,7 +772,8 @@ def render_ufficio_simplified_view(
         save_auto_operativa_config,
         start_auto_operativa_daemon,
     )
-    start_auto_operativa_daemon()
+    if os.environ.get("ENABLE_INAPP_SCHEDULER") == "1":
+        start_auto_operativa_daemon()
 
     with st.expander("🤖 Automazione Martedì & Venerdì (Estrazione Extranet + XML + Email + Profumi Automatici)", expanded=False):
         auto_cfg = get_auto_operativa_config()
@@ -1741,7 +1634,6 @@ def _render_mobile_intershops_section(
             "🔍 Negozio Mittente (Omnibox)",
             options=mitt_opts,
             format_func=_fmt_mitt,
-            accept_new_options=True,
             filter_mode="fuzzy",
             key=mitt_sb_key,
         )
@@ -1884,27 +1776,6 @@ def render_mobile_two_buttons_view(
         st.session_state["mob2_date"] = mob_date
         st.rerun()
 
-    if latest_std_str and latest_dop_str and latest_std_str in all_dates and latest_dop_str in all_dates:
-        c_qd1, c_qd2 = st.columns(2)
-        with c_qd1:
-            if st.button(
-                f"🚚 /0 STD: {format_date_weekday_it(latest_std_str)}",
-                type="primary" if mob_date == latest_std_str else "secondary",
-                use_container_width=True,
-                key="mob2_quick_b0_dt",
-            ):
-                st.session_state["mob2_date"] = latest_std_str
-                st.rerun()
-        with c_qd2:
-            if st.button(
-                f"🔁 /9 DOPPIA: {format_date_weekday_it(latest_dop_str)}",
-                type="primary" if mob_date == latest_dop_str else "secondary",
-                use_container_width=True,
-                key="mob2_quick_b9_dt",
-            ):
-                st.session_state["mob2_date"] = latest_dop_str
-                st.rerun()
-
     df_b_date = get_bolle_by_date(mob_date)
     if df_b_date.empty:
         st.warning(f"Nessuna bolla presente per **{format_date_weekday_it(mob_date)}**.")
@@ -2020,13 +1891,12 @@ def render_mobile_two_buttons_view(
 
         curr_pos = omnibox_options.index(curr_bid)
 
-        # OMNIBOX + frecce compatte (accept_new_options=True sblocca sempre la tastiera su mobile anche con <= 10 negozi)
+        # OMNIBOX + frecce compatte
         selected_raw = st.selectbox(
             "🔍 Omnibox Negozio (tocca il box e digita codice es. 3534, insegna o centro es. Roma Est / Stradivarius)",
             options=omnibox_options,
             index=curr_pos,
             format_func=lambda bid_k: omnibox_labels.get(bid_k, str(bid_k)),
-            accept_new_options=True,
             filter_mode="fuzzy",
             key="mob2_omnibox_spunta",
         )
@@ -2199,7 +2069,6 @@ def render_mobile_two_buttons_view(
                 "🔍 1️⃣ Omnibox Negozio (tocca il box e digita codice es. 3534, insegna o centro es. Roma Est / Stradivarius)",
                 options=add_opt_keys,
                 format_func=lambda k: all_store_opts.get(k, str(k)),
-                accept_new_options=True,
                 filter_mode="fuzzy",
                 key="mob2_add_store_omnibox",
             )
@@ -2213,32 +2082,13 @@ def render_mobile_two_buttons_view(
             if "mob2_add_qty" not in st.session_state:
                 st.session_state["mob2_add_qty"] = 1
 
-            st.markdown("<div style='font-size:13px; font-weight:700; margin:6px 0 4px 0;'>2️⃣ Quantità colli da aggiungere:</div>", unsafe_allow_html=True)
-            q_c1, q_c2, q_c3, q_c4 = st.columns(4)
-            with q_c1:
-                if st.button("➕ 1", use_container_width=True, key="mob2_q_1"):
-                    st.session_state["mob2_add_qty"] = 1
-                    st.rerun()
-            with q_c2:
-                if st.button("➕ 2", use_container_width=True, key="mob2_q_2"):
-                    st.session_state["mob2_add_qty"] = 2
-                    st.rerun()
-            with q_c3:
-                if st.button("➕ 5", use_container_width=True, key="mob2_q_5"):
-                    st.session_state["mob2_add_qty"] = 5
-                    st.rerun()
-            with q_c4:
-                if st.button("➕ 10", use_container_width=True, key="mob2_q_10"):
-                    st.session_state["mob2_add_qty"] = 10
-                    st.rerun()
-
             c_qty, c_cat = st.columns([1, 1.4])
             with c_qty:
                 qty_to_add = st.number_input(
-                    "🔢 Colli da aggiungere",
+                    "🔢 Quantità Colli",
                     min_value=1,
                     max_value=500,
-                    value=int(st.session_state["mob2_add_qty"]),
+                    value=int(st.session_state.get("mob2_add_qty", 1)),
                     step=1,
                     key="mob2_add_qty_input",
                 )
