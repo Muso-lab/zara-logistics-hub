@@ -573,6 +573,46 @@ def test_calendario_dal_13_dicembre_domenica_lunedi_e_automazione():
     assert b0_3 == date(2026, 12, 16)  # Mercoledì (/0 STD)
     assert b9_3 == date(2026, 12, 17)  # Giovedì (/9 DOPPIA)
 
+    # 4. Venerdì prima del 13 Dicembre (Venerdì 20/11/2026) -> GIOV-DOM: Sabato 21/11 e Domenica 22/11
+    cyc4, b0_4, b9_4 = resolve_cycle_for_arrival_date(date(2026, 11, 20))
+    assert cyc4 == "GIOV-DOM"
+    assert b0_4 == date(2026, 11, 21)  # Sabato (/0 STD)
+    assert b9_4 == date(2026, 11, 22)  # Domenica (/9 DOPPIA)
+
+    # 5. Venerdì dopo il 13 Dicembre (Venerdì 18/12/2026) -> GIOV-DOM: Domenica 20/12 e Lunedì 21/12
+    cyc5, b0_5, b9_5 = resolve_cycle_for_arrival_date(date(2026, 12, 18))
+    assert cyc5 == "GIOV-DOM"
+    assert b0_5 == date(2026, 12, 20)  # Domenica (/0 STD)
+    assert b9_5 == date(2026, 12, 21)  # Lunedì (/9 DOPPIA)
+
+
+def test_perfume_inbox_parser():
+    """Verifica l'estrazione automatica delle quantità profumi dal corpo email."""
+    from src.perfume_inbox import parse_perfumes_from_text
+
+    text = """
+    Buongiorno operativa,
+    ecco i dati profumi per il carico:
+    Negozio 3680: 140 pz
+    Store 9226 - 55 colli
+    3591 = 70 profumi
+    """
+    res = parse_perfumes_from_text(text)
+    assert res["3680"] == 140.0
+    assert res["9226"] == 55.0
+    assert res["3591"] == 70.0
+
+
+def test_auto_operativa_friday_trigger():
+    """Verifica che lo scheduler riconosca sia il Martedì (wd=1) che il Venerdì (wd=4)."""
+    from datetime import datetime
+    from src.auto_operativa import check_and_trigger_scheduled_operativa
+
+    # Giovedì 19/11/2026 (weekday=3) -> deve restituire None
+    thu_dt = datetime(2026, 11, 19, 9, 30)
+    assert check_and_trigger_scheduled_operativa(thu_dt) is None
+
+
 
 
 

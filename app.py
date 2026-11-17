@@ -1830,15 +1830,16 @@ if "Previsione & Arrivi" in menu:
                     st.info("Nessun negozio ha l'opzione 'Scorporo Profumi = SI' attiva in Anagrafica Negozi.")
                 st.markdown('</div>', unsafe_allow_html=True)
 
-                with st.expander("🤖 Automazione Martedì & Sabato (Estrazione Extranet + XML + Invio Email Automatico)", expanded=False):
+                with st.expander("🤖 Automazione Martedì & Venerdì (Estrazione Extranet + XML + Email + Profumi Automatici)", expanded=False):
                     adm_auto_cfg = get_auto_operativa_config()
                     st.markdown(
-                        "Configura l'esecuzione automatica programmata nei giorni di arrivo mezzi (**Martedì** per l'operativa *Mercoledì/Giovedì* e **Sabato** per l'operativa *Sabato/Domenica*, "
+                        "Configura l'esecuzione automatica programmata nei giorni di arrivo mezzi (**Martedì** per l'operativa *Mercoledì/Giovedì* e **Venerdì** per l'operativa *Sabato/Domenica*, "
                         "che dal **13 Dicembre 2026** diventa automaticamente **Domenica `/0` + Lunedì `/9`**).\n"
                         "All'orario stabilito il sistema:\n"
-                        "1. **Scarica automaticamente i file da Inditex Extranet** con le credenziali salvate;\n"
-                        "2. **Elabora i Giri, le Bolle e genera i file XML TMS** caricandoli in cloud (o pronti per il download);\n"
-                        "3. **Invia in automatico l'Email Operativa** con tutti gli allegati (Sintesi, ZARA, SGA) agli indirizzi configurati."
+                        "1. **Scarica i profumi dall'ultima email ricevuta** nella casella di posta per aggiornare automaticamente le quantità;\n"
+                        "2. **Scarica automaticamente i file da Inditex Extranet** con le credenziali salvate;\n"
+                        "3. **Elabora i Giri, le Bolle e genera i file XML TMS** caricandoli in cloud (o pronti per il download);\n"
+                        "4. **Invia in automatico l'Email Operativa** con tutti gli allegati (Sintesi, ZARA, SGA) agli indirizzi configurati."
                     )
                     c_au1, c_au2, c_au3, c_au4 = st.columns([1.1, 1.1, 1.1, 1.2])
                     with c_au1:
@@ -1846,14 +1847,33 @@ if "Previsione & Arrivi" in menu:
                     with c_au2:
                         adm_au_tue = st.checkbox("📅 Ogni Martedì (LUN-MER)", value=bool(adm_auto_cfg.get("run_on_tuesday", True)), key="adm_au_tue")
                     with c_au3:
-                        adm_au_sat = st.checkbox("📅 Ogni Sabato (GIOV-DOM)", value=bool(adm_auto_cfg.get("run_on_saturday", True)), key="adm_au_sat")
+                        adm_au_fri = st.checkbox("📅 Ogni Venerdì (GIOV-DOM)", value=bool(adm_auto_cfg.get("run_on_friday", True)), key="adm_au_fri")
                     with c_au4:
                         adm_au_time = st.text_input(
                             "⏰ Orario Avvio (HH:MM)",
                             value=str(adm_auto_cfg.get("schedule_time", "08:00")),
-                            help="Orario italiano (Europe/Rome) per l'avvio automatico Martedì e Sabato.",
+                            help="Orario italiano (Europe/Rome) per l'avvio automatico Martedì e Venerdì.",
                             key="adm_au_time",
                         )
+
+                    c_adm_po1, c_adm_po2 = st.columns([2.5, 1.5])
+                    with c_adm_po1:
+                        adm_fetch_mail = st.checkbox(
+                            "📧 Scorporo Profumi Automatico da Email (cerca messaggi con oggetto 'profumi/scorporo')",
+                            value=bool(adm_auto_cfg.get("auto_fetch_perfumes_from_email", True)),
+                            key="adm_au_fetch_mail",
+                        )
+                    with c_adm_po2:
+                        if st.button("🔍 Leggi Email Profumi Ora", type="secondary", use_container_width=True, key="adm_btn_test_perf_mail"):
+                            from src.perfume_inbox import fetch_latest_perfumes_from_email
+                            with st.spinner("Ricerca email profumi in corso..."):
+                                p_res = fetch_latest_perfumes_from_email()
+                                if p_res.get("status") == "ok":
+                                    p_items = p_res.get("perfumes", {})
+                                    p_str = ", ".join([f"**Negozio {k}**: `{int(v)}` pz" for k, v in p_items.items()])
+                                    st.success(f"📬 Trovata email: *{p_res.get('subject')}* ({p_res.get('date')})!\n\n🧴 Pezzi rilevati: {p_str}")
+                                else:
+                                    st.warning(f"ℹ️ {p_res.get('message')}")
 
                     st.markdown("**📎 Allegati da allegare nell'invio Email automatico:**")
                     ca1, ca2, ca3, ca4 = st.columns(4)
@@ -1874,19 +1894,20 @@ if "Previsione & Arrivi" in menu:
 
                     c_ab1, c_ab2 = st.columns(2)
                     with c_ab1:
-                        if st.button("💾 Salva Impostazioni Automazione Martedì/Sabato", type="primary", use_container_width=True, key="adm_au_save_btn"):
+                        if st.button("💾 Salva Impostazioni Automazione Martedì/Venerdì", type="primary", use_container_width=True, key="adm_au_save_btn"):
                             save_auto_operativa_config({
                                 "enabled": bool(adm_au_en),
                                 "run_on_tuesday": bool(adm_au_tue),
-                                "run_on_saturday": bool(adm_au_sat),
+                                "run_on_friday": bool(adm_au_fri),
                                 "schedule_time": adm_au_time.strip() or "08:00",
+                                "auto_fetch_perfumes_from_email": bool(adm_fetch_mail),
                                 "attach_sintesi": bool(adm_att_sin),
                                 "attach_zara": bool(adm_att_zar),
                                 "attach_sga0": bool(adm_att_s0),
                                 "attach_sga9": bool(adm_att_s9),
                                 "preset_perfumes": perfume_corrections,
                             })
-                            st.success("✅ Programmazione automatica Martedì & Sabato salvata!")
+                            st.success("✅ Programmazione automatica Martedì & Venerdì salvata!")
                             st.rerun()
                     with c_ab2:
                         if st.button("⚡ Esegui Ora Ciclo Automatico Completo (Estrazione + XML + Email)", type="secondary", use_container_width=True, key="adm_au_run_now_btn"):
@@ -4688,19 +4709,20 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
         )
 
     with tab_auto:
-        st.markdown("#### 🤖 Automazione Martedì & Sabato (Estrazione Extranet + XML Cloud + Invio Email)")
+        st.markdown("#### 🤖 Automazione Martedì & Venerdì (Estrazione Extranet + XML Cloud + Invio Email + Profumi)")
         st.markdown(
-            "Questa automazione esegue il flusso completo nei giorni di arrivo dei mezzi (**Martedì** e **Sabato**):\n"
-            "1. **Estrazione Extranet**: prelievo automatico degli ordini con credenziali salvate;\n"
-            "2. **Elaborazione Giri & Bolle**: calcolo consegne `/0 STD` e `/9 DOPPIA` e scorporo profumi dinamico;\n"
-            "3. **File XML TMS**: generazione dei singoli file XML e upload sul Bucket Cloud (Trick A / PULL zero firewall);\n"
-            "4. **Spedizione Email**: invio dell'email operativa con gli allegati selezionati ai destinatari configurati."
+            "Questa automazione esegue il flusso completo nei giorni di arrivo dei mezzi (**Martedì** e **Venerdì**):\n"
+            "1. **Scorporo Profumi da Email**: legge in automatico l'ultima email ricevuta con i quantitativi dei profumi;\n"
+            "2. **Estrazione Extranet**: prelievo automatico degli ordini con le credenziali salvate;\n"
+            "3. **Elaborazione Giri & Bolle**: calcolo consegne `/0 STD` e `/9 DOPPIA` e applicazione dei profumi;\n"
+            "4. **File XML TMS**: generazione dei singoli file XML e upload sul Bucket Cloud (Trick A / PULL zero firewall);\n"
+            "5. **Spedizione Email**: invio dell'email operativa con gli allegati selezionati ai destinatari configurati."
         )
 
         st.info(
             "📅 **Regola Consegne (Switch dal 13 Dicembre 2026):**\n"
             "- **Arrivi Martedì**: Consegne invariate tutto l'anno a **Mercoledì (`/0 STD`)** e **Giovedì (`/9 DOPPIA`)**.\n"
-            "- **Arrivi Sabato**: Fino al 12/12/2026 consegna **Sabato (`/0 STD`)** e **Domenica (`/9 DOPPIA`)**; "
+            "- **Arrivi Venerdì**: Fino al 12/12/2026 consegna **Sabato (`/0 STD`)** e **Domenica (`/9 DOPPIA`)**; "
             "dal **13 Dicembre 2026 in poi** diventa automaticamente **Domenica (`/0 STD`)** e **Lunedì (`/9 DOPPIA`)**."
         )
 
@@ -4713,7 +4735,7 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
             with c_a2:
                 t_au_tue = st.checkbox("📅 Ogni Martedì (LUN-MER)", value=bool(auto_cfg_tab.get("run_on_tuesday", True)), key="t_au_tue")
             with c_a3:
-                t_au_sat = st.checkbox("📅 Ogni Sabato (GIOV-DOM)", value=bool(auto_cfg_tab.get("run_on_saturday", True)), key="t_au_sat")
+                t_au_fri = st.checkbox("📅 Ogni Venerdì (GIOV-DOM)", value=bool(auto_cfg_tab.get("run_on_friday", True)), key="t_au_fri")
             with c_a4:
                 t_au_time = st.text_input(
                     "⏰ Orario Avvio (HH:MM)",
@@ -4721,6 +4743,13 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
                     help="Orario italiano (Europe/Rome) in cui far partire il processo.",
                     key="t_au_time",
                 )
+
+            t_au_fetch_perf = st.checkbox(
+                "📧 Scorporo Profumi Automatico da Email prima di ogni elaborazione",
+                value=bool(auto_cfg_tab.get("auto_fetch_perfumes_from_email", True)),
+                key="t_au_fetch_perf",
+                help="Legge i pezzi profumi per negozio dall'ultima email ricevuta (oggetto contenente 'profumi', 'scorporo' o 'pezzi').",
+            )
 
             st.markdown("**📎 Allegati Email:**")
             col_att1, col_att2, col_att3, col_att4 = st.columns(4)
@@ -4738,8 +4767,9 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
                 save_auto_operativa_config({
                     "enabled": bool(t_au_en),
                     "run_on_tuesday": bool(t_au_tue),
-                    "run_on_saturday": bool(t_au_sat),
+                    "run_on_friday": bool(t_au_fri),
                     "schedule_time": t_au_time.strip() or "08:00",
+                    "auto_fetch_perfumes_from_email": bool(t_au_fetch_perf),
                     "attach_sintesi": bool(t_att_sin),
                     "attach_zara": bool(t_att_zar),
                     "attach_sga0": bool(t_att_s0),
@@ -4750,6 +4780,64 @@ elif "Impostazioni" in menu or "Backup" in menu or "6." in menu:
 
         if auto_cfg_tab.get("last_auto_run_timestamp"):
             st.markdown(f"**📌 Ultima esecuzione registrata:** `{auto_cfg_tab.get('last_auto_run_timestamp')}` — {auto_cfg_tab.get('last_auto_run_summary', '')}")
+
+        st.markdown("---")
+        st.markdown("##### 📧 Parametri IMAP per Lettura Email Profumi")
+        from src.perfume_inbox import get_perfume_inbox_config, save_perfume_inbox_config, fetch_latest_perfumes_from_email
+        p_inbox_cfg = get_perfume_inbox_config()
+
+        with st.form("form_perfume_inbox_settings"):
+            cp1, cp2, cp3 = st.columns(3)
+            with cp1:
+                in_p_host = st.text_input("Host Server IMAP", value=p_inbox_cfg.get("imap_host", ""), help="es. imap.gmail.com, imaps.aruba.it, outlook.office365.com")
+            with cp2:
+                in_p_port = st.number_input("Porta IMAP (SSL)", min_value=1, max_value=65535, value=int(p_inbox_cfg.get("imap_port", 993)))
+            with cp3:
+                in_p_user = st.text_input("Utente / Email IMAP", value=p_inbox_cfg.get("imap_user", ""))
+
+            cp4, cp5 = st.columns(2)
+            with cp4:
+                in_p_pass = st.text_input("Password IMAP / Password App", value=p_inbox_cfg.get("imap_password", ""), type="password")
+            with cp5:
+                in_p_kw = st.text_input("Parole chiave nell'oggetto (separate da virgola)", value=", ".join(p_inbox_cfg.get("subject_keywords", ["profum", "scorporo", "pezzi"])))
+
+            c_btn_p1, c_btn_p2 = st.columns(2)
+            with c_btn_p1:
+                btn_save_p_inbox = st.form_submit_button("💾 SALVA PARAMETRI IMAP EMAIL PROFUMI", type="primary", use_container_width=True)
+            with c_btn_p2:
+                btn_test_p_inbox = st.form_submit_button("🔍 TEST LETTURA EMAIL PROFUMI ORA", use_container_width=True)
+
+            if btn_save_p_inbox:
+                kw_list = [x.strip() for x in in_p_kw.split(",") if x.strip()]
+                save_perfume_inbox_config({
+                    "imap_host": in_p_host.strip(),
+                    "imap_port": int(in_p_port),
+                    "imap_user": in_p_user.strip(),
+                    "imap_password": in_p_pass.strip(),
+                    "subject_keywords": kw_list or ["profum", "scorporo", "pezzi"],
+                })
+                st.success("✅ Parametri IMAP per lettura profumi salvati!")
+                st.rerun()
+
+            if btn_test_p_inbox:
+                kw_list = [x.strip() for x in in_p_kw.split(",") if x.strip()]
+                test_override = {
+                    "imap_host": in_p_host.strip(),
+                    "imap_port": int(in_p_port),
+                    "imap_user": in_p_user.strip(),
+                    "imap_password": in_p_pass.strip(),
+                    "subject_keywords": kw_list,
+                }
+                with st.spinner("Connessione IMAP e scansione casella postale in corso..."):
+                    test_p_res = fetch_latest_perfumes_from_email(test_override)
+                    if test_p_res.get("status") == "ok":
+                        p_it = test_p_res.get("perfumes", {})
+                        st.success(f"🎉 Successo! Trovata email *'{test_p_res.get('subject')}'* inviata da *{test_p_res.get('sender')}* il {test_p_res.get('date')}.")
+                        st.markdown("**🧴 Quantità profumi pervenute:**")
+                        for sid, val in p_it.items():
+                            st.write(f"- Negozio **{sid}**: `{int(val)}` pezzi")
+                    else:
+                        st.warning(f"ℹ️ {test_p_res.get('message')}")
 
         st.markdown("---")
         st.markdown("##### 📥 Trick A: Sincronizzazione Automatica XML su Server Windows BeOne (Zero Firewall)")

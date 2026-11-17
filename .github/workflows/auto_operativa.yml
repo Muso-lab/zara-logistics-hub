@@ -1,0 +1,38 @@
+name: Automazione Operativa Martedì & Venerdì (Inditex -> XML -> Email)
+
+on:
+  schedule:
+    # 07:00 UTC corrisponde alle 08:00 (ora solare italiana) / 09:00 (ora legale)
+    # Cron: Minuto (0) Ora (7) GiornoDelMese (*) Mese (*) GiornoDellaSettimana (2=Martedì, 5=Venerdì)
+    - cron: '0 7 * * 2,5'
+  workflow_dispatch: # Permette anche il lancio manuale con un clic da GitHub Actions
+
+jobs:
+  run-operativa:
+    name: Esecuzione Automatica Martedì / Venerdì
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Installa Dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Esegui Ciclo Operativo Completo
+        env:
+          # Variabili d'ambiente e Secrets configurabili nel repository GitHub
+          INDITEX_EXTRANET_USER: ${{ secrets.INDITEX_EXTRANET_USER }}
+          INDITEX_EXTRANET_PASS: ${{ secrets.INDITEX_EXTRANET_PASS }}
+          GCS_SERVICE_ACCOUNT_KEY: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: |
+          python -m src.auto_operativa --run-now --fetch-perfumes

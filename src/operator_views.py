@@ -882,13 +882,16 @@ def render_ufficio_simplified_view(
     )
     start_auto_operativa_daemon()
 
-    with st.expander("🤖 Automazione Martedì & Sabato (Estrazione Extranet + XML + Invio Email Automatico)", expanded=False):
+    with st.expander("🤖 Automazione Martedì & Venerdì (Estrazione Extranet + XML + Email + Profumi Automatici)", expanded=False):
         auto_cfg = get_auto_operativa_config()
         st.markdown(
-            "Configura l'esecuzione automatica nei giorni di arrivo mezzi (**Martedì** per l'operativa *Mercoledì/Giovedì* e **Sabato** per l'operativa *Sabato/Domenica*, "
+            "Configura l'esecuzione automatica nei giorni di arrivo mezzi (**Martedì** per l'operativa *Mercoledì/Giovedì* e **Venerdì** per l'operativa *Sabato/Domenica*, "
             "che dal **13 Dicembre 2026** diventa automaticamente **Domenica `/0` + Lunedì `/9`**).\n"
-            "All'orario stabilito il sistema: **1)** scarica i file da Inditex Extranet, **2)** genera Giri, Bolle e file XML caricandoli sul Cloud (pronti per lo script locale), "
-            "e **3)** invia in automatico l'Email Operativa con gli allegati."
+            "All'orario stabilito il sistema:\n"
+            "1. **Legge automaticamente l'ultima email dei profumi** ricevuta nella casella di posta per aggiornare i quantitativi;\n"
+            "2. **Scarica i file da Inditex Extranet** con le credenziali salvate;\n"
+            "3. **Genera Giri, Bolle e file XML** caricandoli su Cloud Storage per il download del TMS BeOne;\n"
+            "4. **Invia in automatico l'Email Operativa** con gli allegati ai destinatari configurati."
         )
         c_au1, c_au2, c_au3, c_au4 = st.columns([1.1, 1.1, 1.1, 1.2])
         with c_au1:
@@ -896,14 +899,34 @@ def render_ufficio_simplified_view(
         with c_au2:
             au_tue = st.checkbox("📅 Ogni Martedì (LUN-MER)", value=bool(auto_cfg.get("run_on_tuesday", True)), key="uff_au_tue")
         with c_au3:
-            au_sat = st.checkbox("📅 Ogni Sabato (GIOV-DOM)", value=bool(auto_cfg.get("run_on_saturday", True)), key="uff_au_sat")
+            au_fri = st.checkbox("📅 Ogni Venerdì (GIOV-DOM)", value=bool(auto_cfg.get("run_on_friday", True)), key="uff_au_fri")
         with c_au4:
             au_time = st.text_input(
                 "⏰ Orario Avvio (HH:MM)",
                 value=str(auto_cfg.get("schedule_time", "08:00")),
-                help="Orario italiano (Europe/Rome) in cui far partire automaticamente l'estrazione il Martedì e il Sabato.",
+                help="Orario italiano (Europe/Rome) in cui far partire automaticamente l'estrazione il Martedì e il Venerdì.",
                 key="uff_au_time",
             )
+
+        c_perf_opt1, c_perf_opt2 = st.columns([2.5, 1.5])
+        with c_perf_opt1:
+            au_fetch_mail = st.checkbox(
+                "📧 Scorporo Profumi Automatico: leggi l'ultima email ricevuta (oggetto 'profumi/scorporo')",
+                value=bool(auto_cfg.get("auto_fetch_perfumes_from_email", True)),
+                key="uff_au_fetch_mail",
+                help="Se spuntato, prima dell'avvio scarica in automatico i pezzi profumi per negozio dall'email ricevuta.",
+            )
+        with c_perf_opt2:
+            if st.button("🔍 Leggi Email Profumi Ora", type="secondary", use_container_width=True, key="uff_btn_test_perf_mail"):
+                from src.perfume_inbox import fetch_latest_perfumes_from_email
+                with st.spinner("Connessione alla casella email e ricerca messaggi profumi in corso..."):
+                    p_res = fetch_latest_perfumes_from_email()
+                    if p_res.get("status") == "ok":
+                        p_items = p_res.get("perfumes", {})
+                        p_str = ", ".join([f"**Negozio {k}**: `{int(v)}` pz" for k, v in p_items.items()])
+                        st.success(f"📬 Trovata email: *{p_res.get('subject')}* ({p_res.get('date')})!\n\n🧴 Pezzi rilevati: {p_str}")
+                    else:
+                        st.warning(f"ℹ️ {p_res.get('message')}")
 
         st.markdown("**📎 Allegati da includere nell'invio Email automatico:**")
         ca1, ca2, ca3, ca4 = st.columns(4)
@@ -924,19 +947,20 @@ def render_ufficio_simplified_view(
 
         c_ab1, c_ab2 = st.columns(2)
         with c_ab1:
-            if st.button("💾 Salva Impostazioni Automazione Martedì/Sabato", type="primary", use_container_width=True, key="uff_au_save_btn"):
+            if st.button("💾 Salva Impostazioni Automazione Martedì/Venerdì", type="primary", use_container_width=True, key="uff_au_save_btn"):
                 save_auto_operativa_config({
                     "enabled": bool(au_enabled),
                     "run_on_tuesday": bool(au_tue),
-                    "run_on_saturday": bool(au_sat),
+                    "run_on_friday": bool(au_fri),
                     "schedule_time": au_time.strip() or "08:00",
+                    "auto_fetch_perfumes_from_email": bool(au_fetch_mail),
                     "attach_sintesi": bool(au_att_sin),
                     "attach_zara": bool(au_att_zar),
                     "attach_sga0": bool(au_att_s0),
                     "attach_sga9": bool(au_att_s9),
                     "preset_perfumes": perfume_corrections,
                 })
-                st.success("✅ Programmazione automatica Martedì & Sabato salvata!")
+                st.success("✅ Programmazione automatica Martedì & Venerdì salvata!")
                 st.rerun()
         with c_ab2:
             if st.button("⚡ Esegui Ora Ciclo Automatico Completo (Estrazione + XML + Email)", type="secondary", use_container_width=True, key="uff_au_run_now_btn"):

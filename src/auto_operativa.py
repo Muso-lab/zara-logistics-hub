@@ -1,9 +1,10 @@
 """
-Modulo di Automazione Operativa del Martedì e del Sabato (Inditex Extranet -> Pipeline -> XML GCS -> Email).
+Modulo di Automazione Operativa del Martedì e del Venerdì (Inditex Extranet -> Pipeline -> XML GCS -> Email).
 - Martedì: Arrivi mezzi ciclo LUN-MER -> Consegne Mercoledì (/0 STD) e Giovedì (/9 DOPPIA).
-- Sabato: Arrivi mezzi ciclo GIOV-DOM ->
+- Venerdì: Arrivi mezzi ciclo GIOV-DOM ->
     * Fino al 12/12/2026: Consegne Sabato (/0 STD) e Domenica (/9 DOPPIA)
     * Dal 13/12/2026 in poi: Consegne Domenica (/0 STD) e Lunedì (/9 DOPPIA)
+Supporta inoltre il recupero automatico dei profumi direttamente da email prima dell'avvio.
 """
 from __future__ import annotations
 
@@ -29,12 +30,14 @@ AUTO_OP_CONFIG_FILE = DATA_DIR / "auto_operativa_config.json"
 DEFAULT_AUTO_OP_CONFIG: Dict[str, Any] = {
     "enabled": True,
     "run_on_tuesday": True,
-    "run_on_saturday": True,
+    "run_on_friday": True,
+    "run_on_saturday": False,
     "schedule_time": "08:00",
     "attach_sintesi": True,
     "attach_zara": True,
     "attach_sga0": False,
     "attach_sga9": False,
+    "auto_fetch_perfumes_from_email": True,
     "preset_perfumes": {"3680": 0, "9226": 0, "3591": 0},
     "last_auto_run_date": "",
     "last_auto_run_status": "",
@@ -194,12 +197,28 @@ def execute_auto_operativa_run(
             output_dir=temp_extract_dir,
         )
 
-        perf_map = perfume_override if perfume_override is not None else cfg.get("preset_perfumes", {})
+        perf_source_note = ""
+        perf_map = dict(cfg.get("preset_perfumes", {}))
+        if perfume_override is not None:
+            perf_map.update(perfume_override)
+            perf_source_note = " (override manuale)"
+        elif cfg.get("auto_fetch_perfumes_from_email", True):
+            try:
+                from src.perfume_inbox import fetch_latest_perfumes_from_email
+                inbox_res = fetch_latest_perfumes_from_email()
+                if inbox_res.get("status") == "ok" and inbox_res.get("perfumes"):
+                    perf_from_email = inbox_res["perfumes"]
+                    perf_map.update(perf_from_email)
+                    p_details = ", ".join([f"{k}: {int(v)}pz" for k, v in perf_from_email.items()])
+                    perf_source_note = f" (Scorporo profumi rilevato via email: {p_details})"
+            except Exception:
+                pass
+
         clean_perf = {str(k): float(v or 0) for k, v in (perf_map or {}).items()}
 
         notes = (
             f"Automazione {dt.strftime('%A')} W{dt.isocalendar()[1]} ({cycle_type}) "
-            f"[Consegne /0: {format_date_it(date_b0)} - /9: {format_date_it(date_b9)}]"
+            f"[Consegne /0: {format_date_it(date_b0)} - /9: {format_date_it(date_b9)}]{perf_source_note}"
         )
 
         res = run_pipeline(
@@ -277,7 +296,7 @@ def execute_auto_operativa_run(
 
 def check_and_trigger_scheduled_operativa(now_dt: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
     """
-    Controlla se oggi è Martedì (weekday=1) o Sabato (weekday=5), se l'automazione è attiva
+    Controlla se oggi è Martedì (weekday=1) o Venerdì (weekday=4), se l'automazione è attiva
     e se l'ora corrente (Europe/Rome) ha raggiunto o superato `schedule_time` senza che
     l'operativa di oggi sia già stata eseguita. In tal caso avvia `execute_auto_operativa_run`.
     """
@@ -286,12 +305,14 @@ def check_and_trigger_scheduled_operativa(now_dt: Optional[datetime] = None) -> 
         return None
 
     cur = now_dt or now_rome()
-    wd = cur.weekday()  # 1 = Martedì, 5 = Sabato
+    wd = cur.weekday()  # 1 = Martedì, 4 = Venerdì, (5 = Sabato opzionale legacy)
     if wd == 1 and not cfg.get("run_on_tuesday", True):
         return None
-    if wd == 5 and not cfg.get("run_on_saturday", True):
+    if wd == 4 and not cfg.get("run_on_friday", True):
         return None
-    if wd not in (1, 5):
+    if wd == 5 and not cfg.get("run_on_saturday", False):
+        return None
+    if wd not in (1, 4, 5):
         return None
 
     today_iso = cur.strftime("%Y-%m-%d")
@@ -312,7 +333,7 @@ def check_and_trigger_scheduled_operativa(now_dt: Optional[datetime] = None) -> 
 def start_auto_operativa_daemon() -> None:
     """
     Avvia (una sola volta per processo) il thread scheduler in background che controlla
-    ogni 60 secondi se scatta l'estrazione automatica del Martedì o del Sabato.
+    ogni 60 secondi se scatta l'estrazione automatica del Martedì o del Venerdì.
     """
     global _daemon_started
     with _daemon_lock:
@@ -333,7 +354,21 @@ def start_auto_operativa_daemon() -> None:
 
 
 if __name__ == "__main__":
+    import argparse
     import sys
-    force_flag = "--force" in sys.argv
-    out = execute_auto_operativa_run(force=force_flag)
-    print(json.dumps({k: v for k, v in out.items() if k != "run_result"}, indent=2, ensure_ascii=False))
+
+    parser = argparse.ArgumentParser(description="Zara Logistics Hub — CLI Esecuzione Automatica Operativa")
+    parser.add_argument("--force", action="store_true", help="Forza l'esecuzione anche se già eseguita oggi")
+    parser.add_argument("--run-now", action="store_true", help="Esegue immediatamente il ciclo completo")
+    parser.add_argument("--date", type=str, default="", help="Data target specifica (YYYY-MM-DD)")
+    parser.add_argument("--fetch-perfumes", action="store_true", help="Verifica e scarica profumi da email prima dell'avvio")
+
+    args = parser.parse_args()
+
+    t_date = None
+    if args.date:
+        t_date = datetime.strptime(args.date, "%Y-%m-%d").date()
+
+    out = execute_auto_operativa_run(target_date=t_date, force=(args.force or args.run_now))
+    clean_out = {k: v for k, v in out.items() if k != "run_result"}
+    print(json.dumps(clean_out, indent=2, ensure_ascii=False))
