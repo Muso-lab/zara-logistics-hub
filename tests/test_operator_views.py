@@ -538,4 +538,41 @@ def test_split_bolla_for_printing_in_n_vans():
     assert "ROSSI MARIO" in html_split and "BIANCHI LUIGI" in html_split and "VERDI PAOLO" in html_split
 
 
+def test_calendario_dal_13_dicembre_domenica_lunedi_e_automazione():
+    """
+    Verifica:
+    1) Fino al weekend prima del 13/12/2026 (es. Sabato 05/12/2026):
+       ciclo GIOV-DOM -> /0 STD = Sabato 05/12/2026, /9 DOPPIA = Domenica 06/12/2026.
+    2) Dal 13 Dicembre 2026 in poi (es. arrivi mezzi di Sabato 12/12/2026 o Domenica 13/12/2026):
+       ciclo GIOV-DOM -> /0 STD = Domenica 13/12/2026, /9 DOPPIA = Lunedì 14/12/2026!
+    3) L'operativa infrasettimanale LUN-MER (arrivi mezzi di Martedì 15/12/2026) NON cambia:
+       /0 STD = Mercoledì 16/12/2026, /9 DOPPIA = Giovedì 17/12/2026.
+    """
+    from src.auto_operativa import resolve_cycle_for_arrival_date
+
+    # 1. Weekend prima del 13 Dicembre (Sabato 05/12/2026)
+    cyc1, b0_1, b9_1 = resolve_cycle_for_arrival_date(date(2026, 12, 5))
+    assert cyc1 == "GIOV-DOM"
+    assert b0_1 == date(2026, 12, 5)  # Sabato
+    assert b9_1 == date(2026, 12, 6)  # Domenica
+
+    # 2. Weekend del 13 Dicembre (arrivi di Sabato 12/12/2026)
+    cyc2, b0_2, b9_2 = resolve_cycle_for_arrival_date(date(2026, 12, 12))
+    assert cyc2 == "GIOV-DOM"
+    assert b0_2 == date(2026, 12, 13)  # Domenica 13 Dicembre (/0 STD)
+    assert b9_2 == date(2026, 12, 14)  # Lunedì 14 Dicembre (/9 DOPPIA)
+
+    # Anche se lanciata di Domenica 13/12/2026
+    b9_sun, b0_sun = compute_inditex_delivery_dates(date(2026, 12, 13), "GIOV-DOM")
+    assert b0_sun == date(2026, 12, 13)
+    assert b9_sun == date(2026, 12, 14)
+
+    # 3. Martedì 15/12/2026 (arrivi infrasettimanali -> Mercoledì 16/12 e Giovedì 17/12 invariati)
+    cyc3, b0_3, b9_3 = resolve_cycle_for_arrival_date(date(2026, 12, 15))
+    assert cyc3 == "LUN-MER"
+    assert b0_3 == date(2026, 12, 16)  # Mercoledì (/0 STD)
+    assert b9_3 == date(2026, 12, 17)  # Giovedì (/9 DOPPIA)
+
+
+
 

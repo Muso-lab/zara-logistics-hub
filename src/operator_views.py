@@ -587,11 +587,19 @@ def render_ufficio_simplified_view(
             )
         with c_dt2:
             default_cycle_idx = 0 if run_date.weekday() <= 2 else 1
+            monday_ref = run_date - timedelta(days=run_date.weekday())
+            sunday_ref = monday_ref + timedelta(days=6)
+            is_post_dec13 = sunday_ref >= date(2026, 12, 13)
+            giov_dom_lbl = (
+                "GIOV-DOM (Arrivi Sabato • Consegna Domenica /0 e Lunedì /9)"
+                if is_post_dec13
+                else "GIOV-DOM (Arrivi Sabato • Consegna Sabato /0 e Domenica /9)"
+            )
             cycle_choice = st.radio(
                 "Ciclo Settimanale",
                 options=[
-                    "LUN-MER (Consegna Mercoledì /0 e Giovedì /9)",
-                    "GIOV-DOM (Consegna Sabato /0 e Domenica /9)",
+                    "LUN-MER (Arrivi Martedì • Consegna Mercoledì /0 e Giovedì /9)",
+                    giov_dom_lbl,
                 ],
                 index=default_cycle_idx,
                 horizontal=True,
@@ -600,11 +608,17 @@ def render_ufficio_simplified_view(
             cycle_type = "LUN-MER" if "LUN-MER" in cycle_choice else "GIOV-DOM"
 
         date_b9_preview, date_b0_preview = compute_inditex_delivery_dates(run_date, cycle_type)
+        dec13_badge = (
+            " &nbsp;<span style='background:#DBEAFE; color:#1E40AF; padding:2px 8px; border-radius:99px; font-weight:700; font-size:11.5px;'>"
+            "📅 Nuovo Calendario Invernale (dal 13/12: Domenica /0 + Lunedì /9)</span>"
+            if (cycle_type == "GIOV-DOM" and is_post_dec13)
+            else ""
+        )
         st.markdown(f"""
         <div style="background: #F0FDF4; border: 1.5px solid #86EFAC; border-radius: 8px; padding: 8px 14px; margin: 6px 0 10px 0; font-size: 13px; color: #14532D;">
             🗓️ <strong>Date di Consegna Bolle &amp; Flussi SGA/XML che verranno generate:</strong>
             &nbsp;&bull;&nbsp; 🚚 <strong>Barra 0 (/0 STD): {format_date_weekday_it(str(date_b0_preview))}</strong>
-            &nbsp;&bull;&nbsp; 🔁 <strong>Barra 9 (/9 DOPPIA): {format_date_weekday_it(str(date_b9_preview))}</strong>
+            &nbsp;&bull;&nbsp; 🔁 <strong>Barra 9 (/9 DOPPIA): {format_date_weekday_it(str(date_b9_preview))}</strong>{dec13_badge}
         </div>
         """, unsafe_allow_html=True)
 
@@ -859,6 +873,89 @@ def render_ufficio_simplified_view(
             df_stores_side,
             key_prefix=f"uff_simp_{rid_disp}",
         )
+
+    from src.auto_operativa import (
+        execute_auto_operativa_run,
+        get_auto_operativa_config,
+        save_auto_operativa_config,
+        start_auto_operativa_daemon,
+    )
+    start_auto_operativa_daemon()
+
+    with st.expander("🤖 Automazione Martedì & Sabato (Estrazione Extranet + XML + Invio Email Automatico)", expanded=False):
+        auto_cfg = get_auto_operativa_config()
+        st.markdown(
+            "Configura l'esecuzione automatica nei giorni di arrivo mezzi (**Martedì** per l'operativa *Mercoledì/Giovedì* e **Sabato** per l'operativa *Sabato/Domenica*, "
+            "che dal **13 Dicembre 2026** diventa automaticamente **Domenica `/0` + Lunedì `/9`**).\n"
+            "All'orario stabilito il sistema: **1)** scarica i file da Inditex Extranet, **2)** genera Giri, Bolle e file XML caricandoli sul Cloud (pronti per lo script locale), "
+            "e **3)** invia in automatico l'Email Operativa con gli allegati."
+        )
+        c_au1, c_au2, c_au3, c_au4 = st.columns([1.1, 1.1, 1.1, 1.2])
+        with c_au1:
+            au_enabled = st.checkbox("🟢 Attiva Scheduler", value=bool(auto_cfg.get("enabled", True)), key="uff_au_en")
+        with c_au2:
+            au_tue = st.checkbox("📅 Ogni Martedì (LUN-MER)", value=bool(auto_cfg.get("run_on_tuesday", True)), key="uff_au_tue")
+        with c_au3:
+            au_sat = st.checkbox("📅 Ogni Sabato (GIOV-DOM)", value=bool(auto_cfg.get("run_on_saturday", True)), key="uff_au_sat")
+        with c_au4:
+            au_time = st.text_input(
+                "⏰ Orario Avvio (HH:MM)",
+                value=str(auto_cfg.get("schedule_time", "08:00")),
+                help="Orario italiano (Europe/Rome) in cui far partire automaticamente l'estrazione il Martedì e il Sabato.",
+                key="uff_au_time",
+            )
+
+        st.markdown("**📎 Allegati da includere nell'invio Email automatico:**")
+        ca1, ca2, ca3, ca4 = st.columns(4)
+        with ca1:
+            au_att_sin = st.checkbox("Sintesi_Operativa.xlsx", value=bool(auto_cfg.get("attach_sintesi", True)), key="uff_au_sin")
+        with ca2:
+            au_att_zar = st.checkbox("ZARA.xlsx", value=bool(auto_cfg.get("attach_zara", True)), key="uff_au_zar")
+        with ca3:
+            au_att_s0 = st.checkbox("barrazero_Sga.xlsx", value=bool(auto_cfg.get("attach_sga0", False)), key="uff_au_s0")
+        with ca4:
+            au_att_s9 = st.checkbox("barranove_Sga.xlsx", value=bool(auto_cfg.get("attach_sga9", False)), key="uff_au_s9")
+
+        if auto_cfg.get("last_auto_run_timestamp"):
+            st.caption(
+                f"📌 **Ultima esecuzione automatica:** {auto_cfg.get('last_auto_run_timestamp')} — "
+                f"{auto_cfg.get('last_auto_run_summary', '')}"
+            )
+
+        c_ab1, c_ab2 = st.columns(2)
+        with c_ab1:
+            if st.button("💾 Salva Impostazioni Automazione Martedì/Sabato", type="primary", use_container_width=True, key="uff_au_save_btn"):
+                save_auto_operativa_config({
+                    "enabled": bool(au_enabled),
+                    "run_on_tuesday": bool(au_tue),
+                    "run_on_saturday": bool(au_sat),
+                    "schedule_time": au_time.strip() or "08:00",
+                    "attach_sintesi": bool(au_att_sin),
+                    "attach_zara": bool(au_att_zar),
+                    "attach_sga0": bool(au_att_s0),
+                    "attach_sga9": bool(au_att_s9),
+                    "preset_perfumes": perfume_corrections,
+                })
+                st.success("✅ Programmazione automatica Martedì & Sabato salvata!")
+                st.rerun()
+        with c_ab2:
+            if st.button("⚡ Esegui Ora Ciclo Automatico Completo (Estrazione + XML + Email)", type="secondary", use_container_width=True, key="uff_au_run_now_btn"):
+                with st.spinner("Esecuzione completa in corso: Scarico Extranet -> Generazione XML Cloud -> Invio Email..."):
+                    res_auto = execute_auto_operativa_run(
+                        target_date=run_date,
+                        force=True,
+                        perfume_override=perfume_corrections,
+                    )
+                    if res_auto.get("status") == "ok":
+                        st.session_state["last_run"] = res_auto["run_result"]
+                        st.session_state["active_view_run_id"] = res_auto["run_id"]
+                        st.session_state["flash_run_msg"] = (
+                            f"Ciclo Automatico completato (Run #{res_auto['run_id']})! "
+                            f"Generati {res_auto.get('xml_count', 0)} XML su Cloud • {res_auto.get('email_message', '')}"
+                        )
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Errore ciclo automatico: {res_auto.get('message')}")
 
     with st.expander("🔄 Ricezione Automatica XML su Server Windows / BeOne (Zero FTP & Zero Whitelist Firewall)", expanded=False):
         from src.gcs_storage import (

@@ -772,15 +772,22 @@ def delete_bolle_by_date(date_str: str, db_path: Path = DB_PATH) -> int:
     return n
 
 
+SUNDAY_MONDAY_SWITCH_DATE = date(2026, 12, 13)
+
+
 def compute_inditex_delivery_dates(dt_base: Any, cycle_type: str = "LUN-MER") -> Tuple[date, date]:
     """
     Calcola le date di consegna operative Inditex con rigorosa corrispondenza:
-    - /0 (Standard / STD) e SEMPRE il Mercoledi e il Sabato:
-        - Ciclo LUN-MER: Mercoledi (monday + 2 giorni)
-        - Ciclo GIOV-DOM: Sabato (monday + 5 giorni)
-    - /9 (DOPPIA / 2a Uscita) e SEMPRE il Giovedi e la Domenica:
-        - Ciclo LUN-MER: Giovedi (monday + 3 giorni)
-        - Ciclo GIOV-DOM: Domenica (monday + 6 giorni)
+    - Ciclo LUN-MER (arrivi mezzi di Martedì — invariato tutto l'anno):
+        - /0 (Standard / STD): Mercoledì (monday + 2 giorni)
+        - /9 (DOPPIA / 2a Uscita): Giovedì (monday + 3 giorni)
+    - Ciclo GIOV-DOM (arrivi mezzi di Sabato):
+        - Fino al 12/12/2026:
+            - /0 (Standard / STD): Sabato (monday + 5 giorni)
+            - /9 (DOPPIA / 2a Uscita): Domenica (monday + 6 giorni)
+        - Dal 13/12/2026 in poi (domenica >= 2026-12-13):
+            - /0 (Standard / STD): Domenica (monday + 6 giorni)
+            - /9 (DOPPIA / 2a Uscita): Lunedì successivo (monday + 7 giorni)
     Ritorna: (date_b9, date_b0)
     """
     from src.utils import parse_date_obj
@@ -808,17 +815,19 @@ def compute_inditex_delivery_dates(dt_base: Any, cycle_type: str = "LUN-MER") ->
         monday = dt_base + timedelta(days=1)
 
     if is_midweek:
-        # LUN-MER:
-        # /0 (Standard / STD) = Mercoledi (monday + 2 giorni)
-        # /9 (DOPPIA / 2a Uscita) = Giovedi (monday + 3 giorni)
-        date_b0 = monday + timedelta(days=2)  # Mercoledi (/0 STD)
-        date_b9 = monday + timedelta(days=3)  # Giovedi (/9 DOPPIA)
+        # LUN-MER (arrivi Martedì -> consegne Mercoledì /0 e Giovedì /9):
+        date_b0 = monday + timedelta(days=2)  # Mercoledì (/0 STD)
+        date_b9 = monday + timedelta(days=3)  # Giovedì (/9 DOPPIA)
     else:
-        # GIOV-DOM:
-        # /0 (Standard / STD) = Sabato (monday + 5 giorni)
-        # /9 (DOPPIA / 2a Uscita) = Domenica (monday + 6 giorni)
-        date_b0 = monday + timedelta(days=5)  # Sabato (/0 STD)
-        date_b9 = monday + timedelta(days=6)  # Domenica (/9 DOPPIA)
+        sunday_of_week = monday + timedelta(days=6)
+        if sunday_of_week >= SUNDAY_MONDAY_SWITCH_DATE:
+            # Dal 13 Dicembre 2026: arrivi Sabato -> consegne Domenica (/0 STD) e Lunedì (/9 DOPPIA)
+            date_b0 = sunday_of_week                   # Domenica (/0 STD)
+            date_b9 = monday + timedelta(days=7)       # Lunedì (/9 DOPPIA)
+        else:
+            # Fino al 12 Dicembre 2026: consegne Sabato (/0 STD) e Domenica (/9 DOPPIA)
+            date_b0 = monday + timedelta(days=5)       # Sabato (/0 STD)
+            date_b9 = sunday_of_week                   # Domenica (/9 DOPPIA)
 
     return date_b9, date_b0
 
