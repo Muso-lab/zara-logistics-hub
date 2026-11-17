@@ -353,12 +353,13 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
             elif t_name == "runs":
                 if "run_date" in df_clean.columns:
                     df_clean["run_date"] = df_clean["run_date"].apply(_normalize_date_str)
-                if "id" in df_clean.columns and del_run_ids:
-                    df_clean = df_clean[~df_clean["id"].isin(del_run_ids)]
+                if df_clean.empty:
+                    continue
+                # Never wipe runs if df_clean is empty, and do not let legacy deleted_runs blacklist wipe valid runs
                 cur.execute(f"DELETE FROM {t_name}")
             elif t_name in ["planning_results", "spunta_arrivi", "forecast_raw", "other_items", "sga_flows"]:
-                if "run_id" in df_clean.columns and del_run_ids:
-                    df_clean = df_clean[~df_clean["run_id"].isin(del_run_ids)]
+                if df_clean.empty:
+                    continue
                 cur.execute(f"DELETE FROM {t_name}")
             elif t_name in ["stores", "store_delivery_profiles"]:
                 target_col = "store_id" if "store_id" in df_clean.columns else "id_store"
@@ -424,12 +425,7 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
             cur.execute("DELETE FROM store_delivery_profiles WHERE id_store IN (SELECT store_id FROM deleted_stores)")
             cur.execute("DELETE FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data LIKE '%2100%' OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR data_consegna LIKE '%2100%' OR data_consegna = '2026-10-23' OR (data_consegna = '2026-10-24' AND tipo_cons = 'DOPPIA') OR id_store = '9999'")
             cur.execute("DELETE FROM bolle WHERE id IN (SELECT bolla_id FROM deleted_bolle)")
-            cur.execute("DELETE FROM runs WHERE id IN (SELECT run_id FROM deleted_runs)")
-            cur.execute("DELETE FROM planning_results WHERE run_id IN (SELECT run_id FROM deleted_runs)")
-            cur.execute("DELETE FROM spunta_arrivi WHERE run_id IN (SELECT run_id FROM deleted_runs)")
-            cur.execute("DELETE FROM forecast_raw WHERE run_id IN (SELECT run_id FROM deleted_runs)")
-            cur.execute("DELETE FROM other_items WHERE run_id IN (SELECT run_id FROM deleted_runs)")
-            cur.execute("DELETE FROM sga_flows WHERE run_id IN (SELECT run_id FROM deleted_runs)")
+            # Do NOT blanket delete active runs: if a run exists in the runs table, it is valid and must be kept.
         except Exception:
             pass
 
