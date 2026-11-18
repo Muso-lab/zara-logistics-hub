@@ -796,17 +796,6 @@ def _get_auth_users() -> dict:
         "viewer": {"password": magazzino_pwd, "role": "magazzino", "label": "Consultazione Banchina", "fallbacks": [magazzino_pwd, "magazzino2026", "banchina2026"]},
     }
 
-# Trigger automatico via Webhook / URL esterno (es. Google Cloud Scheduler, Cron, GitHub Actions)
-if st.query_params.get("trigger_auto") in ("1", "true", "zara2026"):
-    st.markdown("### 🤖 Esecuzione Automatica Operativa richiesta via Webhook...")
-    with st.spinner("Esecuzione ciclo operativo in corso: Lettura Profumi -> Scraping Extranet -> Generazione XML Cloud -> Invio Email..."):
-        res_hook = execute_auto_operativa_run(force=True)
-    if res_hook.get("status") == "ok":
-        st.success(f"🎉 Ciclo completato con successo! Creata Run #{res_hook['run_id']} • {res_hook.get('email_message', '')}")
-    else:
-        st.error(f"❌ Esito: {res_hook.get('message')}")
-    st.stop()
-
 users_map = _get_auth_users()
 
 # Recupera automaticamente la sessione autenticata dai query params dell'URL

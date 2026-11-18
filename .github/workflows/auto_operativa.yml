@@ -2,9 +2,9 @@ name: Automazione Operativa Martedì & Venerdì (Inditex -> XML -> Email)
 
 on:
   schedule:
-    # 13:00 UTC corrisponde esattamente alle 14:00 (ora solare italiana)
-    # Cron: Minuto (0) Ora (13) GiornoDelMese (*) Mese (*) GiornoDellaSettimana (2=Martedì, 5=Venerdì)
-    - cron: '0 13 * * 2,5'
+    # 13:05 UTC corrisponde alle 14:05 (ora solare italiana), evitando la congestione del minuto :00 su GitHub Actions
+    # Cron: Minuto (5) Ora (13) GiornoDelMese (*) Mese (*) GiornoDellaSettimana (2=Martedì, 5=Venerdì)
+    - cron: '5 13 * * 2,5'
   workflow_dispatch: # Permette anche il lancio manuale con un clic da GitHub Actions
 
 jobs:
@@ -35,4 +35,8 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: |
-          python -m src.auto_operativa --run-now --fetch-perfumes
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python -m src.auto_operativa --force --fetch-perfumes
+          else
+            python -m src.auto_operativa --scheduled --fetch-perfumes
+          fi

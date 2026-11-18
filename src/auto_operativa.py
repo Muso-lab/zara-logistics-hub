@@ -213,12 +213,51 @@ def execute_auto_operativa_run(
     dt = target_date or now_rome().date()
     dt_iso = dt.strftime("%Y-%m-%d")
 
-    if not force and cfg.get("last_auto_run_date") == dt_iso and cfg.get("last_auto_run_status") == "ok":
-        return {
-            "status": "skipped",
-            "message": f"Operativa automatica del {format_date_it(dt_iso)} già eseguita (Run #{cfg.get('last_auto_run_run_id')}).",
-            "run_id": cfg.get("last_auto_run_run_id"),
-        }
+    if not force:
+        # 1. Day-of-week guard (solo Martedì e Venerdì, più eventuale Sabato configurato)
+        wd = dt.weekday()  # 1 = Martedì, 4 = Venerdì, 5 = Sabato (opzionale)
+        allowed_wds = {1, 4}
+        if cfg.get("run_on_saturday", False):
+            allowed_wds.add(5)
+        if wd not in allowed_wds:
+            return {
+                "status": "skipped",
+                "message": f"Giorno {dt.strftime('%A')} ({format_date_it(dt_iso)}) non previsto per l'automazione schedulata (solo Martedì e Venerdì).",
+            }
+
+        # 2. Time-window guard (evita invii notturni / fuori orario in caso di ritardo cron)
+        cur_rome = now_rome()
+        if target_date is None and not (12 <= cur_rome.hour < 17):
+            return {
+                "status": "skipped",
+                "message": f"Esecuzione schedulata fuori dalla finestra oraria consentita 12:00-17:00 (ora attuale: {cur_rome.strftime('%H:%M')}) — ignorata per evitare invii fuori orario.",
+            }
+
+        # 3. Config file duplicate guard
+        if cfg.get("last_auto_run_date") == dt_iso and cfg.get("last_auto_run_status") == "ok":
+            return {
+                "status": "skipped",
+                "message": f"Operativa automatica del {format_date_it(dt_iso)} già eseguita (Run #{cfg.get('last_auto_run_run_id')}).",
+                "run_id": cfg.get("last_auto_run_run_id"),
+            }
+
+        # 4. Database duplicate guard (verifica sulle run sincronizzate da Google Sheets/SQLite)
+        try:
+            from src.db import get_all_runs
+            df_existing = get_all_runs()
+            if not df_existing.empty:
+                for _, r_ex in df_existing.iterrows():
+                    r_dt = str(r_ex.get("run_date", "") or "")[:10]
+                    r_cr = str(r_ex.get("created_at", "") or "")[:10]
+                    if dt_iso in (r_dt, r_cr):
+                        ex_id = r_ex.get("id")
+                        return {
+                            "status": "skipped",
+                            "message": f"Operativa del {format_date_it(dt_iso)} già presente a database (Run #{ex_id}) — nessun invio duplicato.",
+                            "run_id": ex_id,
+                        }
+        except Exception as db_chk_err:
+            print(f"Warning check runs duplicate: {db_chk_err}")
 
     cycle_type, date_b0, date_b9 = resolve_cycle_for_arrival_date(dt)
     desde_dt, hasta_dt = get_cycle_date_range(cycle_type, dt)
@@ -421,6 +460,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Zara Logistics Hub — CLI Esecuzione Automatica Operativa")
     parser.add_argument("--force", action="store_true", help="Forza l'esecuzione anche se già eseguita oggi")
     parser.add_argument("--run-now", action="store_true", help="Esegue immediatamente il ciclo completo")
+    parser.add_argument("--scheduled", action="store_true", help="Esecuzione da scheduler automatico (applica filtri giorno, fascia oraria 12-17 e anti-duplicato DB)")
     parser.add_argument("--date", type=str, default="", help="Data target specifica (YYYY-MM-DD)")
     parser.add_argument("--fetch-perfumes", action="store_true", help="Verifica e scarica profumi da email prima dell'avvio")
 
@@ -430,7 +470,8 @@ if __name__ == "__main__":
     if args.date:
         t_date = datetime.strptime(args.date, "%Y-%m-%d").date()
 
-    out = execute_auto_operativa_run(target_date=t_date, force=(args.force or args.run_now))
+    is_forced = bool(args.force) or (bool(args.run_now) and not bool(args.scheduled))
+    out = execute_auto_operativa_run(target_date=t_date, force=is_forced)
     clean_out = {k: v for k, v in out.items() if k != "run_result"}
     print(json.dumps(clean_out, indent=2, ensure_ascii=False))
     if out.get("status") == "ok" and not out.get("email_ok"):
