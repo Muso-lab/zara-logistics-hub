@@ -933,17 +933,30 @@ def render_magazzino_simplified_view(
     # Assicura automaticamente che le bolle dell'ultima previsione siano state create e pulisce date anomale
     ensure_bolle_for_latest_run(runs_side)
 
-    st.markdown("""
-    <div style="background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
-                border: 2px solid #10B981; border-radius: 12px; padding: 14px 20px; margin-bottom: 16px;">
-        <div style="font-size: 18px; font-weight: 800; color: #065F46;">
-            🖨️ STAMPA BOLLE DI CONSEGNA (MODALITÀ RAPIDA MAGAZZINO)
+    c_mag_hdr, c_mag_sync = st.columns([3.2, 1.3])
+    with c_mag_hdr:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
+                    border: 2px solid #10B981; border-radius: 12px; padding: 14px 20px; margin-bottom: 12px;">
+            <div style="font-size: 18px; font-weight: 800; color: #065F46;">
+                🖨️ STAMPA BOLLE DI CONSEGNA (MODALITÀ RAPIDA MAGAZZINO)
+            </div>
+            <div style="font-size: 13px; color: #047857; margin-top: 3px;">
+                <strong>1.</strong> Scegli la data operativa &bull; <strong>2.</strong> Scegli il giro o i negozi &bull; <strong>3.</strong> Premi <strong>STAMPA BOLLE</strong>.
+            </div>
         </div>
-        <div style="font-size: 13px; color: #047857; margin-top: 3px;">
-            <strong>1.</strong> Scegli la data operativa &bull; <strong>2.</strong> Scegli il giro o i negozi &bull; <strong>3.</strong> Premi <strong>STAMPA BOLLE</strong>.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+    with c_mag_sync:
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+        if st.button("🔄 Aggiorna Spunte da Cloud", type="secondary", use_container_width=True, key="mag_simp_pull_bolle_btn"):
+            with st.spinner("Sincronizzazione bolle e spunte dal Cloud..."):
+                from src.cloud_sync import pull_single_table_from_cloud
+                r_pb = pull_single_table_from_cloud("bolle", timeout=20)
+                if r_pb.get("status") == "ok":
+                    st.toast(f"✅ Bolle aggiornate dal Cloud ({r_pb.get('count', 0)} record)", icon="☁️")
+                    st.rerun()
+                else:
+                    st.error(f"Errore sincronizzazione: {r_pb.get('message')}")
 
     # Info rapida sulle date ufficiali dell'ultima operativa
     latest_std_str = None
@@ -1799,11 +1812,21 @@ def render_mobile_two_buttons_view(
 
     # Barra stato avanzamento compatta
     pct_done = int(round((n_spuntati / tot_stores) * 100)) if tot_stores > 0 else 0
+    from src.cloud_sync import get_last_sync_status
+    _sync_st = get_last_sync_status()
+    if _sync_st.get("status") == "ok":
+        _sync_badge = f"<span style='color:#60A5FA;'>☁️ Cloud OK ({_sync_st.get('time', '')})</span>"
+    elif _sync_st.get("status") == "error":
+        _sync_badge = "<span style='color:#F87171;'>⚠️ Sync Cloud in errore</span>"
+    else:
+        _sync_badge = "<span style='color:#94A3B8;'>☁️ Cloud Pronto</span>"
+
     st.markdown(f"""
     <div style="background: #0F172A; color: #FFFFFF; border-radius: 8px; padding: 6px 12px; margin-bottom: 10px;
-                display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700;">
+                display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700; flex-wrap: wrap; gap: 6px;">
         <span>📊 Spuntati: <strong style="color: #34D399;">{n_spuntati}/{tot_stores}</strong> ({pct_done}%)</span>
         <span style="color: #FBBF24;">⏳ Da contare: {n_da_spuntare}</span>
+        {_sync_badge}
     </div>
     """, unsafe_allow_html=True)
 

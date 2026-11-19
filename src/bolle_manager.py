@@ -35,7 +35,7 @@ def get_db_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
 
 def init_bolle_tables(db_path: Path = DB_PATH):
     """Ensures bolle and store_delivery_profiles tables exist."""
-    conn = sqlite3.connect(db_path)
+    conn = get_db_connection(db_path)
     cur = conn.cursor()
     cur.execute("""
     CREATE TABLE IF NOT EXISTS bolle (
@@ -558,7 +558,7 @@ def parse_intershops_string(stringa: str) -> List[Dict[str, Any]]:
     return [{"mittente": "", "colli": 0, "tipo": stringa}]
 
 
-def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH, sync_cloud: bool = True) -> int:
+def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH, sync_cloud: bool = True, sync_blocking: bool = False) -> int:
     """Inserts or updates a delivery note in SQLite."""
     conn = get_db_connection(db_path)
     cur = conn.cursor()
@@ -692,8 +692,12 @@ def save_or_update_bolla(data: Dict[str, Any], db_path: Path = DB_PATH, sync_clo
     conn.commit()
     conn.close()
     if sync_cloud:
-        from src.cloud_sync import auto_sync_tables
-        auto_sync_tables(["bolle"])
+        if sync_blocking:
+            from src.cloud_sync import sync_tables_now
+            sync_tables_now(["bolle"], timeout=25)
+        else:
+            from src.cloud_sync import auto_sync_tables
+            auto_sync_tables(["bolle"])
     return res_id
 
 
@@ -2056,7 +2060,7 @@ def add_colli_to_bolla_spuntata(
     else:
         bolla["note"] = log_entry
 
-    save_or_update_bolla(bolla, db_path=db_path)
+    save_or_update_bolla(bolla, db_path=db_path, sync_blocking=True)
 
     tot_colli = sum(int(round(float(bolla.get(k, 0) or 0))) for k in valid_cats)
 
@@ -2121,7 +2125,7 @@ def add_intershop_to_bolla(
     bolla["intershops_list"] = inter_list
     bolla["intershops_json"] = json.dumps(inter_list)
     bolla["stringa"] = format_intershops_string(inter_list)
-    save_or_update_bolla(bolla, db_path=db_path)
+    save_or_update_bolla(bolla, db_path=db_path, sync_blocking=True)
 
     return {
         "status": "ok",
@@ -2158,7 +2162,7 @@ def remove_intershop_from_bolla(
     bolla["intershops_list"] = inter_list
     bolla["intershops_json"] = json.dumps(inter_list)
     bolla["stringa"] = format_intershops_string(inter_list)
-    save_or_update_bolla(bolla, db_path=db_path)
+    save_or_update_bolla(bolla, db_path=db_path, sync_blocking=True)
 
     return {
         "status": "ok",
@@ -2223,7 +2227,7 @@ def confirm_bolla_spunta(
         bolla["note"] = str(note).strip()
 
     bolla["spuntato"] = 1
-    save_or_update_bolla(bolla, db_path=db_path)
+    save_or_update_bolla(bolla, db_path=db_path, sync_blocking=True)
 
     tot_colli = sum(
         int(round(float(bolla.get(k, 0) or 0)))

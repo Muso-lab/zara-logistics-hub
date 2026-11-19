@@ -186,11 +186,24 @@ def push_tables_to_cloud(table_names=None, timeout: int = 25) -> dict:
     targets = table_names if table_names else ALL_SYNC_TABLES
     payload_tables = {}
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     try:
+        try:
+            conn.execute("PRAGMA busy_timeout = 30000;")
+            conn.execute("PRAGMA journal_mode = WAL;")
+        except Exception:
+            pass
         cur = conn.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
         existing_tables = {r[0] for r in cur.fetchall()}
+
+        del_bolla_ids_local = set()
+        if "deleted_bolle" in existing_tables:
+            try:
+                cur.execute("SELECT bolla_id FROM deleted_bolle")
+                del_bolla_ids_local = {int(r[0]) for r in cur.fetchall() if str(r[0]).isdigit()}
+            except Exception:
+                pass
 
         for t in targets:
             if t not in existing_tables:
@@ -208,6 +221,68 @@ def push_tables_to_cloud(table_names=None, timeout: int = 25) -> dict:
             # SAFETY GUARD: Never overwrite cloud data with an empty table if local table has 0 rows!
             if df.empty and t in ["runs", "planning_results", "spunta_arrivi", "forecast_raw", "bolle", "stores", "store_delivery_profiles", "vehicles"]:
                 continue
+
+            if t == "bolle" and not df.empty:
+                # Extra Cloud Guard per BOLLE: non sovrascrivere MAI una spunta confermata sul cloud (spuntato=1)
+                # con un record locale non ancora spuntato (spuntato=0), e preserva le bolle cloud mancanti in locale.
+                try:
+                    sep = "&" if "?" in url else "?"
+                    req_cb = urllib.request.Request(f"{url}{sep}table=bolle", method="GET")
+                    with urllib.request.urlopen(req_cb, timeout=10) as resp_cb:
+                        d_cb = json.loads(resp_cb.read().decode("utf-8"))
+                        if d_cb.get("status") == "ok" and "tables" in d_cb and "bolle" in d_cb["tables"]:
+                            cloud_bolle = d_cb["tables"]["bolle"]
+                            if cloud_bolle:
+                                df_cb = pd.DataFrame(cloud_bolle)
+                                if "id" in df_cb.columns and "id" in df.columns:
+                                    if "data" in df_cb.columns:
+                                        df_cb["data"] = df_cb["data"].apply(_normalize_date_str)
+                                    if "data_consegna" in df_cb.columns:
+                                        df_cb["data_consegna"] = df_cb["data_consegna"].apply(_normalize_date_str)
+                                    if "id_store" in df_cb.columns:
+                                        df_cb["id_store"] = df_cb["id_store"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+                                    df_cb["id_num"] = pd.to_numeric(df_cb["id"], errors="coerce")
+                                    df_cb = df_cb[df_cb["id_num"].notna()].copy()
+                                    df_cb["id"] = df_cb["id_num"].astype(int)
+                                    df_cb = df_cb.drop(columns=["id_num"])
+                                    if del_bolla_ids_local:
+                                        df_cb = df_cb[~df_cb["id"].isin(del_bolla_ids_local)]
+
+                                    # Mappa (id_store, data_consegna, tipo_cons) -> riga cloud spuntata
+                                    cloud_spuntati_by_key = {}
+                                    if "spuntato" in df_cb.columns:
+                                        for _, cr in df_cb.iterrows():
+                                            if str(cr.get("spuntato", "0")).strip() in ("1", "1.0", "True", "true"):
+                                                k_b = (
+                                                    str(cr.get("id_store", "")).strip(),
+                                                    str(cr.get("data_consegna", "") or "")[:10],
+                                                    str(cr.get("tipo_cons", "STD") or "STD").strip().upper(),
+                                                )
+                                                cloud_spuntati_by_key[k_b] = cr
+
+                                    # Se una riga locale ha spuntato=0 ma sul cloud ha spuntato=1, preserva i valori cloud!
+                                    if cloud_spuntati_by_key and "spuntato" in df.columns:
+                                        common_upd_cols = [c for c in df.columns if c in df_cb.columns and c != "id"]
+                                        for idx_l, lr in df.iterrows():
+                                            if str(lr.get("spuntato", "0")).strip() not in ("1", "1.0", "True", "true"):
+                                                k_l = (
+                                                    str(lr.get("id_store", "")).strip(),
+                                                    str(lr.get("data_consegna", "") or "")[:10],
+                                                    str(lr.get("tipo_cons", "STD") or "STD").strip().upper(),
+                                                )
+                                                if k_l in cloud_spuntati_by_key:
+                                                    cr_win = cloud_spuntati_by_key[k_l]
+                                                    for cc in common_upd_cols:
+                                                        df.at[idx_l, cc] = cr_win[cc]
+
+                                    # Preserva bolle cloud non presenti in locale (non in deleted_bolle)
+                                    local_ids = set(df["id"].astype(int).tolist())
+                                    missing_cb = df_cb[~df_cb["id"].isin(local_ids)]
+                                    if not missing_cb.empty:
+                                        common_c = [c for c in df.columns if c in missing_cb.columns]
+                                        df = pd.concat([df, missing_cb[common_c]], ignore_index=True).sort_values("id", ascending=False).head(800)
+                except Exception:
+                    pass
 
             if t == "runs" and not df.empty:
                 # Extra Cloud Guard: ensure older cloud runs are never overwritten by an ephemeral runner
@@ -301,8 +376,13 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
 
     restored_counts = {}
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     try:
+        try:
+            conn.execute("PRAGMA busy_timeout = 30000;")
+            conn.execute("PRAGMA journal_mode = WAL;")
+        except Exception:
+            pass
         cur = conn.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
         existing_tables = {r[0] for r in cur.fetchall()}
@@ -441,11 +521,12 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
                         pass
 
         # Enforce blacklists so deleted items are permanently purged
+        # (Protegge le bolle recenti dal 2026-11-01+ da vecchi ID legacy di ottobre in deleted_bolle)
         try:
             cur.execute("DELETE FROM stores WHERE store_id IN (SELECT store_id FROM deleted_stores)")
             cur.execute("DELETE FROM store_delivery_profiles WHERE id_store IN (SELECT store_id FROM deleted_stores)")
             cur.execute("DELETE FROM bolle WHERE data LIKE '%2098%' OR data LIKE '%2099%' OR data LIKE '%2100%' OR data_consegna LIKE '%2098%' OR data_consegna LIKE '%2099%' OR data_consegna LIKE '%2100%' OR data_consegna = '2026-10-23' OR (data_consegna = '2026-10-24' AND tipo_cons = 'DOPPIA') OR id_store = '9999'")
-            cur.execute("DELETE FROM bolle WHERE id IN (SELECT bolla_id FROM deleted_bolle)")
+            cur.execute("DELETE FROM bolle WHERE id IN (SELECT bolla_id FROM deleted_bolle) AND COALESCE(data_consegna, data, '') < '2026-11-01'")
             # Do NOT blanket delete active runs: if a run exists in the runs table, it is valid and must be kept.
         except Exception:
             pass
@@ -466,22 +547,178 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
     return {"status": "ok", "restored": restored_counts}
 
 
-def auto_sync_tables(table_names: list[str]):
+def pull_single_table_from_cloud(table_name: str, timeout: int = 20) -> dict:
     """
-    Sincronizza automaticamente in background (thread asincrono non bloccante)
-    le tabelle modificate verso Google Sheets se l'URL Cloud e' configurato.
+    Scarica rapidamente una SINGOLA tabella (es. 'bolle') da Google Sheets (~2-3 secondi)
+    e la aggiorna in SQLite locale senza ricaricare tutte le altre 11 tabelle.
+    Ideale per allineare istantaneamente PC Magazzino e Mobile Banchina.
     """
     if is_test_environment():
-        return
+        return {"status": "skipped", "message": "Test environment."}
+
     url = get_cloud_url()
     if not url:
-        return
-    import threading
+        return {"status": "skipped", "message": "Nessun URL Google Apps Script configurato."}
 
-    def _bg_push():
+    sep = "&" if "?" in url else "?"
+    req = urllib.request.Request(f"{url}{sep}table={table_name}", method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            final_url = resp.geturl()
+            if "accounts.google.com" in final_url:
+                return {"status": "error", "message": "Permesso negato da Google Apps Script."}
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+    if data.get("status") != "ok" or "tables" not in data or table_name not in data["tables"]:
+        return {"status": "error", "message": data.get("message", f"Tabella '{table_name}' non restituita dal Cloud.")}
+
+    rows = data["tables"][table_name]
+    if not rows:
+        return {"status": "ok", "count": 0}
+
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
+    try:
         try:
-            push_tables_to_cloud(table_names=table_names, timeout=20)
+            conn.execute("PRAGMA busy_timeout = 30000;")
+            conn.execute("PRAGMA journal_mode = WAL;")
+        except Exception:
+            pass
+        cur = conn.cursor()
+        cur.execute(f"PRAGMA table_info({table_name})")
+        valid_cols = [r[1] for r in cur.fetchall()]
+        df = pd.DataFrame(rows)
+        common_cols = [c for c in valid_cols if c in df.columns]
+        if not common_cols:
+            return {"status": "error", "message": f"Nessuna colonna compatibile per '{table_name}'."}
+
+        df_clean = df[common_cols].copy()
+        for str_col in ["store_id", "store_code", "id_store", "ID_STORE"]:
+            if str_col in df_clean.columns:
+                df_clean[str_col] = (
+                    df_clean[str_col].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+                )
+        if table_name == "bolle":
+            if "data" in df_clean.columns:
+                df_clean["data"] = df_clean["data"].apply(_normalize_date_str)
+            if "data_consegna" in df_clean.columns:
+                df_clean["data_consegna"] = df_clean["data_consegna"].apply(_normalize_date_str)
+            if "data" in df_clean.columns:
+                df_clean = df_clean[~df_clean["data"].astype(str).str.contains("2098|2099|2100", na=False)]
+            if "data_consegna" in df_clean.columns:
+                df_clean = df_clean[~df_clean["data_consegna"].astype(str).str.contains("2098|2099|2100", na=False)]
+            if "id_store" in df_clean.columns:
+                df_clean = df_clean[df_clean["id_store"].astype(str).str.strip() != "9999"]
+
+        col_names_sql = ", ".join(common_cols)
+        placeholders_sql = ", ".join("?" for _ in common_cols)
+        records = []
+        for _, row_s in df_clean.iterrows():
+            records.append(tuple(None if (pd.isna(row_s[c]) or row_s[c] == "") else row_s[c] for c in common_cols))
+
+        cur.executemany(
+            f"INSERT OR REPLACE INTO {table_name} ({col_names_sql}) VALUES ({placeholders_sql})",
+            records,
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        conn.close()
+
+    if table_name == "bolle":
+        try:
+            from src.bolle_manager import heal_shifted_bolle_dates
+            heal_shifted_bolle_dates(DB_PATH)
         except Exception:
             pass
 
-    threading.Thread(target=_bg_push, daemon=True).start()
+    return {"status": "ok", "count": len(records)}
+
+
+import threading as _threading
+import time as _time
+from datetime import datetime as _dt
+
+_sync_queue_lock = _threading.Lock()
+_sync_exec_lock = _threading.Lock()
+_pending_sync_tables: set = set()
+_sync_worker_active: bool = False
+_last_sync_status: dict = {"status": "idle", "time": "", "message": ""}
+
+
+def get_last_sync_status() -> dict:
+    """Restituisce lo stato dell'ultima sincronizzazione verso Google Sheets."""
+    return dict(_last_sync_status)
+
+
+def _record_sync_status(res: dict):
+    global _last_sync_status
+    _last_sync_status = {
+        "status": res.get("status", "error"),
+        "time": _dt.now().strftime("%H:%M:%S"),
+        "message": str(res.get("message", "") or (", ".join(res.get("updated", [])) if res.get("updated") else "")),
+    }
+
+
+def sync_tables_now(table_names: list[str], timeout: int = 25) -> dict:
+    """
+    Sincronizza IMMEDIATAMENTE e in modo SERIALIZZATO (un solo push alla volta) le tabelle
+    indicate verso Google Sheets, con 1 retry automatico in caso di lock temporaneo.
+    Impedisce a Cloud Run di uccidere/throttlare la sincronizzazione prima del completamento.
+    """
+    if is_test_environment():
+        return {"status": "skipped", "message": "Test environment."}
+    if not get_cloud_url():
+        return {"status": "skipped", "message": "Nessun URL Cloud configurato."}
+
+    with _sync_exec_lock:
+        last_res = {"status": "error", "message": "Sync non eseguito."}
+        for attempt in range(2):
+            last_res = push_tables_to_cloud(table_names=table_names, timeout=timeout)
+            if last_res.get("status") == "ok":
+                break
+            if attempt == 0:
+                _time.sleep(1.5)
+        _record_sync_status(last_res)
+        return last_res
+
+
+def auto_sync_tables(table_names: list[str]):
+    """
+    Sincronizza in modo SERIALIZZATO (1 solo worker alla volta con accorpamento coda)
+    le tabelle modificate verso Google Sheets, evitando collisioni di thread concorrenti
+    sul LockService di Google Apps Script e picchi di memoria RAM su Cloud Run.
+    """
+    global _sync_worker_active
+    if is_test_environment():
+        return
+    if not get_cloud_url():
+        return
+
+    with _sync_queue_lock:
+        _pending_sync_tables.update(table_names)
+        if _sync_worker_active:
+            return
+        _sync_worker_active = True
+
+    def _serialized_worker():
+        global _sync_worker_active
+        try:
+            while True:
+                # Breve attesa per accorpare modifiche ravvicinate in un unico push pulito
+                _time.sleep(0.4)
+                with _sync_queue_lock:
+                    if not _pending_sync_tables:
+                        _sync_worker_active = False
+                        return
+                    batch = sorted(_pending_sync_tables)
+                    _pending_sync_tables.clear()
+                sync_tables_now(batch, timeout=30)
+        except Exception:
+            with _sync_queue_lock:
+                _sync_worker_active = False
+
+    _threading.Thread(target=_serialized_worker, name="ZaraCloudSyncWorker", daemon=True).start()
