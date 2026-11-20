@@ -919,58 +919,91 @@ last_run_disp = f"#{int(runs_side.iloc[0]['id'])}" if not runs_side.empty else "
 # ==============================================================================
 # TESTATA PRINCIPALE VISIBILE & CONTROLLI ACCOUNT (DESKTOP & SMARTPHONE)
 # ==============================================================================
-c_head_info, c_head_user = st.columns([3.2, 1.3])
-with c_head_info:
+if curr_role == "banchina":
+    st.markdown("""
+    <style>
+        header[data-testid="stHeader"],
+        div[data-testid="stToolbar"],
+        div[data-testid="stDecoration"] {
+            display: none !important;
+            height: 0 !important;
+        }
+        .main .block-container,
+        div[data-testid="stAppViewBlockContainer"] {
+            padding-top: 0.35rem !important;
+            padding-bottom: 1.5rem !important;
+            padding-left: 0.75rem !important;
+            padding-right: 0.75rem !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    _cloud_lbl = "🟢 Cloud Attivo" if get_cloud_url() else "⚪ Locale"
     st.markdown(f"""
-    <div style="background: linear-gradient(135deg, #1E3A8A 0%, #0F172A 100%); padding: 14px 20px; border-radius: 12px; color: white; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12); margin-bottom: 12px;">
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <div style="font-size: 32px; line-height: 1;">🚚</div>
-            <div>
-                <div style="font-size: 20px; font-weight: 800; letter-spacing: 0.5px; color: #FFFFFF;">ZARA LOGISTICS HUB</div>
-                <div style="font-size: 12px; font-weight: 500; color: #93C5FD; margin-top: 2px;">Hub Monterotondo (RM) • Spedizioni, Previsioni & Bolle Inditex</div>
+    <div style="background: linear-gradient(135deg, #1E3A8A 0%, #0F172A 100%); padding: 12px 16px; border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.14); margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="font-size: 28px; line-height: 1;">🚚</div>
+                <div>
+                    <div style="font-size: 19px; font-weight: 800; letter-spacing: 0.4px; color: #FFFFFF; line-height: 1.15;">ZARA LOGISTICS HUB</div>
+                    <div style="font-size: 12px; font-weight: 500; color: #93C5FD; margin-top: 2px;">Hub Monterotondo (RM) • {_cloud_lbl}</div>
+                </div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
-
-with c_head_user:
-    col_u_badge, col_u_out = st.columns([1.5, 1.1])
-    with col_u_badge:
+else:
+    c_head_info, c_head_user = st.columns([3.2, 1.3])
+    with c_head_info:
         st.markdown(f"""
-        <div style="padding-top: 4px;">
-            <span class="role-badge" style="background: {r_bg}; color: {r_color}; border: 1.5px solid {r_border}; font-size: 11px; padding: 3px 8px;">
-                {r_icon} {r_label}
-            </span>
-            <div style="font-size: 11px; font-weight: 700; color: #059669; margin-top: 4px;">
-                {"🟢 Cloud Attivo" if get_cloud_url() else "⚪ Database Locale"}
+        <div style="background: linear-gradient(135deg, #1E3A8A 0%, #0F172A 100%); padding: 14px 20px; border-radius: 12px; color: white; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12); margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="font-size: 32px; line-height: 1;">🚚</div>
+                <div>
+                    <div style="font-size: 20px; font-weight: 800; letter-spacing: 0.5px; color: #FFFFFF;">ZARA LOGISTICS HUB</div>
+                    <div style="font-size: 12px; font-weight: 500; color: #93C5FD; margin-top: 2px;">Hub Monterotondo (RM) • Spedizioni, Previsioni & Bolle Inditex</div>
+                </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
-    with col_u_out:
-        if not is_admin():
-            is_classic_active = st.session_state.get("use_classic_full_view", False)
-            btn_classic_lbl = "⚡ Vista Semplice" if is_classic_active else "🔧 Vista Completa"
-            if st.button(
-                btn_classic_lbl,
-                key="toggle_classic_backup_view",
-                use_container_width=True,
-                help="Alterna tra la nuova interfaccia rapida operatore e la vista classica completa di backup",
-            ):
-                st.session_state["use_classic_full_view"] = not is_classic_active
+
+    with c_head_user:
+        col_u_badge, col_u_out = st.columns([1.5, 1.1])
+        with col_u_badge:
+            st.markdown(f"""
+            <div style="padding-top: 4px;">
+                <span class="role-badge" style="background: {r_bg}; color: {r_color}; border: 1.5px solid {r_border}; font-size: 11px; padding: 3px 8px;">
+                    {r_icon} {r_label}
+                </span>
+                <div style="font-size: 11px; font-weight: 700; color: #059669; margin-top: 4px;">
+                    {"🟢 Cloud Attivo" if get_cloud_url() else "⚪ Database Locale"}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col_u_out:
+            if not is_admin():
+                is_classic_active = st.session_state.get("use_classic_full_view", False)
+                btn_classic_lbl = "⚡ Vista Semplice" if is_classic_active else "🔧 Vista Completa"
+                if st.button(
+                    btn_classic_lbl,
+                    key="toggle_classic_backup_view",
+                    use_container_width=True,
+                    help="Alterna tra la nuova interfaccia rapida operatore e la vista classica completa di backup",
+                ):
+                    st.session_state["use_classic_full_view"] = not is_classic_active
+                    st.rerun()
+            elif is_admin():
+                is_m_active = st.session_state.get("mobile_mode", False)
+                btn_mob_label = "🖥️ Desktop" if is_m_active else "📱 Mobile"
+                if st.button(btn_mob_label, key="toggle_mob_mode", use_container_width=True, help="Alterna tra vista Desktop e vista Mobile Touch"):
+                    st.session_state["mobile_mode"] = not is_m_active
+                    if st.session_state["mobile_mode"]:
+                        st.session_state["active_nav"] = "📱 1. Spunta Banchina (Mobile)"
+                    st.rerun()
+            if st.button("🚪 Esci", key="btn_logout_top", use_container_width=True, help="Termina la sessione di lavoro"):
+                for k in ["authenticated", "auth_user", "auth_role", "auth_label", "active_nav", "nav_menu", "mobile_mode", "use_classic_full_view", "mob_use_classic_spunta"]:
+                    st.session_state.pop(k, None)
+                st.query_params.clear()
                 st.rerun()
-        elif is_admin():
-            is_m_active = st.session_state.get("mobile_mode", False)
-            btn_mob_label = "🖥️ Desktop" if is_m_active else "📱 Mobile"
-            if st.button(btn_mob_label, key="toggle_mob_mode", use_container_width=True, help="Alterna tra vista Desktop e vista Mobile Touch"):
-                st.session_state["mobile_mode"] = not is_m_active
-                if st.session_state["mobile_mode"]:
-                    st.session_state["active_nav"] = "📱 1. Spunta Banchina (Mobile)"
-                st.rerun()
-        if st.button("🚪 Esci", key="btn_logout_top", use_container_width=True, help="Termina la sessione di lavoro"):
-            for k in ["authenticated", "auth_user", "auth_role", "auth_label", "active_nav", "nav_menu", "mobile_mode", "use_classic_full_view", "mob_use_classic_spunta"]:
-                st.session_state.pop(k, None)
-            st.query_params.clear()
-            st.rerun()
 
 
 def render_smooth_scroll_top():

@@ -328,21 +328,36 @@ def _inject_omnibox_autoselect_js() -> None:
         font-weight: 600 !important;
         line-height: 1.3 !important;
     }
-    /* Input numerici e di testo proporzionati e mai tagliati */
+    /* Input numerici e di testo grandi, proporzionati e ben leggibili su smartphone */
+    div[data-testid="stSelectbox"] input.react-aria-Input,
+    div[data-testid="stSelectbox"] [data-baseweb="select"] input,
+    div[data-testid="stSelectbox"] input {
+        font-size: 16px !important;
+        min-height: 36px !important;
+        height: 36px !important;
+    }
+    div[data-testid="stSelectboxVirtualDropdown"] [role="option"],
+    ul[data-testid="stSelectboxVirtualDropdown"] li,
+    div[data-baseweb="popover"] li {
+        font-size: 15.5px !important;
+        font-weight: 700 !important;
+        padding-top: 8px !important;
+        padding-bottom: 8px !important;
+    }
     div[data-testid="stNumberInput"] [data-baseweb="input"],
     div[data-testid="stTextInput"] [data-baseweb="input"],
     div[data-testid="stTextInput"] [data-baseweb="base-input"] {
-        min-height: 42px !important;
-        height: 42px !important;
+        min-height: 48px !important;
+        height: 48px !important;
         border-radius: 10px !important;
         border: 1.5px solid #CBD5E1 !important;
         background-color: #FFFFFF !important;
         align-items: center !important;
     }
     div[data-testid="stNumberInput"] input[type="number"] {
-        min-height: 38px !important;
-        height: 38px !important;
-        font-size: 16px !important;
+        min-height: 44px !important;
+        height: 44px !important;
+        font-size: 20px !important;
         font-weight: 800 !important;
         line-height: 1.2 !important;
         padding: 2px 8px !important;
@@ -351,21 +366,21 @@ def _inject_omnibox_autoselect_js() -> None:
         background: transparent !important;
     }
     div[data-testid="stTextInput"] input[type="text"] {
-        min-height: 38px !important;
-        height: 38px !important;
-        font-size: 14px !important;
-        font-weight: 600 !important;
-        line-height: 1.2 !important;
+        min-height: 44px !important;
+        height: 44px !important;
+        font-size: 16px !important;
+        font-weight: 700 !important;
+        line-height: 1.25 !important;
         padding: 4px 10px !important;
         border: none !important;
         text-align: left !important;
         background: transparent !important;
     }
     div[data-testid="stNumberInput"] button {
-        min-width: 38px !important;
-        min-height: 38px !important;
-        height: 38px !important;
-        font-size: 17px !important;
+        min-width: 44px !important;
+        min-height: 44px !important;
+        height: 44px !important;
+        font-size: 20px !important;
         font-weight: 800 !important;
         border: none !important;
         border-left: 1px solid #E2E8F0 !important;
@@ -373,18 +388,26 @@ def _inject_omnibox_autoselect_js() -> None:
         padding: 0 !important;
     }
     label, [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] span, [data-testid="stWidgetLabel"] label {
-        font-size: 13.5px !important;
-        font-weight: 700 !important;
+        font-size: 15.5px !important;
+        font-weight: 800 !important;
         line-height: 1.3 !important;
-        margin-bottom: 4px !important;
+        margin-bottom: 5px !important;
+    }
+    div[data-testid="stCheckbox"] label p, div[data-testid="stCheckbox"] label span {
+        font-size: 15.5px !important;
+        font-weight: 700 !important;
+    }
+    div[data-testid="stButton"] > button,
+    div[data-testid="stButton"] > button p,
+    div[data-testid="stButton"] > button span {
+        font-size: 16.5px !important;
+        font-weight: 800 !important;
+        line-height: 1.25 !important;
     }
     div[data-testid="stButton"] > button {
-        min-height: 44px !important;
-        font-size: 13.5px !important;
-        font-weight: 700 !important;
-        padding: 6px 12px !important;
-        line-height: 1.25 !important;
-        border-radius: 10px !important;
+        min-height: 54px !important;
+        padding: 10px 14px !important;
+        border-radius: 12px !important;
         white-space: normal !important;
         word-wrap: break-word !important;
     }
@@ -1722,46 +1745,61 @@ def render_mobile_two_buttons_view(
     if "flash_bolle_msg" in st.session_state:
         st.success(f"🎉 **{st.session_state.pop('flash_bolle_msg')}**")
 
+    # Se è appena stata richiesta la stampa immediata dopo la spunta, apre subito la finestra di stampa (stampante rete 10.0.1.220)
+    if st.session_state.get("mob2_last_printed_html"):
+        _p_html = st.session_state.pop("mob2_last_printed_html")
+        st.components.v1.html(_p_html, height=0, width=0)
+        st.info("🖨️ **Stampa bolla avviata** (seleziona la stampante di rete **10.0.1.220** nella finestra del dispositivo).")
+
     ensure_bolle_for_latest_run(runs_side)
     _inject_omnibox_autoselect_js()
 
-    if allow_classic_toggle:
-        c_title_m, c_tog_m = st.columns([2.8, 1.2])
-        with c_title_m:
-            st.markdown("#### 📱 Spunta Banchina Mobile")
-        with c_tog_m:
-            if st.button("🔧 Vista Completa", use_container_width=True, key="btn_mob_to_classic"):
-                st.session_state["mob_use_classic_spunta"] = True
-                st.rerun()
-
-    today_str = str(date.today())
-    tomorrow_str = str(date.today() + timedelta(days=1))
+    today_dt = date.today()
+    today_str = str(today_dt)
+    tomorrow_str = str(today_dt + timedelta(days=1))
     all_dates = get_bolle_dates(120)
     if not all_dates:
         all_dates = [tomorrow_str, today_str]
 
-    # Calcola date /0 STD e /9 DOPPIA dell'ultima Run per i pulsanti rapidi e per il default intelligente
+    # Calcola coppia /0 STD e /9 DOPPIA in base alla data corrente del terminale
+    term_cycle = "LUN-MER" if today_dt.weekday() in (0, 1, 2, 3) else "GIOV-DOM"
+    try:
+        term_dop_dt, term_std_dt = compute_inditex_delivery_dates(today_dt, term_cycle)
+        btn_std_str = str(term_std_dt)
+        btn_dop_str = str(term_dop_dt)
+    except Exception:
+        btn_std_str = tomorrow_str
+        btn_dop_str = str(today_dt + timedelta(days=2))
+
+    # Fallback all'ultima Run solo se le date del terminale non hanno ancora bolle in archivio
     latest_std_str = None
     latest_dop_str = None
     if not runs_side.empty:
         try:
             lr = runs_side.iloc[0]
-            dt_b = parse_date_obj(lr["run_date"], default=date.today())
+            dt_b = parse_date_obj(lr["run_date"], default=today_dt)
             d_dop, d_std = compute_inditex_delivery_dates(dt_b, str(lr.get("cycle_type", "LUN-MER")))
             latest_std_str = str(d_std)
             latest_dop_str = str(d_dop)
         except Exception:
             pass
 
+    if btn_std_str not in all_dates and latest_std_str and latest_std_str in all_dates:
+        btn_std_str = latest_std_str
+    if btn_dop_str not in all_dates and latest_dop_str and latest_dop_str in all_dates:
+        btn_dop_str = latest_dop_str
+
     if "mob2_date" not in st.session_state or st.session_state["mob2_date"] not in all_dates:
-        if today_str in all_dates:
+        if btn_std_str in all_dates:
+            st.session_state["mob2_date"] = btn_std_str
+        elif today_str in all_dates:
             st.session_state["mob2_date"] = today_str
         elif tomorrow_str in all_dates:
             st.session_state["mob2_date"] = tomorrow_str
-        elif latest_std_str and latest_std_str in all_dates:
-            st.session_state["mob2_date"] = latest_std_str
         else:
             st.session_state["mob2_date"] = all_dates[0]
+
+    mob_date = st.session_state["mob2_date"]
 
     def _fmt_mob_date(d_iso: str) -> str:
         df_tmp = get_bolle_by_date(d_iso)
@@ -1776,17 +1814,39 @@ def render_mobile_two_buttons_view(
             tag = "/0 + /9"
         return f"{format_date_weekday_it(d_iso)} ({tag} • {len(df_tmp)} neg.)"
 
-    # Selezione Data Consegna (senza filtro Giri come richiesto)
-    mob_date = st.selectbox(
-        "📅 Data di Consegna",
-        options=all_dates,
-        index=all_dates.index(st.session_state["mob2_date"]),
-        format_func=_fmt_mob_date,
-        key="mob2_date_sb",
-    )
-    if mob_date != st.session_state["mob2_date"]:
-        st.session_state["mob2_date"] = mob_date
-        st.rerun()
+    # 2 PULSANTI RAPIDI DATA CONSEGNA (/0 e /9 calcolati dalla data del terminale)
+    c_dt0, c_dt9 = st.columns(2)
+    with c_dt0:
+        if st.button(
+            f"🚚 /0 • {format_date_it(btn_std_str)}",
+            type="primary" if mob_date == btn_std_str else "secondary",
+            use_container_width=True,
+            key="mob2_btn_date_b0",
+        ):
+            st.session_state["mob2_date"] = btn_std_str
+            st.rerun()
+    with c_dt9:
+        if st.button(
+            f"🔁 /9 • {format_date_it(btn_dop_str)}",
+            type="primary" if mob_date == btn_dop_str else "secondary",
+            use_container_width=True,
+            key="mob2_btn_date_b9",
+        ):
+            st.session_state["mob2_date"] = btn_dop_str
+            st.rerun()
+
+    # Selezione opzionale di altre date storiche (chiusa di default per non ingombrare)
+    with st.expander(f"📅 Altra data (attiva: {format_date_weekday_it(mob_date)})", expanded=False):
+        sel_other_date = st.selectbox(
+            "Seleziona altra data di consegna",
+            options=all_dates,
+            index=all_dates.index(mob_date) if mob_date in all_dates else 0,
+            format_func=_fmt_mob_date,
+            key="mob2_date_sb",
+        )
+        if sel_other_date != mob_date:
+            st.session_state["mob2_date"] = sel_other_date
+            st.rerun()
 
     df_b_date = get_bolle_by_date(mob_date)
     if df_b_date.empty:
@@ -1928,26 +1988,6 @@ def render_mobile_two_buttons_view(
             st.session_state["mob2_omnibox_spunta"] = selected_bid
             st.rerun()
 
-        c_nav_prev, c_nav_info, c_nav_next = st.columns([1, 1.8, 1])
-        with c_nav_prev:
-            if st.button("◀️ Prec.", use_container_width=True, disabled=(curr_pos <= 0), key="mob2_prev_btn"):
-                prev_bid = omnibox_options[curr_pos - 1]
-                st.session_state["mob2_selected_bid"] = prev_bid
-                st.session_state["mob2_omnibox_spunta"] = prev_bid
-                st.rerun()
-        with c_nav_info:
-            st.markdown(
-                f"<div style='text-align:center; font-size:12px; color:#475569; padding-top:8px;'>"
-                f"Negozio <strong>{curr_pos + 1}</strong> di <strong>{len(omnibox_options)}</strong></div>",
-                unsafe_allow_html=True,
-            )
-        with c_nav_next:
-            if st.button("Succ. ▶️", use_container_width=True, disabled=(curr_pos >= len(omnibox_options) - 1), key="mob2_next_btn"):
-                next_bid = omnibox_options[curr_pos + 1]
-                st.session_state["mob2_selected_bid"] = next_bid
-                st.session_state["mob2_omnibox_spunta"] = next_bid
-                st.rerun()
-
         b_row = working_df[working_df["id"] == selected_bid].iloc[0]
         bid = int(b_row["id"])
         sid = str(b_row["id_store"]).strip()
@@ -1971,32 +2011,58 @@ def render_mobile_two_buttons_view(
         badge_bg = "#065F46" if is_done else "#1E3A8A"
         badge_status = "🟢 GIÀ SPUNTATO" if is_done else "⏳ DA SPUNTARE"
 
-        # Card negozio con font ben proporzionati che non sbordano
+        # Card negozio con testi grandi e ben leggibili su terminale
         st.markdown(f"""
-        <div style="background: {badge_bg}; color: white; border-radius: 10px; padding: 10px 14px; margin: 6px 0 10px 0;">
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 700;">
-                <span style="background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 99px;">{tipo_lbl}</span>
+        <div style="background: {badge_bg}; color: white; border-radius: 12px; padding: 14px 16px; margin: 8px 0 12px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; font-weight: 800;">
+                <span style="background: rgba(255,255,255,0.22); padding: 3px 10px; border-radius: 99px;">{tipo_lbl}</span>
                 <span>{badge_status}</span>
             </div>
-            <div style="font-size: 15.5px; font-weight: 800; margin-top: 5px; line-height: 1.25; word-break: break-word;">
+            <div style="font-size: 19px; font-weight: 800; margin-top: 8px; line-height: 1.25; word-break: break-word;">
                 🏪 {sid} — {html.escape(sname)}
             </div>
-            <div style="font-size: 12.5px; color: #DBEAFE; margin-top: 4px; line-height: 1.35;">
-                📦 Previsti: <strong style="color: #FDE047; font-size: 13.5px;">{prev_tot} colli</strong>
-                (Abb: {prev_abb} | Calz: {prev_cal} | Ecom: {prev_eco} | Altri: {prev_oth})
+            <div style="font-size: 15px; color: #DBEAFE; margin-top: 6px; line-height: 1.4;">
+                📦 Previsti: <strong style="color: #FDE047; font-size: 17px;">{prev_tot} colli</strong><br/>
+                Abb: <strong>{prev_abb}</strong> &bull; Calz: <strong>{prev_cal}</strong> &bull; Ecom: <strong>{prev_eco}</strong> &bull; Altri: <strong>{prev_oth}</strong>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
+        # SIGILLO (opzionale) + STAMPA IMMEDIATA (stampante di rete 10.0.1.220)
+        in_sigillo = st.text_input(
+            "🔒 Sigillo (opzionale)",
+            value=_clean_str(b_row.get("sigillo")),
+            placeholder="Inserisci n° sigillo se presente...",
+            key=f"m2_sigillo_{bid}",
+        )
+        auto_print_after_spunta = st.checkbox(
+            "🖨️ Stampa bolla subito dopo la spunta (Stampante rete 10.0.1.220)",
+            value=st.session_state.get("mob2_auto_print_pref", True),
+            key="mob2_auto_print_chk",
+        )
+        st.session_state["mob2_auto_print_pref"] = bool(auto_print_after_spunta)
+
         # TASTO 1-TAP: CONFORME AL PREVISTO (SALVA SUBITO!)
         if st.button(
-            f"⚡ CONFORME AL PREVISTO ({prev_tot} COLLI) — SALVA 1-TAP",
+            f"⚡ CONFORME ({prev_tot} COLLI) — SALVA",
             type="primary",
             use_container_width=True,
             key=f"mob2_1tap_ok_{bid}",
         ):
-            res_sp = confirm_bolla_spunta(bid, use_expected=True)
+            res_sp = confirm_bolla_spunta(
+                bid,
+                use_expected=True,
+                sigillo=_clean_str(in_sigillo),
+            )
             if res_sp["status"] == "ok":
+                if auto_print_after_spunta and res_sp.get("bolla"):
+                    html_b = render_bolla_printable_html(
+                        [res_sp["bolla"]],
+                        title=f"Bolla_{sid}_{mob_date}",
+                        auto_print=True,
+                        override_sigillo=_clean_str(in_sigillo) or None,
+                    )
+                    st.session_state["mob2_last_printed_html"] = html_b + f"\n<!-- ts:{datetime.now().isoformat()} -->"
                 st.session_state["flash_bolle_msg"] = (
                     f"Spunta confermata per Store {sid} ({sname}): {res_sp['total_colli']} colli!"
                 )
@@ -2005,7 +2071,7 @@ def render_mobile_two_buttons_view(
 
         # MODIFICA MANUALE COLLI SE DIVERSI DAL PREVISTO
         with st.container(border=True):
-            st.markdown("<div style='font-size:13px; font-weight:700; margin-bottom:6px;'>✏️ Quantità effettive contate:</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:16px; font-weight:800; margin-bottom:8px;'>✏️ Quantità effettive contate:</div>", unsafe_allow_html=True)
             c_i1, c_i2 = st.columns(2)
             with c_i1:
                 in_abb = st.number_input(f"👗 Abbigl. (Prev: {prev_abb})", min_value=0, value=cur_abb, step=1, key=f"m2_abb_{bid}")
@@ -2037,13 +2103,38 @@ def render_mobile_two_buttons_view(
                     colli_others=int(in_oth),
                     colli_vario=int(in_var),
                     note=_clean_str(in_note),
+                    sigillo=_clean_str(in_sigillo),
                 )
                 if res_sp["status"] == "ok":
+                    if auto_print_after_spunta and res_sp.get("bolla"):
+                        html_b = render_bolla_printable_html(
+                            [res_sp["bolla"]],
+                            title=f"Bolla_{sid}_{mob_date}",
+                            auto_print=True,
+                            override_sigillo=_clean_str(in_sigillo) or None,
+                        )
+                        st.session_state["mob2_last_printed_html"] = html_b + f"\n<!-- ts:{datetime.now().isoformat()} -->"
                     st.session_state["flash_bolle_msg"] = (
                         f"Spunta salvata per Store {sid} ({sname}): {res_sp['total_colli']} colli!"
                     )
                     st.session_state["_scroll_to_top"] = True
                     st.rerun()
+
+        if st.button(
+            f"🖨️ STAMPA BOLLA STORE {sid} (10.0.1.220)",
+            type="secondary",
+            use_container_width=True,
+            key=f"mob2_print_now_{bid}",
+        ):
+            rec_print = b_row.to_dict()
+            html_b = render_bolla_printable_html(
+                [rec_print],
+                title=f"Bolla_{sid}_{mob_date}",
+                auto_print=True,
+                override_sigillo=_clean_str(in_sigillo) or None,
+            )
+            st.session_state["mob2_last_printed_html"] = html_b + f"\n<!-- ts:{datetime.now().isoformat()} -->"
+            st.rerun()
 
         # SEZIONE TRASFERIMENTI (INTERSHOPS) DIRETTAMENTE NELLA SCHEDA DEL NEGOZIO
         _render_mobile_intershops_section(

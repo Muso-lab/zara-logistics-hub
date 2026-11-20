@@ -2195,6 +2195,7 @@ def confirm_bolla_spunta(
     colli_others: Optional[int] = None,
     colli_vario: Optional[int] = None,
     note: Optional[str] = None,
+    sigillo: Optional[str] = None,
     db_path: Path = DB_PATH
 ) -> Dict[str, Any]:
     """
@@ -2225,6 +2226,8 @@ def confirm_bolla_spunta(
 
     if note is not None:
         bolla["note"] = str(note).strip()
+    if sigillo is not None:
+        bolla["sigillo"] = str(sigillo).strip()
 
     bolla["spuntato"] = 1
     save_or_update_bolla(bolla, db_path=db_path, sync_blocking=True)
@@ -2239,7 +2242,8 @@ def confirm_bolla_spunta(
         "id_store": bolla.get("id_store"),
         "store_name": bolla.get("store_name"),
         "total_colli": tot_colli,
-        "spuntato": 1
+        "spuntato": 1,
+        "bolla": bolla,
     }
 
 
