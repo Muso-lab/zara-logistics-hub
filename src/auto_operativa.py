@@ -439,6 +439,317 @@ def check_and_trigger_scheduled_operativa(now_dt: Optional[datetime] = None) -> 
     return None
 
 
+def execute_delta_check_run(
+    target_date: Optional[date] = None,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """
+    Controllo variazioni pomeridiano (ore 17:00 Martedì e Venerdì):
+    1) Scarica in modo silenzioso i file aggiornati da Inditex Extranet in cartella temporanea.
+    2) Confronta i totali (colli, m³) e i singoli negozi rispetto alla Run già elaborata oggi alle 14:00.
+    3) Se NON è cambiato nulla: termina in silenzio (nessuna sovrascrittura, nessuna email).
+    4) Se rileva variazioni reali (es. mezzi aggiunti alle 16:00):
+       - Sostituisce la Run delle 14:00 preservando i profumi e tutte le bolle già spuntate (spuntato=1);
+       - Rigenera Excel, Bolle non spuntate e XML su Cloud Storage;
+       - Invia una mail di ALERT chiara con riepilogo Prima vs Dopo ed elenco dei soli negozi variati.
+    """
+    try:
+        from src.db import init_db, get_all_runs, delete_run, get_connection, get_stores_df
+        from src.bolle_manager import init_bolle_tables
+        init_db()
+        init_bolle_tables()
+    except Exception as init_err:
+        print(f"Delta-check DB init warning: {init_err}")
+
+    try:
+        from src.cloud_sync import pull_all_from_cloud
+        pull_res = pull_all_from_cloud(timeout=35)
+        print(f"Delta-check Cloud Pull: {pull_res.get('status')} | restored={pull_res.get('restored')}")
+    except Exception as pull_err:
+        print(f"Delta-check Cloud Pull warning: {pull_err}")
+
+    cfg = get_auto_operativa_config()
+    dt = target_date or now_rome().date()
+    dt_iso = dt.strftime("%Y-%m-%d")
+
+    if not force:
+        wd = dt.weekday()  # 1 = Martedì, 4 = Venerdì
+        allowed_wds = {1, 4}
+        if cfg.get("run_on_saturday", False):
+            allowed_wds.add(5)
+        if wd not in allowed_wds:
+            return {
+                "status": "skipped",
+                "message": f"Controllo 17:00 ignorato: {dt.strftime('%A')} ({format_date_it(dt_iso)}) non è Martedì/Venerdì.",
+            }
+        cur_rome = now_rome()
+        if target_date is None and not (16 <= cur_rome.hour < 20):
+            return {
+                "status": "skipped",
+                "message": f"Controllo 17:00 fuori finestra oraria 16:00-20:00 (ora attuale: {cur_rome.strftime('%H:%M')}).",
+            }
+
+    # Cerca la Run di oggi già esistente (es. quella delle 14:00)
+    df_runs = get_all_runs()
+    old_run = None
+    if not df_runs.empty:
+        for _, r_row in df_runs.iterrows():
+            r_dt = str(r_row.get("run_date", "") or "")[:10]
+            r_cr = str(r_row.get("created_at", "") or "")[:10]
+            if dt_iso in (r_dt, r_cr):
+                old_run = r_row.to_dict()
+                break
+
+    if old_run is None:
+        print("Nessuna Run trovata oggi alle 14:00: avvio elaborazione completa standard.")
+        return execute_auto_operativa_run(target_date=dt, force=True)
+
+    old_run_id = int(old_run["id"])
+    old_bultos_tot = float(old_run.get("total_bultos") or 0.0)
+    old_vol_tot = float(old_run.get("total_volume") or 0.0)
+    old_ped_tot = float(old_run.get("total_pedane") or 0.0)
+
+    # Recupera dettaglio per negozio della Run precedente (da forecast_raw TOTAL)
+    old_store_map: Dict[str, Dict[str, float]] = {}
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            rows_fr = cur.execute(
+                "SELECT store_code, SUM(bultos), SUM(volume) FROM forecast_raw WHERE run_id = ? AND UPPER(COALESCE(source_file, 'TOTAL')) = 'TOTAL' GROUP BY store_code",
+                (old_run_id,),
+            ).fetchall()
+            if not rows_fr:
+                rows_fr = cur.execute(
+                    "SELECT store_code, SUM(textile_attesi + other_attesi + shoes_attesi + ecom_attesi), SUM(mc) FROM spunta_arrivi WHERE run_id = ? AND COALESCE(is_barra9, 0) = 0 GROUP BY store_code",
+                    (old_run_id,),
+                ).fetchall()
+            for sc, sb, sv in rows_fr:
+                sc_str = str(sc or "").strip()
+                if sc_str:
+                    old_store_map[sc_str] = {"bultos": float(sb or 0.0), "vol": float(sv or 0.0)}
+    except Exception as e:
+        print(f"Warning lettura old_store_map: {e}")
+
+    cycle_type, date_b0, date_b9 = resolve_cycle_for_arrival_date(dt)
+    desde_dt, hasta_dt = get_cycle_date_range(cycle_type, dt)
+
+    ex_user, ex_pass = get_extranet_credentials()
+    ts = now_rome().strftime("%Y%m%d_%H%M%S")
+    temp_extract_dir = DATA_DIR / "downloads" / f"delta_check_{ts}"
+    temp_extract_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        scraper = InditexExtranetScraper(
+            username=ex_user,
+            password=ex_pass,
+            headless=True,
+        )
+        scraper.scrape_all(
+            desde_date=desde_dt,
+            hasta_date=hasta_dt,
+            output_dir=temp_extract_dir,
+        )
+
+        # Parsing silenzioso del solo TOTAL.xls per confrontare colli e volumi
+        from src.parsers import parse_grupo_envio
+        df_tot_new = parse_grupo_envio(temp_extract_dir / "TOTAL.xls")
+        if df_tot_new.empty:
+            return {"status": "error", "message": "Controllo 17:00: TOTAL.xls scaricato da Extranet risulta vuoto."}
+
+        new_store_map: Dict[str, Dict[str, float]] = {}
+        for _, nr in df_tot_new.iterrows():
+            sid = str(nr.get("store_id") or "").strip()
+            if not sid:
+                continue
+            if sid not in new_store_map:
+                new_store_map[sid] = {"bultos": 0.0, "vol": 0.0}
+            new_store_map[sid]["bultos"] += float(nr.get("bultos") or 0.0)
+            new_store_map[sid]["vol"] += float(nr.get("volumen") or 0.0)
+
+        new_bultos_tot = sum(v["bultos"] for v in new_store_map.values())
+        new_vol_tot = sum(v["vol"] for v in new_store_map.values())
+
+        delta_bultos = round(new_bultos_tot - old_bultos_tot)
+        delta_vol = round(new_vol_tot - old_vol_tot, 2)
+
+        # Confronto puntuale negozio per negozio
+        df_stores_m = get_stores_df()
+        stores_info = {}
+        if not df_stores_m.empty:
+            for _, sr in df_stores_m.iterrows():
+                stores_info[str(sr["store_id"]).strip()] = {
+                    "name": str(sr.get("store_name") or ""),
+                    "giro": str(sr.get("giro") or ""),
+                    "brand": str(sr.get("brand") or ""),
+                }
+
+        changed_stores = []
+        all_sids = sorted(set(old_store_map.keys()) | set(new_store_map.keys()))
+        for sid in all_sids:
+            ob = old_store_map.get(sid, {}).get("bultos", 0.0)
+            nb = new_store_map.get(sid, {}).get("bultos", 0.0)
+            ov = old_store_map.get(sid, {}).get("vol", 0.0)
+            nv = new_store_map.get(sid, {}).get("vol", 0.0)
+            db_s = round(nb - ob)
+            dv_s = round(nv - ov, 2)
+            if abs(db_s) >= 1 or abs(dv_s) >= 0.1:
+                info = stores_info.get(sid, {})
+                changed_stores.append({
+                    "store_id": sid,
+                    "store_name": info.get("name", ""),
+                    "brand": info.get("brand", ""),
+                    "giro": info.get("giro", ""),
+                    "old_bultos": int(round(ob)),
+                    "new_bultos": int(round(nb)),
+                    "delta_bultos": int(db_s),
+                    "old_vol": round(ov, 2),
+                    "new_vol": round(nv, 2),
+                    "delta_vol": round(dv_s, 2),
+                })
+
+        # Se non ci sono variazioni reali: silenzio totale, zero sovrascritture, zero email!
+        if abs(delta_bultos) < 1 and abs(delta_vol) < 0.1 and not changed_stores:
+            msg_ok = (
+                f"Controllo ore 17:00 completato ({format_date_it(dt_iso)}): nessuna variazione rilevata rispetto "
+                f"alla Run #{old_run_id} ({int(round(old_bultos_tot))} colli, {old_vol_tot:.2f} m³). Nessuna email inviata."
+            )
+            print(msg_ok)
+            return {
+                "status": "unchanged",
+                "old_run_id": old_run_id,
+                "message": msg_ok,
+            }
+
+        # VARIAZIONE RILEVATA! Preserva profumi, sostituisce la Run e aggiorna le bolle non spuntate
+        print(f"⚠️ VARIAZIONE RILEVATA ORE 17:00: Delta Colli={delta_bultos:+d}, Delta m³={delta_vol:+.2f}, Negozi variati={len(changed_stores)}")
+
+        perf_map: Dict[str, float] = {}
+        try:
+            old_p_raw = old_run.get("perfume_data")
+            if old_p_raw:
+                parsed_p = json.loads(old_p_raw) if isinstance(old_p_raw, str) else old_p_raw
+                if isinstance(parsed_p, dict):
+                    perf_map.update({str(k): float(v or 0) for k, v in parsed_p.items()})
+        except Exception:
+            pass
+
+        if cfg.get("auto_fetch_perfumes_from_email", True):
+            try:
+                from src.perfume_inbox import fetch_latest_perfumes_from_email
+                inbox_res = fetch_latest_perfumes_from_email()
+                if inbox_res.get("status") == "ok" and inbox_res.get("perfumes"):
+                    perf_map.update({str(k): float(v or 0) for k, v in inbox_res["perfumes"].items()})
+            except Exception as pe:
+                print(f"Warning rilettura profumi alle 17:00: {pe}")
+
+        clean_perf = {str(k): float(v or 0) for k, v in perf_map.items()}
+
+        # Elimina vecchia Run delle 14:00 e rigenera solo le bolle NON ancora spuntate (spuntato=0)
+        delete_run(old_run_id)
+        try:
+            with get_connection() as conn:
+                conn.execute(
+                    "DELETE FROM bolle WHERE data_consegna IN (?, ?) AND COALESCE(spuntato, 0) = 0",
+                    (str(date_b0), str(date_b9)),
+                )
+                conn.commit()
+        except Exception as be:
+            print(f"Warning pulizia bolle non spuntate: {be}")
+
+        delta_sign_c = f"{delta_bultos:+d}"
+        delta_sign_v = f"{delta_vol:+.2f}"
+        notes = (
+            f"⚠️ AGGIORNAMENTO ORE 17:00 ({delta_sign_c} colli / {delta_sign_v} m³) — "
+            f"{dt.strftime('%A')} W{dt.isocalendar()[1]} ({cycle_type}) "
+            f"[Consegne /0: {format_date_it(date_b0)} - /9: {format_date_it(date_b9)}]"
+        )
+
+        res = run_pipeline(
+            total_source=temp_extract_dir / "TOTAL.xls",
+            shoes_source=(temp_extract_dir / "SHOES.xls") if (temp_extract_dir / "SHOES.xls").exists() else None,
+            texile_source=(temp_extract_dir / "TEXILE.xls") if (temp_extract_dir / "TEXILE.xls").exists() else None,
+            ecom_source=(temp_extract_dir / "ECOM.xls") if (temp_extract_dir / "ECOM.xls").exists() else None,
+            other_source=(temp_extract_dir / "OTHER"),
+            esportazione_source=None,
+            run_date=dt_iso,
+            cycle_type=cycle_type,
+            notes=notes,
+            perfume_corrections=clean_perf,
+            save_to_network=True,
+        )
+
+        new_totals = res.get("totals") or {}
+        new_ped_tot = float(new_totals.get("total_pedane") or 0.0)
+        delta_ped = round(new_ped_tot - old_ped_tot)
+
+        # Invio EMAIL DI ALERT CHIARA con dettaglio variazioni
+        email_cfg = get_email_config()
+        to_raw = str(email_cfg.get("default_to") or email_cfg.get("to_recipients") or "")
+        cc_raw = str(email_cfg.get("default_cc") or email_cfg.get("cc_recipients") or "")
+        to_list = [x.strip() for x in to_raw.split(",") if x.strip()]
+        cc_list = [x.strip() for x in cc_raw.split(",") if x.strip()]
+
+        email_ok = False
+        email_msg = "Nessun destinatario configurato."
+        if to_list:
+            _, _, att_paths = build_auto_email_payload(res, cfg)
+            alert_subject = (
+                f"⚠️ AGGIORNAMENTO VOLUMI ORE 17:00 — Operativa Zara {format_date_it(dt_iso)} "
+                f"({delta_sign_c} colli / {delta_sign_v} m³)"
+            )
+            lines = [
+                "⚠️ ATTENZIONE: RILEVATA VARIAZIONE VOLUMI INDITEX (CONTROLLO ORE 17:00)",
+                "=" * 72,
+                f"Data Elaborazione: {format_date_it(dt_iso)} | Ciclo: {cycle_type}",
+                f"Consegne /0 STD: {format_date_it(date_b0)} | Consegne /9 DOPPIA: {format_date_it(date_b9)}",
+                "",
+                "CONFRONTO TOTALI (ORE 14:00 -> ORE 17:00):",
+                f"  • Totale Colli : {int(round(old_bultos_tot)):,} -> {int(round(new_bultos_tot)):,}  ({delta_bultos:+d} colli)",
+                f"  • Volume (m³)  : {old_vol_tot:.2f} -> {new_vol_tot:.2f} m³  ({delta_vol:+.2f} m³)",
+                f"  • Pedane (PLT) : {int(round(old_ped_tot))} -> {int(round(new_ped_tot))} PLT  ({delta_ped:+d} PLT)",
+                "",
+                f"DETTAGLIO NEGOZI VARIATI ({len(changed_stores)}):",
+            ]
+            for cs in changed_stores:
+                lines.append(
+                    f"  - Store {cs['store_id']} ({cs['brand']} {cs['store_name']} | Giro {cs['giro']}): "
+                    f"{cs['old_bultos']} -> {cs['new_bultos']} colli ({cs['delta_bultos']:+d}) | "
+                    f"{cs['old_vol']:.2f} -> {cs['new_vol']:.2f} m³ ({cs['delta_vol']:+.2f} m³)"
+                )
+            lines.extend([
+                "",
+                "AZIONI GIA' ESEGUITE AUTOMATICAMENTE:",
+                f"  ✓ La Run precedente (#{old_run_id}) è stata sostituita con la nuova Run #{res['run_id']}.",
+                "  ✓ Le bolle non ancora spuntate sono state aggiornate (eventuali spunte già confermate sono rimaste protette).",
+                "  ✓ I file XML su Cloud Storage e i file Excel in allegato sono stati rigenerati con i nuovi volumi.",
+                "",
+                "Cordiali saluti,",
+                "Zara Logistics Hub — Sistema di Controllo Automatico Ore 17:00",
+            ])
+            alert_body = "\n".join(lines)
+            email_ok, email_msg = send_operativa_email(
+                recipients=to_list,
+                subject=alert_subject,
+                body_text=alert_body,
+                attachment_paths=att_paths,
+                cc_recipients=cc_list,
+                smtp_config=email_cfg,
+            )
+
+        return {
+            "status": "updated",
+            "old_run_id": old_run_id,
+            "run_id": int(res["run_id"]),
+            "delta_bultos": int(delta_bultos),
+            "delta_vol": float(delta_vol),
+            "changed_stores_count": len(changed_stores),
+            "email_ok": email_ok,
+            "email_message": email_msg,
+        }
+    except Exception as exc:
+        return {"status": "error", "message": f"Errore controllo 17:00: {exc}"}
+
+
 def start_auto_operativa_daemon() -> None:
     """
     Avvia (una sola volta per processo) il thread scheduler in background che controlla
@@ -470,6 +781,7 @@ if __name__ == "__main__":
     parser.add_argument("--force", action="store_true", help="Forza l'esecuzione anche se già eseguita oggi")
     parser.add_argument("--run-now", action="store_true", help="Esegue immediatamente il ciclo completo")
     parser.add_argument("--scheduled", action="store_true", help="Esecuzione da scheduler automatico (applica filtri giorno, fascia oraria 12-17 e anti-duplicato DB)")
+    parser.add_argument("--check-delta", action="store_true", help="Controllo variazioni ore 17:00: aggiorna e invia email ALERT solo se i volumi Inditex sono cambiati")
     parser.add_argument("--date", type=str, default="", help="Data target specifica (YYYY-MM-DD)")
     parser.add_argument("--fetch-perfumes", action="store_true", help="Verifica e scarica profumi da email prima dell'avvio")
 
@@ -479,10 +791,14 @@ if __name__ == "__main__":
     if args.date:
         t_date = datetime.strptime(args.date, "%Y-%m-%d").date()
 
-    is_forced = bool(args.force) or (bool(args.run_now) and not bool(args.scheduled))
-    out = execute_auto_operativa_run(target_date=t_date, force=is_forced)
+    if args.check_delta:
+        out = execute_delta_check_run(target_date=t_date, force=bool(args.force))
+    else:
+        is_forced = bool(args.force) or (bool(args.run_now) and not bool(args.scheduled))
+        out = execute_auto_operativa_run(target_date=t_date, force=is_forced)
+
     clean_out = {k: v for k, v in out.items() if k != "run_result"}
     print(json.dumps(clean_out, indent=2, ensure_ascii=False))
-    if out.get("status") == "ok" and not out.get("email_ok"):
+    if out.get("status") in ("ok", "updated") and not out.get("email_ok"):
         print(f"ERRORE CRITICO: Elaborazione completata ma invio email fallito: {out.get('email_message')}", file=sys.stderr)
         sys.exit(2)
