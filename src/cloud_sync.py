@@ -222,6 +222,18 @@ def push_tables_to_cloud(table_names=None, timeout: int = 25) -> dict:
             if df.empty and t in ["runs", "planning_results", "spunta_arrivi", "forecast_raw", "bolle", "stores", "store_delivery_profiles", "vehicles"]:
                 continue
 
+            # IRONCLAD GUARD PER STORES: impedisce a un container non inizializzato (dove i negozi
+            # sono stati auto-inseriti come 'DA ASSEGNARE') di sovrascrivere l'anagrafica sul Cloud!
+            if t == "stores" and not df.empty:
+                if len(df) < 10:
+                    print(f"SAFETY GUARD: push di 'stores' bloccato (solo {len(df)} negozi in locale).")
+                    continue
+                if "giro" in df.columns:
+                    da_ass_cnt = int((df["giro"].astype(str).str.strip().str.upper() == "DA ASSEGNARE").sum())
+                    if da_ass_cnt > max(10, int(len(df) * 0.3)):
+                        print(f"SAFETY GUARD: push di 'stores' bloccato ({da_ass_cnt}/{len(df)} negozi con giro 'DA ASSEGNARE').")
+                        continue
+
             if t == "bolle" and not df.empty:
                 # Extra Cloud Guard per BOLLE: non sovrascrivere MAI una spunta confermata sul cloud (spuntato=1)
                 # con un record locale non ancora spuntato (spuntato=0), e preserva le bolle cloud mancanti in locale.
@@ -373,6 +385,16 @@ def pull_all_from_cloud(timeout: int = 25) -> dict:
                         tables_dict[extra_t] = d_extra["tables"][extra_t]
             except Exception:
                 pass
+
+    # CRITICAL: Assicura che lo schema SQLite (tabelle stores, runs, bolle, ecc.) esista PRIMA del pull,
+    # altrimenti in un container effimero (Cloud Run Job / GitHub Actions) existing_tables sarebbe vuoto!
+    try:
+        from src.db import init_db
+        from src.bolle_manager import init_bolle_tables
+        init_db()
+        init_bolle_tables(DB_PATH)
+    except Exception as init_err:
+        print(f"Warning schema init before cloud pull: {init_err}")
 
     restored_counts = {}
 

@@ -201,11 +201,20 @@ def execute_auto_operativa_run(
     2) Esegue run_pipeline -> Genera Excel + Bolle (/0 e /9 con regola 13 Dicembre) + XML TMS su GCS
     3) Invia automaticamente l'email operativa con gli allegati configurati.
     """
-    # 0. Sincronizzazione preventiva da Google Sheets (ripristina credenziali, anagrafica negozi e storico)
+    # 0. Inizializza schema DB locale + Sincronizzazione preventiva da Google Sheets
+    # (ripristina credenziali, anagrafica negozi e storico PRIMA di elaborare)
+    try:
+        from src.db import init_db
+        from src.bolle_manager import init_bolle_tables
+        init_db()
+        init_bolle_tables()
+    except Exception as init_err:
+        print(f"Pre-run DB init warning: {init_err}")
+
     try:
         from src.cloud_sync import pull_all_from_cloud
-        pull_res = pull_all_from_cloud(timeout=30)
-        print(f"Pre-run Cloud Pull: {pull_res.get('status')}")
+        pull_res = pull_all_from_cloud(timeout=35)
+        print(f"Pre-run Cloud Pull: {pull_res.get('status')} | restored={pull_res.get('restored')}")
     except Exception as pull_err:
         print(f"Pre-run Cloud Pull warning: {pull_err}")
 

@@ -263,9 +263,10 @@ def run_pipeline(
         print(f"Warning: Auto bolle generation skipped: {e}")
 
     # Sync immediately to Google Sheets to persist across container restarts (including generated bolle)
+    # NOTA: non sovrascriviamo mai automaticamente 'stores' dalla pipeline per proteggere l'anagrafica master.
     try:
         from src.cloud_sync import push_tables_to_cloud
-        push_tables_to_cloud(["runs", "planning_results", "spunta_arrivi", "stores", "sga_flows", "forecast_raw", "bolle"], timeout=30)
+        push_tables_to_cloud(["runs", "planning_results", "spunta_arrivi", "sga_flows", "forecast_raw", "bolle"], timeout=30)
     except Exception as e:
         print(f"Warning: Cloud sync skipped or failed: {e}")
 
