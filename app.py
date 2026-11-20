@@ -929,11 +929,19 @@ if USER_ROLE == "banchina":
             height: 0 !important;
         }
         .main .block-container,
-        div[data-testid="stAppViewBlockContainer"] {
-            padding-top: 0.35rem !important;
+        div[data-testid="stAppViewBlockContainer"],
+        div[data-testid="stMainBlockContainer"],
+        section[data-testid="stMain"] > div.block-container {
+            padding-top: 0.2rem !important;
             padding-bottom: 1.5rem !important;
-            padding-left: 0.75rem !important;
-            padding-right: 0.75rem !important;
+            padding-left: 0.65rem !important;
+            padding-right: 0.65rem !important;
+        }
+        div[data-testid="stElementContainer"]:has(style):not(:has(div)) {
+            display: none !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
     </style>
     """, unsafe_allow_html=True)

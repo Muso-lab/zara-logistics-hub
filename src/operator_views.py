@@ -2028,48 +2028,26 @@ def render_mobile_two_buttons_view(
         </div>
         """, unsafe_allow_html=True)
 
-        # SIGILLO (opzionale) + STAMPA IMMEDIATA (stampante di rete 10.0.1.220)
-        in_sigillo = st.text_input(
-            "🔒 Sigillo (opzionale)",
-            value=_clean_str(b_row.get("sigillo")),
-            placeholder="Inserisci n° sigillo se presente...",
-            key=f"m2_sigillo_{bid}",
-        )
-        auto_print_after_spunta = st.checkbox(
-            "🖨️ Stampa bolla subito dopo la spunta (Stampante rete 10.0.1.220)",
-            value=st.session_state.get("mob2_auto_print_pref", True),
-            key="mob2_auto_print_chk",
-        )
-        st.session_state["mob2_auto_print_pref"] = bool(auto_print_after_spunta)
-
-        # TASTO 1-TAP: CONFORME AL PREVISTO (SALVA SUBITO!)
+        # TASTO CONFORME: imposta le quantità conformi al previsto e scorre subito in zona Trasferimenti
         if st.button(
-            f"⚡ CONFORME ({prev_tot} COLLI) — SALVA",
+            f"⚡ CONFORME AL PREVISTO ({prev_tot} COLLI) — VAI A TRASFERIMENTI",
             type="primary",
             use_container_width=True,
             key=f"mob2_1tap_ok_{bid}",
         ):
-            res_sp = confirm_bolla_spunta(
-                bid,
-                use_expected=True,
-                sigillo=_clean_str(in_sigillo),
-            )
-            if res_sp["status"] == "ok":
-                if auto_print_after_spunta and res_sp.get("bolla"):
-                    html_b = render_bolla_printable_html(
-                        [res_sp["bolla"]],
-                        title=f"Bolla_{sid}_{mob_date}",
-                        auto_print=True,
-                        override_sigillo=_clean_str(in_sigillo) or None,
-                    )
-                    st.session_state["mob2_last_printed_html"] = html_b + f"\n<!-- ts:{datetime.now().isoformat()} -->"
-                st.session_state["flash_bolle_msg"] = (
-                    f"Spunta confermata per Store {sid} ({sname}): {res_sp['total_colli']} colli!"
-                )
-                st.session_state["_scroll_to_top"] = True
-                st.rerun()
+            st.session_state[f"m2_abb_{bid}"] = int(prev_abb)
+            st.session_state[f"m2_cal_{bid}"] = int(prev_cal)
+            st.session_state[f"m2_eco_{bid}"] = int(prev_eco)
+            st.session_state[f"m2_oth_{bid}"] = int(prev_oth)
+            st.session_state[f"m2_var_{bid}"] = int(prev_var)
+            st.session_state["mob2_conforme_bid"] = bid
+            st.session_state["_scroll_to_trasf"] = True
+            st.rerun()
 
-        # MODIFICA MANUALE COLLI SE DIVERSI DAL PREVISTO
+        if st.session_state.get("mob2_conforme_bid") == bid:
+            st.success("✅ **Quantità impostate conformi al previsto.** Aggiungi eventuali trasferimenti qui sotto e poi conferma in fondo.")
+
+        # MODIFICA MANUALE COLLI + SIGILLO + NOTE
         with st.container(border=True):
             st.markdown("<div style='font-size:16px; font-weight:800; margin-bottom:8px;'>✏️ Quantità effettive contate:</div>", unsafe_allow_html=True)
             c_i1, c_i2 = st.columns(2)
@@ -2080,6 +2058,12 @@ def render_mobile_two_buttons_view(
                 in_cal = st.number_input(f"👟 Calzat. (Prev: {prev_cal})", min_value=0, value=cur_cal, step=1, key=f"m2_cal_{bid}")
                 in_oth = st.number_input(f"📦 Altri (Prev: {prev_oth})", min_value=0, value=cur_oth, step=1, key=f"m2_oth_{bid}")
             in_var = st.number_input(f"📦 Mat. Vario (Prev: {prev_var})", min_value=0, value=cur_var, step=1, key=f"m2_var_{bid}")
+            in_sigillo = st.text_input(
+                "🔒 Sigillo (opzionale)",
+                value=_clean_str(b_row.get("sigillo")),
+                placeholder="Inserisci n° sigillo se presente...",
+                key=f"m2_sigillo_{bid}",
+            )
             in_note = st.text_input(
                 "📝 Note Banchina (opzionale)",
                 value=_clean_str(b_row.get("note")),
@@ -2087,54 +2071,24 @@ def render_mobile_two_buttons_view(
                 key=f"m2_note_{bid}",
             )
 
-            manual_tot = int(in_abb + in_cal + in_eco + in_oth + in_var)
-            if st.button(
-                f"💾 CONFERMA SPUNTA ({manual_tot} COLLI)",
-                type="secondary",
-                use_container_width=True,
-                key=f"mob2_save_manual_{bid}",
-            ):
-                res_sp = confirm_bolla_spunta(
-                    bid,
-                    use_expected=False,
-                    colli_abbigl=int(in_abb),
-                    colli_calzat=int(in_cal),
-                    colli_ecom=int(in_eco),
-                    colli_others=int(in_oth),
-                    colli_vario=int(in_var),
-                    note=_clean_str(in_note),
-                    sigillo=_clean_str(in_sigillo),
-                )
-                if res_sp["status"] == "ok":
-                    if auto_print_after_spunta and res_sp.get("bolla"):
-                        html_b = render_bolla_printable_html(
-                            [res_sp["bolla"]],
-                            title=f"Bolla_{sid}_{mob_date}",
-                            auto_print=True,
-                            override_sigillo=_clean_str(in_sigillo) or None,
-                        )
-                        st.session_state["mob2_last_printed_html"] = html_b + f"\n<!-- ts:{datetime.now().isoformat()} -->"
-                    st.session_state["flash_bolle_msg"] = (
-                        f"Spunta salvata per Store {sid} ({sname}): {res_sp['total_colli']} colli!"
-                    )
-                    st.session_state["_scroll_to_top"] = True
-                    st.rerun()
+        manual_tot = int(in_abb + in_cal + in_eco + in_oth + in_var)
 
-        if st.button(
-            f"🖨️ STAMPA BOLLA STORE {sid} (10.0.1.220)",
-            type="secondary",
-            use_container_width=True,
-            key=f"mob2_print_now_{bid}",
-        ):
-            rec_print = b_row.to_dict()
-            html_b = render_bolla_printable_html(
-                [rec_print],
-                title=f"Bolla_{sid}_{mob_date}",
-                auto_print=True,
-                override_sigillo=_clean_str(in_sigillo) or None,
-            )
-            st.session_state["mob2_last_printed_html"] = html_b + f"\n<!-- ts:{datetime.now().isoformat()} -->"
-            st.rerun()
+        # ANCORA SCROLL AUTOMATICO PER TRASFERIMENTI
+        st.markdown("<div id='mob2-trasferimenti-anchor'></div>", unsafe_allow_html=True)
+        if st.session_state.pop("_scroll_to_trasf", False):
+            st.components.v1.html("""
+            <script>
+            (function() {
+                setTimeout(function() {
+                    try {
+                        const doc = window.parent ? window.parent.document : document;
+                        const el = doc.getElementById('mob2-trasferimenti-anchor');
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    } catch(e) {}
+                }, 150);
+            })();
+            </script>
+            """, height=0, width=0)
 
         # SEZIONE TRASFERIMENTI (INTERSHOPS) DIRETTAMENTE NELLA SCHEDA DEL NEGOZIO
         _render_mobile_intershops_section(
@@ -2145,6 +2099,66 @@ def render_mobile_two_buttons_view(
             key_prefix="mob_sp_tr",
             store_names_map=store_names_lookup,
         )
+
+        # 2 TASTI FINALI IN FONDO (DOPO I TRASFERIMENTI): CONFERMA SPUNTA | CONFERMA SPUNTA E STAMPA
+        st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+        if st.button(
+            f"✅ CONFERMA SPUNTA ({manual_tot} COLLI)",
+            type="primary",
+            use_container_width=True,
+            key=f"mob2_save_manual_{bid}",
+        ):
+            res_sp = confirm_bolla_spunta(
+                bid,
+                use_expected=False,
+                colli_abbigl=int(in_abb),
+                colli_calzat=int(in_cal),
+                colli_ecom=int(in_eco),
+                colli_others=int(in_oth),
+                colli_vario=int(in_var),
+                note=_clean_str(in_note),
+                sigillo=_clean_str(in_sigillo),
+            )
+            if res_sp["status"] == "ok":
+                st.session_state.pop("mob2_conforme_bid", None)
+                st.session_state["flash_bolle_msg"] = (
+                    f"Spunta confermata per Store {sid} ({sname}): {res_sp['total_colli']} colli!"
+                )
+                st.session_state["_scroll_to_top"] = True
+                st.rerun()
+
+        if st.button(
+            f"🖨️ CONFERMA SPUNTA E STAMPA ({manual_tot} COLLI)",
+            type="secondary",
+            use_container_width=True,
+            key=f"mob2_save_and_print_{bid}",
+        ):
+            res_sp = confirm_bolla_spunta(
+                bid,
+                use_expected=False,
+                colli_abbigl=int(in_abb),
+                colli_calzat=int(in_cal),
+                colli_ecom=int(in_eco),
+                colli_others=int(in_oth),
+                colli_vario=int(in_var),
+                note=_clean_str(in_note),
+                sigillo=_clean_str(in_sigillo),
+            )
+            if res_sp["status"] == "ok":
+                st.session_state.pop("mob2_conforme_bid", None)
+                if res_sp.get("bolla"):
+                    html_b = render_bolla_printable_html(
+                        [res_sp["bolla"]],
+                        title=f"Bolla_{sid}_{mob_date}",
+                        auto_print=True,
+                        override_sigillo=_clean_str(in_sigillo) or None,
+                    )
+                    st.session_state["mob2_last_printed_html"] = html_b + f"\n<!-- ts:{datetime.now().isoformat()} -->"
+                st.session_state["flash_bolle_msg"] = (
+                    f"Spunta salvata e inviata in stampa per Store {sid} ({sname}): {res_sp['total_colli']} colli!"
+                )
+                st.session_state["_scroll_to_top"] = True
+                st.rerun()
 
     # ==========================================================================
     # MODALITÀ 2: ➕ AGGIUNGI COLLI & TRASFERIMENTI (TUTTI I NEGOZI: SPUNTATI E NON!)
