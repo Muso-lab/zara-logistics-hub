@@ -215,11 +215,11 @@ st.markdown("""
 <style>
     
     /* Hide Streamlit Default UI elements for full custom branding */
-    #MainMenu {visibility: hidden !important;}
-    footer {visibility: hidden !important;}
-    header {visibility: hidden !important;}
-    [data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
-    [data-testid="stDecoration"] {visibility: hidden !important; display: none !important;}
+    #MainMenu {visibility: hidden !important; display: none !important;}
+    footer {visibility: hidden !important; display: none !important;}
+    header, header[data-testid="stHeader"] {visibility: hidden !important; display: none !important; height: 0 !important;}
+    [data-testid="stToolbar"] {visibility: hidden !important; display: none !important; height: 0 !important;}
+    [data-testid="stDecoration"] {visibility: hidden !important; display: none !important; height: 0 !important;}
     [data-testid="stStatusWidget"] {visibility: hidden !important;}
 
     /* =========================================================================
@@ -238,12 +238,15 @@ st.markdown("""
         display: none !important;
     }
 
-    /* Container a tutta larghezza confortevole ed elegante */
-    [data-testid="stAppViewContainer"] > .main {
+    /* Container a tutta larghezza confortevole ed elegante (Desktop & Mobile — rimuove il padding-top di default 6rem) */
+    [data-testid="stAppViewContainer"] > .main,
+    div[data-testid="stMainBlockContainer"],
+    div[data-testid="stAppViewBlockContainer"],
+    .main .block-container {
         max-width: 100% !important;
-        padding-top: 1rem !important;
-        padding-left: 1.5rem !important;
-        padding-right: 1.5rem !important;
+        padding-top: 0.6rem !important;
+        padding-left: 1.25rem !important;
+        padding-right: 1.25rem !important;
     }
 
     /* Barra di Navigazione Mobile Touch (Pulsanti Chiari in Basso su Smartphone) */
@@ -936,12 +939,6 @@ if USER_ROLE == "banchina":
             padding-bottom: 1.5rem !important;
             padding-left: 0.65rem !important;
             padding-right: 0.65rem !important;
-        }
-        div[data-testid="stElementContainer"]:has(style):not(:has(div)) {
-            display: none !important;
-            height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
         }
     </style>
     """, unsafe_allow_html=True)
