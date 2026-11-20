@@ -919,7 +919,7 @@ last_run_disp = f"#{int(runs_side.iloc[0]['id'])}" if not runs_side.empty else "
 # ==============================================================================
 # TESTATA PRINCIPALE VISIBILE & CONTROLLI ACCOUNT (DESKTOP & SMARTPHONE)
 # ==============================================================================
-if curr_role == "banchina":
+if USER_ROLE == "banchina":
     st.markdown("""
     <style>
         header[data-testid="stHeader"],
